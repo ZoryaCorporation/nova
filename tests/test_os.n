@@ -1,0 +1,159 @@
+-- ============================================================
+-- Nova OS Library Test Suite (Phase 10.1)
+-- Tests: clock, time, date, difftime, getenv, execute,
+--        remove, rename, tmpname
+-- ============================================================
+
+local pass = 0
+local fail = 0
+
+local function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== OS LIBRARY TESTS ===")
+
+-- ============================================================
+-- os.clock
+-- ============================================================
+print("\n-- os.clock --")
+
+local c = os.clock()
+check("clock returns number", type(c) == "number" or type(c) == "integer", true)
+check("clock >= 0", c >= 0, true)
+
+-- ============================================================
+-- os.time
+-- ============================================================
+print("\n-- os.time --")
+
+local t = os.time()
+check("time not nil", t ~= nil, true)
+check("time > 0", t > 0, true)
+-- Sanity: should be after year 2020 (epoch > 1577836800)
+check("time after 2020", t > 1577836800, true)
+
+-- ============================================================
+-- os.date
+-- ============================================================
+print("\n-- os.date --")
+
+local d = os.date("%Y-%m-%d")
+check("date not nil", d ~= nil, true)
+check("date has dashes", string.find(d, "-") ~= nil, true)
+-- Year should be 2025+
+check("date starts with 20", string.sub(d, 0, 1), "20")
+
+local d2 = os.date("%H:%M")
+check("date time format", string.find(d2, ":") ~= nil, true)
+
+-- ============================================================
+-- os.difftime
+-- ============================================================
+print("\n-- os.difftime --")
+
+local t1 = os.time()
+local diff = os.difftime(t1 + 100, t1)
+check("difftime", diff, 100)
+
+local diff0 = os.difftime(t1, t1)
+check("difftime zero", diff0, 0)
+
+-- ============================================================
+-- os.getenv
+-- ============================================================
+print("\n-- os.getenv --")
+
+-- HOME should exist on Linux
+local home = os.getenv("HOME")
+check("getenv HOME exists", home ~= nil, true)
+if home then
+    check("getenv HOME starts with /", string.sub(home, 0, 0), "/")
+end
+
+-- Non-existent env var
+local missing = os.getenv("NOVA_NONEXISTENT_VAR_12345")
+check("getenv missing returns nil", missing, "nil")
+
+-- PATH should exist
+local path = os.getenv("PATH")
+check("getenv PATH exists", path ~= nil, true)
+
+-- ============================================================
+-- os.execute
+-- ============================================================
+print("\n-- os.execute --")
+
+local ok = os.execute("true")
+check("execute true", ok, true)
+
+local bad = os.execute("false")
+check("execute false", bad ~= 0, true)
+
+-- ============================================================
+-- os.tmpname
+-- ============================================================
+print("\n-- os.tmpname --")
+
+local tmp = os.tmpname()
+check("tmpname not nil", tmp ~= nil, true)
+check("tmpname is string", type(tmp), "string")
+if tmp then
+    check("tmpname has path", #tmp > 0, true)
+    os.remove(tmp)
+end
+
+-- ============================================================
+-- os.remove / os.rename
+-- ============================================================
+print("\n-- os.remove/rename --")
+
+-- Create a temp file to test remove/rename
+local tmpf = os.tmpname()
+local fh = io.open(tmpf, "w")
+if fh then
+    io.write(fh, "test data")
+    io.close(fh)
+
+    -- Rename
+    local tmpf2 = tmpf .. ".renamed"
+    local rok = os.rename(tmpf, tmpf2)
+    check("rename succeeds", rok, true)
+
+    -- Verify renamed file exists
+    local fh2 = io.open(tmpf2, "r")
+    check("renamed file readable", fh2 ~= nil, true)
+    if fh2 then
+        io.close(fh2)
+    end
+
+    -- Remove renamed file
+    local rmok = os.remove(tmpf2)
+    check("remove succeeds", rmok, true)
+
+    -- Verify removed
+    local fh3 = io.open(tmpf2, "r")
+    check("removed file gone", fh3, "nil")
+else
+    print("  SKIP: could not create temp file")
+end
+
+-- Remove non-existent file
+local rm_bad = os.remove("/tmp/nova_nonexistent_file_99999")
+check("remove nonexistent fails", rm_bad ~= 0, true)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  OS TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("OS: " .. fail .. " test(s) FAILED")
+end

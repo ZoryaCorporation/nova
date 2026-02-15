@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+bin/
+*.o
+*.d
+
+# Editor / IDE
+*.swp
+*.swo
+*~
+.vscode/
+*.code-workspace
+
+# Debug artifacts
+vgcore.*
+core
+core.*
+
+# Backup files
+*.bak
+*.orig
+*.draft_backup
+
+# OS files
+.DS_Store
+Thumbs.db

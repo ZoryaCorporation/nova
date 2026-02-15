@@ -1,0 +1,220 @@
+-- Extended benchmarks for performance report
+
+print("========================================")
+print("  NOVA VM EXTENDED BENCHMARKS")
+print("========================================")
+print("")
+
+-- 1. Function call overhead
+print("--- FUNCTION CALLS ---")
+do
+    local c = 0
+    local function inc() c = c + 1 end
+    local s = os.clock()
+    for i = 0, 999999 do inc() end
+    local e = os.clock() - s
+    printf("  1M function calls:                 %8.4f sec  (%.1fM/sec)\n", e, 1.0/e)
+end
+
+do
+    local c = 0
+    local function inc() c = c + 1 end
+    local s = os.clock()
+    for i = 0, 4999999 do inc() end
+    local e = os.clock() - s
+    printf("  5M function calls:                 %8.4f sec  (%.1fM/sec)\n", e, 5.0/e)
+end
+
+-- 2. Loop throughput
+print("")
+print("--- LOOP THROUGHPUT ---")
+do
+    local s = os.clock()
+    local sum = 0
+    for i = 0, 999999 do sum = sum + i end
+    local e = os.clock() - s
+    printf("  1M numeric for-loop:               %8.4f sec  (%.1fM iter/sec)\n", e, 1.0/e)
+end
+
+do
+    local s = os.clock()
+    local sum = 0
+    local i = 0
+    while i < 1000000 do sum = sum + i; i = i + 1 end
+    local e = os.clock() - s
+    printf("  1M while loop:                     %8.4f sec  (%.1fM iter/sec)\n", e, 1.0/e)
+end
+
+-- 3. Table operations
+print("")
+print("--- TABLE OPERATIONS ---")
+do
+    local t = {}
+    local s = os.clock()
+    for i = 0, 99999 do t[i] = i * 2 end
+    local e = os.clock() - s
+    printf("  100K int-key inserts:              %8.4f sec  (%.1fM/sec)\n", e, 0.1/e)
+end
+
+do
+    local t = {}
+    for i = 0, 99999 do t[i] = i end
+    local s = os.clock()
+    local sum = 0
+    for i = 0, 99999 do sum = sum + t[i] end
+    local e = os.clock() - s
+    printf("  100K int-key lookups:              %8.4f sec  (%.1fM/sec)\n", e, 0.1/e)
+end
+
+do
+    local t = {}
+    local s = os.clock()
+    for i = 0, 9999 do
+        t[i] = { x = i, y = i * 2, z = i * 3 }
+    end
+    local e = os.clock() - s
+    printf("  10K table-of-tables build:         %8.4f sec\n", e)
+end
+
+-- 4. String operations
+print("")
+print("--- STRING OPERATIONS ---")
+do
+    local s = os.clock()
+    for i = 0, 49999 do
+        local x = "key_" .. tostring(i)
+    end
+    local e = os.clock() - s
+    printf("  50K string concatenations:         %8.4f sec  (%.1fK/sec)\n", e, 50.0/e)
+end
+
+do
+    local s = os.clock()
+    for i = 0, 9999 do
+        local x = string.format("row_%05d_col_%03d", i, i % 100)
+    end
+    local e = os.clock() - s
+    printf("  10K sprintf format:                %8.4f sec  (%.1fK/sec)\n", e, 10.0/e)
+end
+
+-- 5. Recursion
+print("")
+print("--- RECURSION ---")
+do
+    local function fib(n)
+        if n < 2 then return n end
+        return fib(n - 1) + fib(n - 2)
+    end
+    local s = os.clock()
+    local r = fib(30)
+    local e = os.clock() - s
+    printf("  fib(30) naive recursive:           %8.4f sec  (result=%d)\n", e, r)
+end
+
+do
+    local function fib(n)
+        if n < 2 then return n end
+        return fib(n - 1) + fib(n - 2)
+    end
+    local s = os.clock()
+    local r = fib(35)
+    local e = os.clock() - s
+    printf("  fib(35) naive recursive:           %8.4f sec  (result=%d)\n", e, r)
+end
+
+-- 6. GC pressure
+print("")
+print("--- GC PRESSURE ---")
+do
+    local s = os.clock()
+    for i = 0, 99999 do
+        local a = i + 1
+        local b = i + 2
+        local t = { i, a, b }
+    end
+    local e = os.clock() - s
+    printf("  100K temp tables (GC churn):       %8.4f sec  (%.1fK/sec)\n", e, 100.0/e)
+end
+
+-- 7. Matrix
+print("")
+print("--- MATRIX ---")
+do
+    local N = 50
+    local A = {}
+    local B = {}
+    for i = 0, N-1 do
+        A[i] = {}; B[i] = {}
+        for j = 0, N-1 do
+            A[i][j] = (i+j) % 7
+            B[i][j] = (i*j+1) % 5
+        end
+    end
+    local s = os.clock()
+    local C = {}
+    for i = 0, N-1 do
+        C[i] = {}
+        for j = 0, N-1 do
+            local sum = 0
+            for k = 0, N-1 do
+                sum = sum + A[i][k] * B[k][j]
+            end
+            C[i][j] = sum
+        end
+    end
+    local e = os.clock() - s
+    printf("  50x50 matmul:                      %8.4f sec\n", e)
+end
+
+do
+    local N = 100
+    local A = {}
+    local B = {}
+    for i = 0, N-1 do
+        A[i] = {}; B[i] = {}
+        for j = 0, N-1 do
+            A[i][j] = (i+j) % 7
+            B[i][j] = (i*j+1) % 5
+        end
+    end
+    local s = os.clock()
+    local C = {}
+    for i = 0, N-1 do
+        C[i] = {}
+        for j = 0, N-1 do
+            local sum = 0
+            for k = 0, N-1 do
+                sum = sum + A[i][k] * B[k][j]
+            end
+            C[i][j] = sum
+        end
+    end
+    local e = os.clock() - s
+    printf("  100x100 matmul:                    %8.4f sec\n", e)
+end
+
+-- 8. Sieve
+print("")
+print("--- PRIMES ---")
+do
+    local s = os.clock()
+    local SIZE = 100000
+    local sieve = {}
+    for i = 0, SIZE do sieve[i] = true end
+    sieve[0] = false; sieve[1] = false
+    local i = 2
+    while i * i <= SIZE do
+        if sieve[i] then
+            local j = i * i
+            while j <= SIZE do sieve[j] = false; j = j + i end
+        end
+        i = i + 1
+    end
+    local count = 0
+    for k = 0, SIZE do if sieve[k] then count = count + 1 end end
+    local e = os.clock() - s
+    printf("  Sieve to 100K:                     %8.4f sec  (primes=%d)\n", e, count)
+end
+
+print("")
+print("========================================")
