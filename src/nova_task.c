@@ -59,14 +59,10 @@
 #include <errno.h>
 
 #ifdef _WIN32
-    #include <direct.h>
-    #define novai_chdir(p)      _chdir(p)
-    #define novai_getcwd(b,n)   _getcwd((b),(int)(n))
+    #include <windows.h>       /* For any Windows-specific task needs */
 #else
     #include <unistd.h>
     #include <sys/wait.h>
-    #define novai_chdir(p)      chdir(p)
-    #define novai_getcwd(b,n)   getcwd((b),(n))
 #endif
 
 /* ============================================================
@@ -506,10 +502,10 @@ static int novai_task_run_one(NovaVM *vm, NovaTable *root, NovaTable *tasks,
     char saved_cwd[NOVAI_PATH_MAX];
     saved_cwd[0] = '\0';
     if (dir != NULL) {
-        if (novai_getcwd(saved_cwd, sizeof(saved_cwd)) == NULL) {
+        if (zorya_getcwd(saved_cwd, sizeof(saved_cwd)) != 0) {
             saved_cwd[0] = '\0';
         }
-        if (novai_chdir(dir) != 0) {
+        if (zorya_chdir(dir) != 0) {
             fprintf(stderr, "%serror:%s cannot chdir "
                     "to '%s': %s\n", TC_RED, TC_RESET, dir, strerror(errno));
             novai_task_restore_env(env_backup, env_backup_count);
@@ -580,7 +576,7 @@ static int novai_task_run_one(NovaVM *vm, NovaTable *root, NovaTable *tasks,
 
     /* Restore directory */
     if (dir != NULL && saved_cwd[0] != '\0') {
-        (void)novai_chdir(saved_cwd);
+        (void)zorya_chdir(saved_cwd);
     }
 
     /* Restore env vars */
@@ -667,7 +663,7 @@ static void novai_task_list(NovaTable *tasks) {
  */
 static int novai_task_find_taskfile(char *out_path, size_t out_size) {
     char cwd[NOVAI_PATH_MAX];
-    if (novai_getcwd(cwd, sizeof(cwd)) == NULL) { return 0; }
+    if (zorya_getcwd(cwd, sizeof(cwd)) != 0) { return 0; }
 
     for (int i = 0; i < NOVAI_TASK_MAX_SEARCH; i++) {
         snprintf(out_path, out_size, "%s/%s", cwd, NOVAI_TASKFILE_NAME);
@@ -718,8 +714,8 @@ int nova_tool_task(const NovaToolFlags *flags) {
     original_cwd[0] = '\0';
     if (dir_sep != NULL) {
         *dir_sep = '\0';
-        if (novai_getcwd(original_cwd, sizeof(original_cwd)) != NULL) {
-            (void)novai_chdir(taskfile_dir);
+        if (zorya_getcwd(original_cwd, sizeof(original_cwd)) == 0) {
+            (void)zorya_chdir(taskfile_dir);
         }
     }
 
@@ -729,7 +725,7 @@ int nova_tool_task(const NovaToolFlags *flags) {
     if (content == NULL) {
         fprintf(stderr, "%serror:%s cannot open '%s': %s\n",
                 TC_RED, TC_RESET, taskfile_path, strerror(errno));
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 1;
     }
 
@@ -738,7 +734,7 @@ int nova_tool_task(const NovaToolFlags *flags) {
     if (vm == NULL) {
         free(content);
         fprintf(stderr, "%serror:%s cannot create VM\n", TC_RED, TC_RESET);
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 1;
     }
 
@@ -753,7 +749,7 @@ int nova_tool_task(const NovaToolFlags *flags) {
     if (rc != 0) {
         fprintf(stderr, "%serror:%s %s\n", TC_RED, TC_RESET, errbuf);
         nova_vm_destroy(vm);
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 1;
     }
 
@@ -762,7 +758,7 @@ int nova_tool_task(const NovaToolFlags *flags) {
         fprintf(stderr, "%serror:%s NINI decode produced "
                 "no result\n", TC_RED, TC_RESET);
         nova_vm_destroy(vm);
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 1;
     }
     NovaValue root_val = vm->stack_top[-1];
@@ -770,7 +766,7 @@ int nova_tool_task(const NovaToolFlags *flags) {
         fprintf(stderr, "%serror:%s taskfile did not "
                 "produce a table\n", TC_RED, TC_RESET);
         nova_vm_destroy(vm);
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 1;
     }
     NovaTable *root = nova_as_table(root_val);
@@ -781,7 +777,7 @@ int nova_tool_task(const NovaToolFlags *flags) {
         fprintf(stderr, "%serror:%s no [task:*] sections "
                 "in %s\n", TC_RED, TC_RESET, taskfile_path);
         nova_vm_destroy(vm);
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 1;
     }
     NovaTable *tasks = nova_as_table(tasks_val);
@@ -822,12 +818,12 @@ int nova_tool_task(const NovaToolFlags *flags) {
                                             visited, &visited_count,
                                             dry, default_shell);
             nova_vm_destroy(vm);
-            if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+            if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
             return result;
         }
         novai_task_list(tasks);
         nova_vm_destroy(vm);
-        if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+        if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
         return 0;
     }
 
@@ -844,6 +840,6 @@ int nova_tool_task(const NovaToolFlags *flags) {
     }
 
     nova_vm_destroy(vm);
-    if (original_cwd[0] != '\0') { (void)novai_chdir(original_cwd); }
+    if (original_cwd[0] != '\0') { (void)zorya_chdir(original_cwd); }
     return result;
 }

@@ -33,29 +33,13 @@
 #include <ctype.h>
 #include <errno.h>
 
-/* POSIX process control for pipeline execution */
+/* Process control: fork/exec (POSIX), _spawnvp (Windows) */
 #ifdef _WIN32
-    #include <process.h>
-    #include <io.h>
-    #include <direct.h>
-    #define novasi_dup(fd)        _dup(fd)
-    #define novasi_dup2(fd1,fd2)  _dup2((fd1),(fd2))
-    #define novasi_fdclose(fd)    _close(fd)
-    #define novasi_fileno(fp)     _fileno(fp)
-    #define novasi_isatty(fd)     _isatty(fd)
-    #define novasi_getcwd(b,sz)   (_getcwd((b),(int)(sz)) != NULL ? 0 : -1)
-    #define novasi_chdir(d)       _chdir(d)
+    #include <process.h>       /* _spawnvp, _P_WAIT */
 #else
-    #include <unistd.h>
-    #include <sys/types.h>
-    #include <sys/wait.h>
-    #define novasi_dup(fd)        dup(fd)
-    #define novasi_dup2(fd1,fd2)  dup2((fd1),(fd2))
-    #define novasi_fdclose(fd)    close(fd)
-    #define novasi_fileno(fp)     fileno(fp)
-    #define novasi_isatty(fd)     isatty(fd)
-    #define novasi_getcwd(b,sz)   (getcwd((b),(sz)) != NULL ? 0 : -1)
-    #define novasi_chdir(d)       chdir(d)
+    #include <unistd.h>        /* fork, execv, _exit */
+    #include <sys/types.h>     /* pid_t */
+    #include <sys/wait.h>      /* waitpid, WIFEXITED, WEXITSTATUS */
 #endif
 
 #define NOVASI_STDIN_FD   0
@@ -360,8 +344,8 @@ static int novasi_run_pipeline(const NovaShellToolRegistry *reg,
         if (!is_first && prev_tmp != NULL) {
             fflush(prev_tmp);
             rewind(prev_tmp);
-            saved_stdin = novasi_dup(NOVASI_STDIN_FD);
-            novasi_dup2(novasi_fileno(prev_tmp), NOVASI_STDIN_FD);
+            saved_stdin = zorya_dup(NOVASI_STDIN_FD);
+            zorya_dup2(zorya_fileno(prev_tmp), NOVASI_STDIN_FD);
         }
 
         /* Redirect stdout to temp file (unless last stage) */
@@ -369,8 +353,8 @@ static int novasi_run_pipeline(const NovaShellToolRegistry *reg,
             cur_tmp = tmpfile();
             if (cur_tmp != NULL) {
                 fflush(stdout);
-                saved_stdout = novasi_dup(NOVASI_STDOUT_FD);
-                novasi_dup2(novasi_fileno(cur_tmp), NOVASI_STDOUT_FD);
+                saved_stdout = zorya_dup(NOVASI_STDOUT_FD);
+                zorya_dup2(zorya_fileno(cur_tmp), NOVASI_STDOUT_FD);
             }
         }
 
@@ -393,8 +377,8 @@ static int novasi_run_pipeline(const NovaShellToolRegistry *reg,
         /* Restore stdout */
         if (saved_stdout >= 0) {
             fflush(stdout);
-            novasi_dup2(saved_stdout, NOVASI_STDOUT_FD);
-            novasi_fdclose(saved_stdout);
+            zorya_dup2(saved_stdout, NOVASI_STDOUT_FD);
+            zorya_fdclose(saved_stdout);
         }
 
         /* Drain stdin buffer and restore */
@@ -405,8 +389,8 @@ static int novasi_run_pipeline(const NovaShellToolRegistry *reg,
                     /* discard */
                 }
             }
-            novasi_dup2(saved_stdin, NOVASI_STDIN_FD);
-            novasi_fdclose(saved_stdin);
+            zorya_dup2(saved_stdin, NOVASI_STDIN_FD);
+            zorya_fdclose(saved_stdin);
             clearerr(stdin);
         }
 
@@ -639,7 +623,7 @@ int nova_shell_run(void) {
                 dir = expanded;
             }
 
-            if (novasi_chdir(dir) != 0) {
+            if (zorya_chdir(dir) != 0) {
                 fprintf(stderr, "nova: cd: %s: %s\n",
                         dir, strerror(errno));
             }

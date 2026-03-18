@@ -39,19 +39,17 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include <zorya/pal.h>
+
 #ifdef _WIN32
     #include <windows.h>
-    #include <direct.h>
-    #include <io.h>
     #include <sys/stat.h>
     #include <sys/types.h>
-    #define novai_tl_getcwd(b,n)   _getcwd((b),(int)(n))
 #else
     #include <unistd.h>
     #include <sys/stat.h>
     #include <sys/types.h>
     #include <dirent.h>
-    #define novai_tl_getcwd(b,n)   getcwd((b),(n))
 #endif
 
 /* ============================================================
@@ -724,7 +722,7 @@ static int nova_tools_wc(NovaVM *vm) {
  */
 static int nova_tools_pwd(NovaVM *vm) {
     char cwd[NOVAI_TL_PATH_MAX];
-    if (novai_tl_getcwd(cwd, sizeof(cwd)) != NULL) {
+    if (zorya_getcwd(cwd, sizeof(cwd)) == 0) {
         nova_vm_push_string(vm, cwd, strlen(cwd));
         return 1;
     }
@@ -747,7 +745,7 @@ static int nova_tools_run(NovaVM *vm) {
     const char *cmd = nova_lib_check_string(vm, 0);
     if (cmd == NULL) { return -1; }
 
-    FILE *fp = popen(cmd, "r");
+    FILE *fp = zorya_popen(cmd, "r");
     if (fp == NULL) {
         nova_vm_raise_error(vm, "tools.run: cannot execute '%s': %s",
                             cmd, strerror(errno));
@@ -763,7 +761,7 @@ static int nova_tools_run(NovaVM *vm) {
         novai_sb_append(&sb, buf, n);
     }
 
-    int status = pclose(fp);
+    int status = zorya_pclose(fp);
 #ifdef _WIN32
     int exit_code = status;
 #else

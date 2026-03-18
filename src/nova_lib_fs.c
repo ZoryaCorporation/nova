@@ -62,6 +62,8 @@
 #include "nova/nova_lib.h"
 #include "nova/nova_vm.h"
 
+#include <zorya/pal.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -70,6 +72,11 @@
 
 /* ============================================================
  * CROSS-PLATFORM HEADERS
+ *
+ * Portable calls (mkdir, rmdir, getcwd, chmod, path separator)
+ * go through <zorya/pal.h>. The remaining platform-specific
+ * items (stat types, directory iteration, link detection) stay
+ * in the #ifdef until PAL covers them fully.
  * ============================================================ */
 
 #ifdef _WIN32
@@ -79,14 +86,8 @@
     #include <io.h>
     #include <sys/stat.h>
     #include <sys/types.h>
-    #define NOVA_FS_SEP '\\'
-    #define NOVA_FS_SEP_STR "\\"
-    #define nova_fs_mkdir(p)  _mkdir(p)
-    #define nova_fs_rmdir(p)  _rmdir(p)
-    #define nova_fs_getcwd(b,n) _getcwd(b,n)
     #define nova_fs_stat      _stat
     #define nova_fs_stat_t    struct _stat
-    #define nova_fs_chmod(p,m) _chmod(p,m)
     #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
     #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
 #else
@@ -97,14 +98,8 @@
     #include <glob.h>
     #include <libgen.h>
     #include <utime.h>
-    #define NOVA_FS_SEP '/'
-    #define NOVA_FS_SEP_STR "/"
-    #define nova_fs_mkdir(p)  mkdir(p, 0755)
-    #define nova_fs_rmdir(p)  rmdir(p)
-    #define nova_fs_getcwd(b,n) getcwd(b,(size_t)(n))
     #define nova_fs_stat      stat
     #define nova_fs_stat_t    struct stat
-    #define nova_fs_chmod(p,m) chmod(p,(mode_t)(m))
 #endif
 
 /* ============================================================
@@ -445,7 +440,7 @@ static int nova_fs_mkdir_func(NovaVM *vm) {
     const char *path = nova_lib_check_string(vm, 0);
     if (path == NULL) return -1;
 
-    if (nova_fs_mkdir(path) == 0) {
+    if (zorya_mkdir(path) == 0) {
         nova_vm_push_bool(vm, 1);
         return 1;
     }
@@ -480,20 +475,20 @@ static int nova_fs_mkdirs(NovaVM *vm) {
             tmp[i] = '\0';
             nova_fs_stat_t st;
             if (nova_fs_stat(tmp, &st) != 0) {
-                if (nova_fs_mkdir(tmp) != 0 && errno != EEXIST) {
+                if (zorya_mkdir(tmp) != 0 && errno != EEXIST) {
                     nova_vm_push_nil(vm);
                     nova_vm_push_string(vm, strerror(errno),
                                         strlen(strerror(errno)));
                     return 2;
                 }
             }
-            tmp[i] = NOVA_FS_SEP;
+            tmp[i] = zorya_path_sep();
         }
     }
     /* Create the final directory */
     nova_fs_stat_t st;
     if (nova_fs_stat(tmp, &st) != 0) {
-        if (nova_fs_mkdir(tmp) != 0 && errno != EEXIST) {
+        if (zorya_mkdir(tmp) != 0 && errno != EEXIST) {
             nova_vm_push_nil(vm);
             nova_vm_push_string(vm, strerror(errno),
                                 strlen(strerror(errno)));
@@ -510,7 +505,7 @@ static int nova_fs_rmdir_func(NovaVM *vm) {
     const char *path = nova_lib_check_string(vm, 0);
     if (path == NULL) return -1;
 
-    if (nova_fs_rmdir(path) == 0) {
+    if (zorya_rmdir(path) == 0) {
         nova_vm_push_bool(vm, 1);
         return 1;
     }
@@ -1160,7 +1155,7 @@ static int nova_fs_join(NovaVM *vm) {
         /* Add separator if needed */
         if (pos > 0 && !novai_is_sep(result[pos - 1])) {
             if (pos < sizeof(result) - 1) {
-                result[pos++] = NOVA_FS_SEP;
+                result[pos++] = zorya_path_sep();
             }
         }
 
@@ -1314,13 +1309,13 @@ static int nova_fs_abspath(NovaVM *vm) {
 
     /* Prepend cwd */
     char cwd[4096];
-    if (nova_fs_getcwd(cwd, (int)sizeof(cwd)) == NULL) {
+    if (zorya_getcwd(cwd, sizeof(cwd)) != 0) {
         nova_vm_push_string(vm, path, strlen(path));
         return 1;
     }
 
     char result[4096 + 4096 + 2];
-    snprintf(result, sizeof(result), "%s%c%s", cwd, NOVA_FS_SEP, path);
+    snprintf(result, sizeof(result), "%s%c%s", cwd, zorya_path_sep(), path);
     nova_vm_push_string(vm, result, strlen(result));
     return 1;
 }
@@ -1372,7 +1367,7 @@ static int nova_fs_normalize(NovaVM *vm) {
     for (size_t i = 0; path[i] != '\0' && pos < sizeof(result) - 1; i++) {
         if (novai_is_sep(path[i])) {
             if (!prev_sep) {
-                result[pos++] = NOVA_FS_SEP;
+                result[pos++] = zorya_path_sep();
                 prev_sep = 1;
             }
         } else {
@@ -1382,7 +1377,7 @@ static int nova_fs_normalize(NovaVM *vm) {
     }
 
     /* Remove trailing separator (unless root) */
-    if (pos > 1 && result[pos - 1] == NOVA_FS_SEP) {
+    if (pos > 1 && result[pos - 1] == zorya_path_sep()) {
         pos--;
     }
 
@@ -1409,7 +1404,7 @@ static int nova_fs_chmod_func(NovaVM *vm) {
     nova_int_t mode = 0;
     if (!nova_lib_check_integer(vm, 1, &mode)) return -1;
 
-    if (nova_fs_chmod(path, (int)mode) == 0) {
+    if (zorya_chmod(path, (int)mode) == 0) {
         nova_vm_push_bool(vm, 1);
     } else {
         nova_vm_push_nil(vm);
@@ -1569,7 +1564,7 @@ int nova_open_fs(NovaVM *vm) {
         nova_vm_push_value(vm, fs_tbl);
         int tidx = nova_vm_get_top(vm) - 1;
 
-        char sep[2] = { NOVA_FS_SEP, '\0' };
+        char sep[2] = { zorya_path_sep(), '\0' };
         nova_vm_push_string(vm, sep, 1);
         nova_vm_set_field(vm, tidx, "sep");
 

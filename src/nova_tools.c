@@ -46,25 +46,20 @@
  * CROSS-PLATFORM HEADERS
  *
  * The shared tool utility library (ntool_common) handles most
- * platform abstraction via the Zorya PAL. These remaining
- * platform macros are used by the shell pipeline engine and
- * task runner which stay in the core binary.
+ * platform abstraction via the Zorya PAL. The remaining
+ * platform headers are for process control in the shell
+ * pipeline engine and task runner.
  * ============================================================ */
+
+#include <sys/stat.h>
+#include <sys/types.h>
 
 #ifdef _WIN32
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
-    #include <direct.h>
-    #include <io.h>
-    #include <sys/stat.h>
-    #include <sys/types.h>
-    #define novai_getcwd(b,n)   _getcwd((b),(int)(n))
 #else
     #include <unistd.h>
-    #include <sys/stat.h>
-    #include <sys/types.h>
     #include <dirent.h>
-    #define novai_getcwd(b,n)   getcwd((b),(n))
 #endif
 
 /* ============================================================
@@ -1156,7 +1151,7 @@ int nova_tool_echo(const NovaToolFlags *flags) {
 int nova_tool_pwd(const NovaToolFlags *flags) {
     (void)flags;
     char cwd[NOVAI_PATH_MAX];
-    if (novai_getcwd(cwd, sizeof(cwd)) != NULL) {
+    if (zorya_getcwd(cwd, sizeof(cwd)) == 0) {
         printf("%s\n", cwd);
         return 0;
     }

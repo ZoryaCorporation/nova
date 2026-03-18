@@ -56,34 +56,27 @@
 
 /* ============================================================
  * CROSS-PLATFORM HEADERS & COMPAT
+ *
+ * Platform-portable calls (getcwd, chdir, popen, pclose, setenv,
+ * unsetenv, sleep, path separator) go through <zorya/pal.h>.
+ * Only items without a PAL equivalent remain in the #ifdef.
  * ============================================================ */
 
 #ifdef _WIN32
     #define WIN32_LEAN_AND_MEAN
-    #include <windows.h>
-    #include <direct.h>
-    #include <io.h>
-    #include <process.h>
-    #define nova_getcwd    _getcwd
-    #define nova_chdir     _chdir
+    #include <windows.h>       /* GetComputerNameA, GetTempPathA, MAX_PATH */
+    #include <process.h>       /* _getpid */
+    #include <io.h>            /* _access */
     #define nova_getpid    _getpid
-    #define nova_popen     _popen
-    #define nova_pclose    _pclose
-    #define NOVA_PATH_SEP  '\\'
     #define NOVA_PATH_DELIM ';'
-    extern char **_environ;
+    /* _environ is a macro provided by <stdlib.h> on MSYS2/UCRT */
     #define nova_environ   _environ
 #else
     #include <unistd.h>
     #include <sys/stat.h>
     #include <sys/types.h>
     #include <sys/wait.h>
-    #define nova_getcwd    getcwd
-    #define nova_chdir     chdir
     #define nova_getpid    getpid
-    #define nova_popen     popen
-    #define nova_pclose    pclose
-    #define NOVA_PATH_SEP  '/'
     #define NOVA_PATH_DELIM ':'
     extern char **environ;
     #define nova_environ   environ
@@ -480,7 +473,7 @@ static int nova_os_hostname(NovaVM *vm) {
  */
 static int nova_os_cwd(NovaVM *vm) {
     char buf[4096];
-    if (nova_getcwd(buf, (int)sizeof(buf)) != NULL) {
+    if (zorya_getcwd(buf, sizeof(buf)) == 0) {
         nova_vm_push_string(vm, buf, strlen(buf));
     } else {
         nova_vm_push_nil(vm);
@@ -501,7 +494,7 @@ static int nova_os_chdir(NovaVM *vm) {
     const char *path = nova_lib_check_string(vm, 0);
     if (path == NULL) return -1;
 
-    if (nova_chdir(path) == 0) {
+    if (zorya_chdir(path) == 0) {
         nova_vm_push_bool(vm, 1);
         return 1;
     }
@@ -587,12 +580,7 @@ static int nova_os_setenv(NovaVM *vm) {
     const char *value = nova_lib_check_string(vm, 1);
     if (name == NULL || value == NULL) return -1;
 
-    int rc;
-#ifdef _WIN32
-    rc = _putenv_s(name, value);
-#else
-    rc = setenv(name, value, 1);
-#endif
+    int rc = zorya_setenv(name, value);
 
     if (rc == 0) {
         nova_vm_push_bool(vm, 1);
@@ -615,12 +603,7 @@ static int nova_os_unsetenv(NovaVM *vm) {
     const char *name = nova_lib_check_string(vm, 0);
     if (name == NULL) return -1;
 
-    int rc;
-#ifdef _WIN32
-    rc = _putenv_s(name, "");
-#else
-    rc = unsetenv(name);
-#endif
+    int rc = zorya_unsetenv(name);
 
     if (rc == 0) {
         nova_vm_push_bool(vm, 1);
@@ -704,14 +687,7 @@ static int nova_os_sleep(NovaVM *vm) {
         return 1;
     }
 
-#ifdef _WIN32
-    Sleep((DWORD)(seconds * 1000.0));
-#else
-    struct timespec ts;
-    ts.tv_sec = (time_t)seconds;
-    ts.tv_nsec = (long)((seconds - (double)ts.tv_sec) * 1.0e9);
-    nanosleep(&ts, NULL);
-#endif
+    zorya_sleep_ms((unsigned int)(seconds * 1000.0));
 
     nova_vm_push_bool(vm, 1);
     return 1;
@@ -775,7 +751,7 @@ static int nova_os_which(NovaVM *vm) {
         if (strlen(dir) > 0) {
             for (int e = 0; exts[e] != NULL; e++) {
                 snprintf(full, sizeof(full), "%s%c%s%s",
-                         dir, NOVA_PATH_SEP, cmd, exts[e]);
+                         dir, zorya_path_sep(), cmd, exts[e]);
 #ifdef _WIN32
                 if (_access(full, 0) == 0) {
 #else
@@ -816,7 +792,7 @@ static int nova_os_capture(NovaVM *vm) {
     const char *cmd = nova_lib_check_string(vm, 0);
     if (cmd == NULL) return -1;
 
-    FILE *fp = nova_popen(cmd, "r");
+    FILE *fp = zorya_popen(cmd, "r");
     if (fp == NULL) {
         nova_vm_push_nil(vm);
         nova_vm_push_string(vm, strerror(errno), strlen(strerror(errno)));
@@ -828,7 +804,7 @@ static int nova_os_capture(NovaVM *vm) {
     size_t len = 0;
     char *buf = (char *)malloc(cap);
     if (buf == NULL) {
-        nova_pclose(fp);
+        zorya_pclose(fp);
         nova_vm_push_nil(vm);
         const char *msg = "out of memory";
         nova_vm_push_string(vm, msg, strlen(msg));
@@ -841,7 +817,7 @@ static int nova_os_capture(NovaVM *vm) {
             char *nb = (char *)realloc(buf, cap);
             if (nb == NULL) {
                 free(buf);
-                nova_pclose(fp);
+                zorya_pclose(fp);
                 nova_vm_push_nil(vm);
                 const char *msg = "out of memory";
                 nova_vm_push_string(vm, msg, strlen(msg));
@@ -854,7 +830,7 @@ static int nova_os_capture(NovaVM *vm) {
         len += got;
     }
 
-    int status = nova_pclose(fp);
+    int status = zorya_pclose(fp);
     int code = status;
 #if !defined(_WIN32) && (defined(__linux__) || defined(__APPLE__))
     if (WIFEXITED(status)) {
@@ -923,7 +899,7 @@ int nova_open_os(NovaVM *vm) {
         nova_vm_push_value(vm, os_tbl);
         int tidx = nova_vm_get_top(vm) - 1;
 
-        char sep[2] = { NOVA_PATH_SEP, '\0' };
+        char sep[2] = { zorya_path_sep(), '\0' };
         nova_vm_push_string(vm, sep, 1);
         nova_vm_set_field(vm, tidx, "sep");
 
