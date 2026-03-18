@@ -1,0 +1,39 @@
+# ============================================================================
+# Nova Language - Git Attributes
+#
+# Controls what's excluded from `git archive` / GitHub source tarballs.
+# Development-only content is marked export-ignore so release source
+# downloads are clean.
+#
+# Copyright (c) 2026 Zorya Corporation
+# ============================================================================
+
+# --- Development docs (not user-facing) ---
+docs/NOVA_CODEGEN_BLUEPRINT.md    export-ignore
+docs/NOVA_COMPILER_BLUEPRINT.md   export-ignore
+docs/NOVA_DESIGN_MAP.md           export-ignore
+docs/NOVA_DESIGN.md               export-ignore
+docs/NOVA_IMPLEMENTATION_HITLIST.md export-ignore
+docs/NOVA_OPTIMIZER_BLUEPRINT.md  export-ignore
+docs/NOVA_PERFORMANCE_REPORT.md   export-ignore
+docs/NOVA_TOOLS_BLUEPRINT.md      export-ignore
+docs/NOVA_VM_BLUEPRINT.md         export-ignore
+docs/ZORYA_DATA_SOURCES.md        export-ignore
+
+# --- VS Code extension (separate release cycle) ---
+nova-sdk/                         export-ignore
+
+# --- Test suite (not needed for end-user builds) ---
+tests/                            export-ignore
+
+# --- Dev-only files ---
+Nova_DevRel.md                    export-ignore
+gpt5-2_critique.md                export-ignore
+nova.code-workspace               export-ignore
+.vscode/                          export-ignore
+.nova/                            export-ignore
+nova_syntax/                      export-ignore
+
+# --- Linguist: language detection ---
+*.n  linguist-language=Lua
+*.m  linguist-language=Lua

@@ -1,0 +1,148 @@
+-- ============================================================
+-- data_processor.n — Data Processing Template
+--
+-- Shows how to use #import data with the NDP module to parse,
+-- transform, and output structured data.
+--
+-- Run:  ./bin/nova nova_syntax/06_templates/data_processor.n
+-- ============================================================
+
+#import data
+
+echo "=== Data Processor Template ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 1. JSON Processing
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- JSON Processing ---"
+
+dec json_str = '{"employees":[{"name":"Alice","role":"engineer","years":5},{"name":"Bob","role":"designer","years":3},{"name":"Carol","role":"engineer","years":8}]}'
+
+dec data = json.decode(json_str)
+dec employees = data.employees
+
+printf("  Loaded %d employees:\n", #employees)
+for i = 0, #employees - 1 do
+    dec e = employees[i]
+    printf("    [%d] %s — %s (%d years)\n", i, e.name, e.role, e.years)
+end
+
+-- Filter: engineers only
+echo "\n  Engineers only:"
+dec engineers = {}
+for i = 0, #employees - 1 do
+    if employees[i].role == "engineer" then
+        table.insert(engineers, employees[i])
+    end
+end
+
+for i = 0, #engineers - 1 do
+    printf("    %s (%d years)\n", engineers[i].name, engineers[i].years)
+end
+
+-- Aggregate: total years of experience
+dec total_years = 0
+for i = 0, #employees - 1 do
+    total_years = total_years + employees[i].years
+end
+printf("\n  Total experience: %d years\n", total_years)
+printf("  Average: %.1f years\n", total_years / #employees)
+
+-- Re-encode to JSON
+dec output = json.encode(data)
+printf("  Re-encoded length: %d chars\n", #output)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 2. CSV Processing
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- CSV Processing ---"
+
+dec csv_str = "city,population,country\nTokyo,13960000,Japan\nDelhi,11030000,India\nShanghai,24280000,China\nSao Paulo,12330000,Brazil\nMexico City,9210000,Mexico"
+
+dec csv_data = csv.decode(csv_str)
+
+printf("  Loaded %d cities:\n", #csv_data)
+for i = 0, #csv_data - 1 do
+    dec row = csv_data[i]
+    printf("    %-14s %12s  %s\n", row.city, row.population, row.country)
+end
+
+-- Find largest city
+dec largest = csv_data[0]
+for i = 1, #csv_data - 1 do
+    if tonumber(csv_data[i].population) > tonumber(largest.population) then
+        largest = csv_data[i]
+    end
+end
+printf("\n  Largest city: %s (%s)\n", largest.city, largest.population)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 3. INI Configuration Processing
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- INI Processing ---"
+
+dec ini_str = "[database]\nhost=localhost\nport=5432\nname=nova_app\n\n[server]\nhost=0.0.0.0\nport=8080\nworkers=4\n\n[logging]\nlevel=info\nfile=app.log"
+
+dec config = ini.decode(ini_str)
+
+echo "  Loaded configuration:"
+printf("    Database: %s:%s/%s\n",
+    config.database.host, config.database.port, config.database.name)
+printf("    Server:   %s:%s (%s workers)\n",
+    config.server.host, config.server.port, config.server.workers)
+printf("    Logging:  level=%s file=%s\n",
+    config.logging.level, config.logging.file)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 4. TOML Processing
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- TOML Processing ---"
+
+dec toml_str = '[package]\nname = "my-project"\nversion = "0.1.0"\n\n[dependencies]\nnova-http = "1.2.0"\nnova-json = "0.9.5"'
+
+dec manifest = toml.decode(toml_str)
+
+echo "  Project manifest:"
+printf("    Name:    %s\n", manifest.package.name)
+printf("    Version: %s\n", manifest.package.version)
+echo "    Dependencies:"
+for k, v in pairs(manifest.dependencies) do
+    printf("      %s = %s\n", k, v)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 5. Data Transformation Pipeline
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Transformation Pipeline ---"
+echo "  JSON employees -> filter seniors (5+ years) -> build report"
+
+dec seniors = {}
+for i = 0, #employees - 1 do
+    dec e = employees[i]
+    if e.years >= 5 then
+        table.insert(seniors, {
+            name  = e.name,
+            role  = e.role,
+            level = "senior"
+        })
+    end
+end
+
+dec report = {
+    title      = "Senior Staff Report",
+    count      = #seniors,
+    staff      = seniors
+}
+
+dec report_json = json.encode(report)
+echo "  Generated report:"
+echo "  " .. report_json
+
+printf("\n  Report contains %d senior staff members.\n", #seniors)
+
+echo "\nDone!"

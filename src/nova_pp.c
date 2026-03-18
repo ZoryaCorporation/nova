@@ -23,7 +23,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -43,6 +43,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <inttypes.h>
 
 /* ============================================================
  * INTERNAL CONSTANTS
@@ -679,21 +680,28 @@ static int novai_cond_endif(NovaPP *pp, const NovaSourceLoc *loc) {
  * @brief Define the built-in predefined macros
  *
  * - __NOVA__        : always defined (value = version number)
- * - __NOVA_VERSION__: version string "0.1.0"
+ * - __NOVA_VERSION__: version string (from nova_conf.h)
  */
 static int novai_define_predefined(NovaPP *pp) {
     int rc = 0;
+
+    /* Stringify version components from nova_conf.h */
+    #define NOVAI_STR_HELPER(x) #x
+    #define NOVAI_STR(x) NOVAI_STR_HELPER(x)
 
     rc |= nova_pp_define(pp, "__NOVA__",
                          NOVA_VERSION_STRING);
     rc |= nova_pp_define(pp, "__NOVA_VERSION__",
                          NOVA_VERSION_STRING);
     rc |= nova_pp_define(pp, "__NOVA_MAJOR__",
-                         "0");
+                         NOVAI_STR(NOVA_VERSION_MAJOR));
     rc |= nova_pp_define(pp, "__NOVA_MINOR__",
-                         "1");
+                         NOVAI_STR(NOVA_VERSION_MINOR));
     rc |= nova_pp_define(pp, "__NOVA_PATCH__",
-                         "0");
+                         NOVAI_STR(NOVA_VERSION_PATCH));
+
+    #undef NOVAI_STR
+    #undef NOVAI_STR_HELPER
 
     return rc;
 }
@@ -929,11 +937,29 @@ static int novai_parse_macro_body(NovaPP *pp, NovaMacroDef *def,
             continue;
         }
 
-        /* Store the token text */
-        if (tok->type == NOVA_TOKEN_NAME ||
-            tok->type == NOVA_TOKEN_STRING ||
-            tok->type == NOVA_TOKEN_INTEGER ||
-            tok->type == NOVA_TOKEN_NUMBER) {
+        /* Store the token text.
+         * IMPORTANT: For INTEGER/NUMBER tokens, the lexer's union
+         * stores the value in value.integer / value.number, NOT in
+         * value.string. Reading value.string for those types is
+         * undefined behavior (union aliasing). Instead, we convert
+         * the numeric value to text with snprintf and store the
+         * actual numeric value in the NovaMacroToken fields. */
+        if (tok->type == NOVA_TOKEN_INTEGER) {
+            char numbuf[32];
+            int nlen = snprintf(numbuf, sizeof(numbuf), "%" PRId64,
+                                (int64_t)tok->value.integer);
+            mt->text = novai_strndup(numbuf, (size_t)nlen);
+            mt->text_len = (size_t)nlen;
+            mt->numeric_int = tok->value.integer;
+        } else if (tok->type == NOVA_TOKEN_NUMBER) {
+            char numbuf[64];
+            int nlen = snprintf(numbuf, sizeof(numbuf), "%.17g",
+                                tok->value.number);
+            mt->text = novai_strndup(numbuf, (size_t)nlen);
+            mt->text_len = (size_t)nlen;
+            mt->numeric_num = tok->value.number;
+        } else if (tok->type == NOVA_TOKEN_NAME ||
+                   tok->type == NOVA_TOKEN_STRING) {
             mt->text = novai_strndup(tok->value.string.data,
                                      tok->value.string.len);
             mt->text_len = tok->value.string.len;
@@ -1017,13 +1043,17 @@ static int novai_handle_define(NovaPP *pp, const NovaSourceLoc *loc) {
         return -1;
     }
 
+    /* Save name token position before advancing — nova_lex_next
+     * overwrites lex->current, invalidating name_tok pointer. */
+    int name_end_col = (int)(name_tok->loc.column +
+                             (int)name_tok->value.string.len);
+
     nova_lex_next(lex);
 
     /* Check for function-like macro: NAME( -- '(' immediately after name */
     const NovaToken *next = nova_lex_current(lex);
     if (next->type == (NovaTokenType)'(' &&
-        next->loc.column == (int)(name_tok->loc.column +
-                                  (int)name_tok->value.string.len)) {
+        next->loc.column == name_end_col) {
         /* Function-like macro */
         def->is_function = 1;
         if (novai_parse_macro_params(pp, def, loc) != 0) {
@@ -1114,13 +1144,23 @@ static int novai_handle_import(NovaPP *pp, const NovaSourceLoc *loc) {
     } else if (nlen == 4 && memcmp(name, "yaml", 4) == 0) {
         flag = NOVA_IMPORT_YAML;
         macro_name = "NOVA_HAS_YAML";
+    } else if (nlen == 3 && memcmp(name, "net", 3) == 0) {
+        flag = NOVA_IMPORT_NET;
+        macro_name = "NOVA_HAS_NET";
+    } else if (nlen == 3 && memcmp(name, "sql", 3) == 0) {
+        flag = NOVA_IMPORT_SQL;
+        macro_name = "NOVA_HAS_SQL";
+    } else if (nlen == 4 && memcmp(name, "nini", 4) == 0) {
+        flag = NOVA_IMPORT_NINI;
+        macro_name = "NOVA_HAS_NINI";
     } else if (nlen == 4 && memcmp(name, "data", 4) == 0) {
         flag = NOVA_IMPORT_ALL;
         macro_name = "NOVA_HAS_DATA";
     } else {
         novai_pp_error(pp, loc,
                        "#import: unknown module '%.*s' "
-                       "(expected json, csv, tsv, ini, toml, html, yaml, data)",
+                       "(expected json, csv, tsv, ini, toml, html, yaml, "
+                       "net, sql, nini, data)",
                        (int)nlen, name);
         novai_skip_to_eol(pp);
         return -1;
@@ -1142,6 +1182,9 @@ static int novai_handle_import(NovaPP *pp, const NovaSourceLoc *loc) {
         (void)nova_pp_define(pp, "NOVA_HAS_TOML", "1");
         (void)nova_pp_define(pp, "NOVA_HAS_HTML", "1");
         (void)nova_pp_define(pp, "NOVA_HAS_YAML", "1");
+        (void)nova_pp_define(pp, "NOVA_HAS_NET", "1");
+        (void)nova_pp_define(pp, "NOVA_HAS_SQL", "1");
+        (void)nova_pp_define(pp, "NOVA_HAS_NINI", "1");
         (void)nova_pp_define(pp, "NOVA_HAS_DATA", "1");
     }
 
@@ -1488,6 +1531,8 @@ static int novai_handle_include(NovaPP *pp, const NovaSourceLoc *loc) {
 
     /* Push file onto inclusion stack */
     NovaPPFileEntry *entry = &pp->file_stack[pp->file_depth];
+    /* Free stale path from a previously popped file at this slot */
+    free((void *)entry->path);
     entry->path = novai_strndup(resolved, strlen(resolved));
     entry->content = content;
 
@@ -1937,6 +1982,21 @@ static int novai_collect_args(NovaPP *pp, const NovaMacroDef *def,
         }
 
         (*arg_tokens)[current_arg][count] = *tok;
+
+        /* Duplicate string data for tokens pointing into the lexer's
+         * scratch buffer.  The buffer is shared and overwritten on
+         * each nova_lex_next, so later arguments would corrupt
+         * earlier ones (e.g. "usr","local" → both point to "local"). */
+        if (novai_token_needs_string_dup(tok->type) &&
+            tok->value.string.data != NULL) {
+            char *dup = novai_strndup(tok->value.string.data,
+                                      tok->value.string.len);
+            if (dup == NULL) {
+                return -1;
+            }
+            (*arg_tokens)[current_arg][count].value.string.data = dup;
+        }
+
         count++;
         nova_lex_next(lex);
     }
@@ -1949,11 +2009,285 @@ static void novai_free_args(NovaToken **arg_tokens, int *arg_counts,
                             int arg_count) {
     if (arg_tokens != NULL) {
         for (int i = 0; i < arg_count; i++) {
-            free(arg_tokens[i]);
+            if (arg_tokens[i] != NULL) {
+                /* Free duplicated string data in each token */
+                for (int j = 0; j < arg_counts[i]; j++) {
+                    if (novai_token_needs_string_dup(
+                            arg_tokens[i][j].type) &&
+                        arg_tokens[i][j].value.string.data != NULL) {
+                        free((char *)arg_tokens[i][j].value.string.data);
+                    }
+                }
+                free(arg_tokens[i]);
+            }
         }
         free(arg_tokens);
     }
     free(arg_counts);
+}
+
+/**
+ * @brief Expand macro body with parameter substitution and rescan
+ *
+ * Performs parameter substitution on the macro body, pushes tokens
+ * to the output buffer, then rescans for nested macro references
+ * (C99 6.10.3.4 rescan rule).  Called by novai_expand_macro and
+ * recursively by the rescan pass for function-like nested macros.
+ *
+ * @param pp          Preprocessor state
+ * @param def         Macro whose body to expand
+ * @param loc         Invocation location for error reporting
+ * @param arg_tokens  Pre-collected argument token arrays (or NULL)
+ * @param arg_counts  Number of tokens per argument (or NULL)
+ * @param arg_count   Total number of arguments
+ */
+static void novai_expand_body(NovaPP *pp, const NovaMacroDef *def,
+                              const NovaSourceLoc *loc,
+                              NovaToken **arg_tokens, int *arg_counts,
+                              int arg_count) {
+    size_t rescan_start = pp->output_count;
+
+    for (int i = 0; i < def->body_count; i++) {
+        const NovaMacroToken *mt = &def->body[i];
+
+        /* Parameter substitution */
+        if (mt->param_idx >= 0 && arg_tokens != NULL) {
+            int pidx = mt->param_idx;
+
+            /* Stringify: #param -> "param_value_text" */
+            if (mt->stringify) {
+                char buf[1024] = {0};
+                size_t buf_len = 0;
+                buf[0] = '\0';
+
+                if (pidx < arg_count) {
+                    for (int j = 0; j < arg_counts[pidx]; j++) {
+                        const NovaToken *at = &arg_tokens[pidx][j];
+                        const char *text = NULL;
+                        size_t tlen = 0;
+                        char numbuf[64];
+
+                        if (at->type == NOVA_TOKEN_INTEGER) {
+                            int n = snprintf(numbuf, sizeof(numbuf),
+                                             "%" PRId64,
+                                             (int64_t)at->value.integer);
+                            text = numbuf;
+                            tlen = (size_t)(n > 0 ? n : 0);
+                        } else if (at->type == NOVA_TOKEN_NUMBER) {
+                            int n = snprintf(numbuf, sizeof(numbuf),
+                                             "%.17g", at->value.number);
+                            text = numbuf;
+                            tlen = (size_t)(n > 0 ? n : 0);
+                        } else if (at->value.string.data != NULL &&
+                                   at->value.string.len > 0) {
+                            text = at->value.string.data;
+                            tlen = at->value.string.len;
+                        } else {
+                            const char *tname = nova_token_name(at->type);
+                            if (tname != NULL) {
+                                size_t tnl = strlen(tname);
+                                if (tnl >= 2 && tname[0] == '\'') {
+                                    tname++; tnl -= 2;
+                                }
+                                text = tname;
+                                tlen = tnl;
+                            }
+                        }
+
+                        if (text != NULL && tlen > 0) {
+                            if (buf_len > 0 && buf_len < sizeof(buf) - 1) {
+                                buf[buf_len++] = ' ';
+                            }
+                            size_t copy = tlen;
+                            if (buf_len + copy >= sizeof(buf)) {
+                                copy = sizeof(buf) - buf_len - 1;
+                            }
+                            memcpy(buf + buf_len, text, copy);
+                            buf_len += copy;
+                        }
+                    }
+                }
+                buf[buf_len] = '\0';
+
+                NovaToken str_tok = {0};
+                str_tok.type = NOVA_TOKEN_STRING;
+                str_tok.loc = *loc;
+                str_tok.value.string.data = buf;
+                str_tok.value.string.len = buf_len;
+                (void)novai_output_push(pp, &str_tok);
+                continue;
+            }
+
+            /* Normal substitution: replace with argument tokens */
+            if (pidx < arg_count) {
+                for (int j = 0; j < arg_counts[pidx]; j++) {
+                    NovaToken at = arg_tokens[pidx][j];
+                    at.loc = *loc;
+                    (void)novai_output_push(pp, &at);
+                }
+            }
+            continue;
+        }
+
+        /* __LINE__ expansion */
+        if (mt->type == NOVA_TOKEN_NAME && mt->text_len == 8 &&
+            memcmp(mt->text, "__LINE__", 8) == 0) {
+            NovaToken lt = {0};
+            lt.type = NOVA_TOKEN_INTEGER;
+            lt.loc = *loc;
+            lt.value.integer = (nova_int_t)loc->line;
+            (void)novai_output_push(pp, &lt);
+            continue;
+        }
+
+        /* __FILE__ expansion */
+        if (mt->type == NOVA_TOKEN_NAME && mt->text_len == 8 &&
+            memcmp(mt->text, "__FILE__", 8) == 0) {
+            NovaToken ft = {0};
+            ft.type = NOVA_TOKEN_STRING;
+            ft.loc = *loc;
+            ft.value.string.data = loc->filename;
+            ft.value.string.len = (loc->filename != NULL)
+                                  ? strlen(loc->filename) : 0;
+            (void)novai_output_push(pp, &ft);
+            continue;
+        }
+
+        /* __COUNTER__ expansion */
+        if (mt->type == NOVA_TOKEN_NAME && mt->text_len == 11 &&
+            memcmp(mt->text, "__COUNTER__", 11) == 0) {
+            NovaToken ct = {0};
+            ct.type = NOVA_TOKEN_INTEGER;
+            ct.loc = *loc;
+            ct.value.integer = (nova_int_t)pp->counter;
+            pp->counter++;
+            (void)novai_output_push(pp, &ct);
+            continue;
+        }
+
+        /* TODO: ## token paste (combine adjacent tokens) */
+
+        /* Default: push body token as-is */
+        NovaToken out = {0};
+        out.type = mt->type;
+        out.loc = *loc;
+        if (mt->type == NOVA_TOKEN_INTEGER) {
+            out.value.integer = mt->numeric_int;
+        } else if (mt->type == NOVA_TOKEN_NUMBER) {
+            out.value.number = mt->numeric_num;
+        } else {
+            out.value.string.data = mt->text;
+            out.value.string.len = mt->text_len;
+        }
+        (void)novai_output_push(pp, &out);
+    }
+
+    /* ---- Rescan: expand nested macro references ----
+     *
+     * After initial body expansion, the output may contain NAME
+     * tokens that reference other macros (e.g. PI in TWO_PI's body,
+     * or SQUARE in SQUARE_SUM's body).  We copy the newly emitted
+     * tokens to a temp buffer, rewind the output, and re-process
+     * them — expanding any macros found.  This mirrors C's rescan
+     * rule (C99 6.10.3.4).  The expansion_depth guard prevents
+     * infinite loops from recursive macros. */
+    {
+        size_t rescan_count = pp->output_count - rescan_start;
+        if (rescan_count > 0 &&
+            pp->expansion_depth < NOVA_PP_MAX_MACRO_DEPTH) {
+            NovaToken *temp = (NovaToken *)malloc(
+                rescan_count * sizeof(NovaToken));
+            if (temp != NULL) {
+                memcpy(temp, &pp->output[rescan_start],
+                       rescan_count * sizeof(NovaToken));
+                pp->output_count = rescan_start;
+
+                size_t ti = 0;
+                while (ti < rescan_count) {
+                    NovaToken *t = &temp[ti];
+
+                    if (t->type == NOVA_TOKEN_NAME) {
+                        NovaMacroDef *nested = novai_macro_find(
+                            pp, t->value.string.data,
+                            t->value.string.len);
+
+                        if (nested != NULL) {
+                            if (!nested->is_function) {
+                                /* Object-like nested macro */
+                                pp->expansion_depth++;
+                                novai_expand_body(pp, nested, loc,
+                                                  NULL, NULL, 0);
+                                pp->expansion_depth--;
+                                ti++;
+                                continue;
+                            }
+
+                            /* Function-like nested macro: needs '(' */
+                            if (ti + 1 < rescan_count &&
+                                temp[ti + 1].type == (NovaTokenType)'(') {
+                                /* Collect args from temp token array */
+                                size_t ai = ti + 2;
+                                int depth = 1;
+                                int fn_argc = 0;
+                                NovaToken *fn_argv[64];
+                                int fn_argl[64];
+
+                                memset(fn_argv, 0, sizeof(fn_argv));
+                                memset(fn_argl, 0, sizeof(fn_argl));
+
+                                if (ai < rescan_count) {
+                                    fn_argv[0] = &temp[ai];
+                                    fn_argl[0] = 0;
+                                    fn_argc = 1;
+                                }
+
+                                while (ai < rescan_count && depth > 0) {
+                                    if (temp[ai].type == (NovaTokenType)'(') {
+                                        depth++;
+                                    } else if (temp[ai].type ==
+                                               (NovaTokenType)')') {
+                                        depth--;
+                                        if (depth == 0) break;
+                                    } else if (temp[ai].type ==
+                                               (NovaTokenType)',' &&
+                                               depth == 1) {
+                                        if (fn_argc < 64) {
+                                            fn_argc++;
+                                            fn_argv[fn_argc - 1] =
+                                                &temp[ai + 1];
+                                            fn_argl[fn_argc - 1] = 0;
+                                        }
+                                        ai++;
+                                        continue;
+                                    }
+                                    if (fn_argc > 0) {
+                                        fn_argl[fn_argc - 1]++;
+                                    }
+                                    ai++;
+                                }
+
+                                if (depth == 0) {
+                                    pp->expansion_depth++;
+                                    novai_expand_body(pp, nested, loc,
+                                                      fn_argv, fn_argl,
+                                                      fn_argc);
+                                    pp->expansion_depth--;
+                                    ti = ai + 1;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    /* Non-macro token: push as-is */
+                    (void)novai_output_push(pp, t);
+                    ti++;
+                }
+
+                free(temp);
+            }
+        }
+    }
 }
 
 /**
@@ -2027,127 +2361,8 @@ static int novai_expand_macro(NovaPP *pp, const NovaMacroDef *def,
         }
     }
 
-    /* Substitute body tokens */
-    for (int i = 0; i < def->body_count; i++) {
-        const NovaMacroToken *mt = &def->body[i];
-
-        /* Parameter substitution */
-        if (mt->param_idx >= 0 && arg_tokens != NULL) {
-            int pidx = mt->param_idx;
-
-            /* Stringify: #param -> "param_value_text" */
-            if (mt->stringify) {
-                /* Build a string from the argument tokens */
-                char buf[1024] = {0};
-                size_t buf_len = 0;
-                buf[0] = '\0';
-
-                if (pidx < arg_count) {
-                    for (int j = 0; j < arg_counts[pidx]; j++) {
-                        const NovaToken *at = &arg_tokens[pidx][j];
-                        if (at->value.string.data != NULL &&
-                            at->value.string.len > 0) {
-                            if (buf_len > 0 && buf_len < sizeof(buf) - 1) {
-                                buf[buf_len++] = ' ';
-                            }
-                            size_t copy = at->value.string.len;
-                            if (buf_len + copy >= sizeof(buf)) {
-                                copy = sizeof(buf) - buf_len - 1;
-                            }
-                            memcpy(buf + buf_len,
-                                   at->value.string.data, copy);
-                            buf_len += copy;
-                        }
-                    }
-                }
-                buf[buf_len] = '\0';
-
-                NovaToken str_tok = {0};
-                str_tok.type = NOVA_TOKEN_STRING;
-                str_tok.loc = *loc;
-                str_tok.value.string.data = buf;
-                str_tok.value.string.len = buf_len;
-                (void)novai_output_push(pp, &str_tok);
-                continue;
-            }
-
-            /* Normal substitution: replace with argument tokens */
-            if (pidx < arg_count) {
-                for (int j = 0; j < arg_counts[pidx]; j++) {
-                    NovaToken at = arg_tokens[pidx][j];
-                    at.loc = *loc; /* Preserve macro invocation loc */
-                    (void)novai_output_push(pp, &at);
-                }
-            }
-            continue;
-        }
-
-        /* __LINE__ expansion */
-        if (mt->type == NOVA_TOKEN_NAME && mt->text_len == 8 &&
-            memcmp(mt->text, "__LINE__", 8) == 0) {
-            NovaToken lt = {0};
-            lt.type = NOVA_TOKEN_INTEGER;
-            lt.loc = *loc;
-            lt.value.integer = (nova_int_t)loc->line;
-            (void)novai_output_push(pp, &lt);
-            continue;
-        }
-
-        /* __FILE__ expansion */
-        if (mt->type == NOVA_TOKEN_NAME && mt->text_len == 8 &&
-            memcmp(mt->text, "__FILE__", 8) == 0) {
-            NovaToken ft = {0};
-            ft.type = NOVA_TOKEN_STRING;
-            ft.loc = *loc;
-            ft.value.string.data = loc->filename;
-            ft.value.string.len = (loc->filename != NULL)
-                                  ? strlen(loc->filename) : 0;
-            (void)novai_output_push(pp, &ft);
-            continue;
-        }
-
-        /* __COUNTER__ expansion */
-        if (mt->type == NOVA_TOKEN_NAME && mt->text_len == 11 &&
-            memcmp(mt->text, "__COUNTER__", 11) == 0) {
-            NovaToken ct = {0};
-            ct.type = NOVA_TOKEN_INTEGER;
-            ct.loc = *loc;
-            ct.value.integer = (nova_int_t)pp->counter;
-            pp->counter++;
-            (void)novai_output_push(pp, &ct);
-            continue;
-        }
-
-        /* Regular body token -- check if it's itself a macro */
-        if (mt->type == NOVA_TOKEN_NAME && !mt->paste_left && !mt->paste_right) {
-            NovaMacroDef *nested = novai_macro_find(pp, mt->text, mt->text_len);
-            if (nested != NULL && nested != def) {
-                /* Recursive expansion (with depth guard) */
-                /* For nested macros, we need to push a temporary
-                 * name token so the main loop can re-expand it.
-                 * But to keep things simple for v0.1, we just
-                 * push the raw token and let the parser handle it
-                 * in a future pass. */
-                NovaToken nested_tok = {0};
-                nested_tok.type = mt->type;
-                nested_tok.loc = *loc;
-                nested_tok.value.string.data = mt->text;
-                nested_tok.value.string.len = mt->text_len;
-                (void)novai_output_push(pp, &nested_tok);
-                continue;
-            }
-        }
-
-        /* TODO: ## token paste (combine adjacent tokens) */
-
-        /* Default: push body token as-is */
-        NovaToken out = {0};
-        out.type = mt->type;
-        out.loc = *loc;
-        out.value.string.data = mt->text;
-        out.value.string.len = mt->text_len;
-        (void)novai_output_push(pp, &out);
-    }
+    /* Expand macro body with rescan for nested macros */
+    (void)novai_expand_body(pp, def, loc, arg_tokens, arg_counts, arg_count);
 
     novai_free_args(arg_tokens, arg_counts, arg_count);
     pp->expansion_depth--;
@@ -2185,9 +2400,9 @@ static int novai_process_tokens(NovaPP *pp) {
             NovaPPFileEntry *entry = &pp->file_stack[pp->file_depth];
             nova_lex_free(&entry->lexer);
             free(entry->content);
-            free((void *)entry->path);
+            /* NOTE: Keep entry->path alive — output tokens reference
+             * it via loc.filename. Freed in nova_pp_destroy(). */
             entry->content = NULL;
-            entry->path = NULL;
             continue;
         }
 
@@ -2297,6 +2512,41 @@ static int novai_process_tokens(NovaPP *pp) {
 
         /* ---- Macro expansion ---- */
         if (tok->type == NOVA_TOKEN_NAME) {
+            /* Handle __LINE__, __FILE__, __COUNTER__ inline */
+            if (tok->value.string.len == 8 &&
+                memcmp(tok->value.string.data, "__LINE__", 8) == 0) {
+                NovaToken lt = {0};
+                lt.type = NOVA_TOKEN_INTEGER;
+                lt.loc = tok->loc;
+                lt.value.integer = (nova_int_t)tok->loc.line;
+                (void)novai_output_push(pp, &lt);
+                nova_lex_next(lex);
+                continue;
+            }
+            if (tok->value.string.len == 8 &&
+                memcmp(tok->value.string.data, "__FILE__", 8) == 0) {
+                NovaToken ft = {0};
+                ft.type = NOVA_TOKEN_STRING;
+                ft.loc = tok->loc;
+                ft.value.string.data = tok->loc.filename;
+                ft.value.string.len = (tok->loc.filename != NULL)
+                                      ? strlen(tok->loc.filename) : 0;
+                (void)novai_output_push(pp, &ft);
+                nova_lex_next(lex);
+                continue;
+            }
+            if (tok->value.string.len == 11 &&
+                memcmp(tok->value.string.data, "__COUNTER__", 11) == 0) {
+                NovaToken ct = {0};
+                ct.type = NOVA_TOKEN_INTEGER;
+                ct.loc = tok->loc;
+                ct.value.integer = (nova_int_t)pp->counter;
+                pp->counter++;
+                (void)novai_output_push(pp, &ct);
+                nova_lex_next(lex);
+                continue;
+            }
+
             NovaMacroDef *def = novai_macro_find(
                 pp, tok->value.string.data, tok->value.string.len
             );
@@ -2331,9 +2581,18 @@ static int novai_process_tokens(NovaPP *pp) {
                        pp->cond_depth);
     }
 
-    /* Push EOF token */
+    /* Push EOF token — preserve filename so parse errors at EOF
+     * still report the correct source file. */
     NovaToken eof = {0};
     eof.type = NOVA_TOKEN_EOF;
+    if (pp->file_stack[0].path != NULL) {
+        eof.loc.filename = pp->file_stack[0].path;
+    }
+    /* Set line to the last token's line so caret display can work */
+    if (pp->output_count > 0) {
+        eof.loc.line   = pp->output[pp->output_count - 1].loc.line;
+        eof.loc.column = pp->output[pp->output_count - 1].loc.column;
+    }
     (void)novai_output_push(pp, &eof);
 
     return (pp->error_count > 0) ? -1 : 0;
@@ -2390,7 +2649,13 @@ void nova_pp_destroy(NovaPP *pp) {
     for (int i = 0; i < pp->file_depth; i++) {
         nova_lex_free(&pp->file_stack[i].lexer);
         free(pp->file_stack[i].content);
+    }
+
+    /* Free all file paths (including already-popped entries whose
+     * paths were kept alive for output token loc.filename refs) */
+    for (int i = 0; i < NOVA_PP_MAX_INCLUDE_DEPTH; i++) {
         free((void *)pp->file_stack[i].path);
+        pp->file_stack[i].path = NULL;
     }
 
     /* Free duplicated string data in output tokens */
@@ -2478,9 +2743,27 @@ int nova_pp_define(NovaPP *pp, const char *name, const char *value) {
             return -1;
         }
 
-        /* Simple heuristic: if it starts with a digit, it's a number */
-        if (vlen > 0 && value[0] >= '0' && value[0] <= '9') {
-            def->body[0].type = NOVA_TOKEN_INTEGER;
+        /* Classify the value token type:
+         * - Contains '.' or 'e'/'E' → float (NUMBER)
+         * - All digits (optionally prefixed with '-') → INTEGER
+         * - Otherwise → NAME */
+        if (vlen > 0 && (value[0] >= '0' && value[0] <= '9')) {
+            int is_float = 0;
+            for (size_t vi = 0; vi < vlen; vi++) {
+                if (value[vi] == '.' || value[vi] == 'e' ||
+                    value[vi] == 'E') {
+                    is_float = 1;
+                    break;
+                }
+            }
+            if (is_float) {
+                def->body[0].type = NOVA_TOKEN_NUMBER;
+                def->body[0].numeric_num = strtod(value, NULL);
+            } else {
+                def->body[0].type = NOVA_TOKEN_INTEGER;
+                def->body[0].numeric_int =
+                    (nova_int_t)strtoll(value, NULL, 10);
+            }
         } else {
             def->body[0].type = NOVA_TOKEN_NAME;
         }
@@ -2527,6 +2810,7 @@ int nova_pp_process_file(NovaPP *pp, const char *path) {
 
     /* Push onto file stack */
     NovaPPFileEntry *entry = &pp->file_stack[0];
+    free((void *)entry->path);  /* Free stale path from prior run */
     entry->path = novai_strndup(path, strlen(path));
     entry->content = content;
 
@@ -2564,6 +2848,7 @@ int nova_pp_process_string(NovaPP *pp, const char *source,
     }
 
     NovaPPFileEntry *entry = &pp->file_stack[0];
+    free((void *)entry->path);  /* Free stale path from prior run */
     entry->path = novai_strndup(filename ? filename : "<string>",
                                 strlen(filename ? filename : "<string>"));
     entry->content = content;
@@ -2592,6 +2877,11 @@ NovaTokenType nova_pp_next_token(NovaPP *pp, NovaToken *token) {
     if (pp->output_pos >= pp->output_count) {
         memset(token, 0, sizeof(NovaToken));
         token->type = NOVA_TOKEN_EOF;
+        /* Preserve filename from the main source file so that
+         * parse errors at EOF still show the correct path. */
+        if (pp->file_stack[0].path != NULL) {
+            token->loc.filename = pp->file_stack[0].path;
+        }
         return NOVA_TOKEN_EOF;
     }
 
@@ -2630,8 +2920,11 @@ void nova_pp_reset(NovaPP *pp) {
     for (int i = 0; i < pp->file_depth; i++) {
         nova_lex_free(&pp->file_stack[i].lexer);
         free(pp->file_stack[i].content);
-        free((void *)pp->file_stack[i].path);
         pp->file_stack[i].content = NULL;
+    }
+    /* Free all file paths (including already-popped entries) */
+    for (int i = 0; i < NOVA_PP_MAX_INCLUDE_DEPTH; i++) {
+        free((void *)pp->file_stack[i].path);
         pp->file_stack[i].path = NULL;
     }
     pp->file_depth = 0;

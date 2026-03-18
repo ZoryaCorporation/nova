@@ -10,6 +10,7 @@
  *   - INI   (sections + key=value with typed values)
  *   - TOML  (typed config with arrays and nested tables)
  *   - HTML  (tag-soup tolerant, produces table tree)
+ *   - NINI  (Nova INI — enhanced INI with arrays, interpolation, tasks)
  *
  * All codecs share a common string builder, number parser, and
  * escape handler. Format detection is available for auto-decode.
@@ -58,6 +59,7 @@ typedef enum {
     NDP_FORMAT_TOML = 4,
     NDP_FORMAT_HTML = 5,
     NDP_FORMAT_YAML = 6,
+    NDP_FORMAT_NINI = 7,
     NDP_FORMAT_UNKNOWN = -1
 } NdpFormat;
 
@@ -88,6 +90,10 @@ typedef struct {
 
     /* HTML options */
     int       html_text_only;   /**< 1 = extract text content only        */
+
+    /* NINI options */
+    int       nini_interpolate; /**< 1 = resolve ${var} references         */
+    int       nini_tasks_only;  /**< 1 = parse only [task:*] sections      */
 
 } NdpOptions;
 

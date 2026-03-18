@@ -1,0 +1,339 @@
+{
+    "Function": {
+        "prefix": "func",
+        "body": [
+            "dec function ${1:name}(${2:args})",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Dec function definition"
+    },
+    "Anonymous Function": {
+        "prefix": "afunc",
+        "body": [
+            "function(${1:args})",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Anonymous function expression"
+    },
+    "Async Function": {
+        "prefix": "async",
+        "body": [
+            "async function ${1:name}(${2:args})",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Async function definition"
+    },
+    "If": {
+        "prefix": "if",
+        "body": [
+            "if ${1:condition} then",
+            "    ${0}",
+            "end"
+        ],
+        "description": "If statement"
+    },
+    "If-Else": {
+        "prefix": "ife",
+        "body": [
+            "if ${1:condition} then",
+            "    ${2}",
+            "else",
+            "    ${0}",
+            "end"
+        ],
+        "description": "If-else statement"
+    },
+    "If-Elseif-Else": {
+        "prefix": "ifei",
+        "body": [
+            "if ${1:condition} then",
+            "    ${2}",
+            "elseif ${3:condition} then",
+            "    ${4}",
+            "else",
+            "    ${0}",
+            "end"
+        ],
+        "description": "If-elseif-else statement"
+    },
+    "For Numeric": {
+        "prefix": "fori",
+        "body": [
+            "for ${1:i} = ${2:0}, ${3:n} do",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Numeric for loop (0-based)"
+    },
+    "For Pairs": {
+        "prefix": "forp",
+        "body": [
+            "for ${1:k}, ${2:v} in pairs(${3:table}) do",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Generic for with pairs()"
+    },
+    "For IPairs": {
+        "prefix": "forip",
+        "body": [
+            "for ${1:i}, ${2:v} in ipairs(${3:table}) do",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Generic for with ipairs()"
+    },
+    "While": {
+        "prefix": "while",
+        "body": [
+            "while ${1:condition} do",
+            "    ${0}",
+            "end"
+        ],
+        "description": "While loop"
+    },
+    "Repeat-Until": {
+        "prefix": "repeat",
+        "body": [
+            "repeat",
+            "    ${0}",
+            "until ${1:condition}"
+        ],
+        "description": "Repeat-until loop"
+    },
+    "Do Block": {
+        "prefix": "do",
+        "body": [
+            "do",
+            "    ${0}",
+            "end"
+        ],
+        "description": "Do-end scope block"
+    },
+    "Echo": {
+        "prefix": "echo",
+        "body": "echo(${1:\"${2:message}\"})",
+        "description": "Echo output (preferred Nova output)"
+    },
+    "Echo String": {
+        "prefix": "echos",
+        "body": "echo \"${1:message}\"",
+        "description": "Echo with string argument (no parens)"
+    },
+    "Printf": {
+        "prefix": "printf",
+        "body": "printf(\"${1:%s}\\n\", ${2:value})",
+        "description": "C-style formatted output"
+    },
+    "Sprintf": {
+        "prefix": "sprintf",
+        "body": "dec ${1:s} = sprintf(\"${2:%s}\", ${3:value})",
+        "description": "C-style formatted string"
+    },
+    "Dec Variable": {
+        "prefix": "dec",
+        "body": "dec ${1:name} = ${0}",
+        "description": "Dec variable declaration"
+    },
+    "Table Constructor": {
+        "prefix": "table",
+        "body": [
+            "dec ${1:t} = {",
+            "    ${0}",
+            "}"
+        ],
+        "description": "Table constructor"
+    },
+    "Class (Metatable OOP)": {
+        "prefix": "class",
+        "body": [
+            "dec ${1:ClassName} = {}",
+            "${1:ClassName}.__index = ${1:ClassName}",
+            "",
+            "function ${1:ClassName}.new(${2:args})",
+            "    dec self = setmetatable({}, ${1:ClassName})",
+            "    ${0}",
+            "    return self",
+            "end",
+            "",
+            "function ${1:ClassName}:${3:method}()",
+            "    ",
+            "end"
+        ],
+        "description": "Class via metatable OOP pattern"
+    },
+    "PCAll": {
+        "prefix": "pcall",
+        "body": [
+            "dec ${1:ok}, ${2:result} = pcall(function()",
+            "    ${0}",
+            "end)"
+        ],
+        "description": "Protected call"
+    },
+    "XPCall": {
+        "prefix": "xpcall",
+        "body": [
+            "dec ${1:ok}, ${2:result} = xpcall(function()",
+            "    ${0}",
+            "end, function(err)",
+            "    return err",
+            "end)"
+        ],
+        "description": "Extended protected call with error handler"
+    },
+    "Coroutine Create": {
+        "prefix": "cocreate",
+        "body": [
+            "dec ${1:co} = coroutine.create(function()",
+            "    ${0}",
+            "end)"
+        ],
+        "description": "Create a coroutine"
+    },
+    "Coroutine Wrap": {
+        "prefix": "cowrap",
+        "body": [
+            "dec ${1:iter} = coroutine.wrap(function()",
+            "    ${0}",
+            "end)"
+        ],
+        "description": "Wrap function as coroutine iterator"
+    },
+    "Import Data": {
+        "prefix": "#import",
+        "body": "#import ${1:data}",
+        "description": "Preprocessor import directive"
+    },
+    "Import JSON": {
+        "prefix": "#json",
+        "body": "#import data",
+        "description": "Import NDP data module (includes JSON)"
+    },
+    "Include File": {
+        "prefix": "#include",
+        "body": "#include \"${1:file.m}\"",
+        "description": "Include a header file"
+    },
+    "Ifdef Block": {
+        "prefix": "#ifdef",
+        "body": [
+            "#ifdef ${1:FLAG}",
+            "    ${0}",
+            "#endif"
+        ],
+        "description": "Conditional compilation block"
+    },
+    "Define": {
+        "prefix": "#define",
+        "body": "#define ${1:NAME}",
+        "description": "Define preprocessor flag"
+    },
+    "Check Function (Test)": {
+        "prefix": "check",
+        "body": "check(\"${1:test name}\", ${2:condition})",
+        "description": "Test check assertion"
+    },
+    "File Read": {
+        "prefix": "fread",
+        "body": [
+            "dec ${1:fh} = io.open(\"${2:file}\", \"r\")",
+            "dec ${3:content} = io.read(${1:fh}, \"*a\")",
+            "io.close(${1:fh})"
+        ],
+        "description": "Read entire file"
+    },
+    "File Write": {
+        "prefix": "fwrite",
+        "body": [
+            "dec ${1:fh} = io.open(\"${2:file}\", \"w\")",
+            "io.write(${1:fh}, ${3:data})",
+            "io.close(${1:fh})"
+        ],
+        "description": "Write to file"
+    },
+    "JSON Decode": {
+        "prefix": "jdec",
+        "body": "dec ${1:data} = json.decode(${2:str})",
+        "description": "Decode JSON string to table"
+    },
+    "JSON Encode": {
+        "prefix": "jenc",
+        "body": "dec ${1:str} = json.encode(${2:table})",
+        "description": "Encode table to JSON string"
+    },
+    "Enum (Bare)": {
+        "prefix": "enum",
+        "body": [
+            "enum ${1:Name}",
+            "    ${2:MEMBER1}",
+            "    ${3:MEMBER2}",
+            "end"
+        ],
+        "description": "Bare enum declaration (enum ... end)"
+    },
+    "Enum (Typed)": {
+        "prefix": "tenum",
+        "body": [
+            "typedec enum ${1:Name} {",
+            "    ${2:MEMBER1},",
+            "    ${3:MEMBER2}",
+            "}"
+        ],
+        "description": "Typed enum declaration (typedec enum Name { })"
+    },
+    "Struct (Bare)": {
+        "prefix": "struct",
+        "body": [
+            "struct ${1:Name}",
+            "    ${2:field1}",
+            "    ${3:field2}",
+            "end"
+        ],
+        "description": "Bare struct declaration (struct ... end)"
+    },
+    "Struct (Typed)": {
+        "prefix": "tstruct",
+        "body": [
+            "typedec struct ${1:Name} {",
+            "    ${2:field1} = ${3:nil},",
+            "    ${4:field2} = ${5:nil}",
+            "}"
+        ],
+        "description": "Typed struct declaration (typedec struct Name { })"
+    },
+    "Typedec Alias": {
+        "prefix": "typedec",
+        "body": "typedec ${1:Name} = ${2:type}",
+        "description": "Type alias declaration"
+    },
+    "Section Header Comment": {
+        "prefix": "section",
+        "body": [
+            "-- ============================================================",
+            "-- ${1:SECTION NAME}",
+            "-- ============================================================"
+        ],
+        "description": "Nova section header comment block"
+    },
+    "File Header": {
+        "prefix": "header",
+        "body": [
+            "-- ============================================================",
+            "-- ${1:filename}.n — ${2:Description}",
+            "--",
+            "-- ${3:Details}",
+            "--",
+            "-- Run:  nova ${1:filename}.n",
+            "--",
+            "-- Author:  ${4:Name}",
+            "-- Date:    ${5:2026-01-01}",
+            "-- Copyright (c) ${6:2026} Zorya Corporation",
+            "-- ============================================================"
+        ],
+        "description": "Nova file header comment block"
+    }
+}

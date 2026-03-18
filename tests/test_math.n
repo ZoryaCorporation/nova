@@ -4,10 +4,10 @@
 --        tointeger, constants
 -- ============================================================
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, got, expected)
+dec function check(name, got, expected)
     if tostring(got) == tostring(expected) then
         pass = pass + 1
         print("  PASS: " .. name)
@@ -18,12 +18,12 @@ local function check(name, got, expected)
 end
 
 -- Approximate float comparison
-local function check_approx(name, got, expected, tol)
+dec function check_approx(name, got, expected, tol)
     tol = tol or 1e-9
-    local g = tonumber(got)
-    local e = tonumber(expected)
-    if g ~= nil and e ~= nil then
-        local diff = g - e
+    dec g = tonumber(got)
+    dec e = tonumber(expected)
+    if g != nil and e != nil then
+        dec diff = g - e
         if diff < 0 then diff = -diff end
         if diff < tol then
             pass = pass + 1
@@ -144,17 +144,17 @@ check("min(-1,-2,-3)", math.min(-1, -2, -3), -3)
 print("\n-- random --")
 
 math.randomseed(42)
-local r1 = math.random()
+dec r1 = math.random()
 check("random() is number", type(r1), "number")
 check("random() >= 0", r1 >= 0, true)
 check("random() < 1", r1 < 1, true)
 
-local r2 = math.random(10)
+dec r2 = math.random(10)
 check("random(10) is integer", math.type(r2), "integer")
 check("random(10) >= 1", r2 >= 1, true)
 check("random(10) <= 10", r2 <= 10, true)
 
-local r3 = math.random(5, 15)
+dec r3 = math.random(5, 15)
 check("random(5,15) >= 5", r3 >= 5, true)
 check("random(5,15) <= 15", r3 <= 15, true)
 
@@ -177,7 +177,7 @@ print("\n-- math.tointeger --")
 check("tointeger(5)", math.tointeger(5), 5)
 check("tointeger(5.0)", math.tointeger(5.0), 5)
 -- tointeger of non-integral float should return nil
-local ti_bad = math.tointeger(5.5)
+dec ti_bad = math.tointeger(5.5)
 check("tointeger(5.5) is nil", ti_bad == nil, true)
 
 -- ============================================================

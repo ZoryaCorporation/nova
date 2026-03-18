@@ -13,7 +13,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-06
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -80,6 +80,32 @@ static void novai_check_unresolved_gotos(NovaFuncState *fs);
  * ============================================================ */
 
 /**
+ * @brief Infer the best error code from a compiler error message.
+ *
+ * Maps common compiler error message prefixes to specific
+ * NovaErrorCode values for richer diagnostic output.
+ */
+static NovaErrorCode novai_infer_compile_code(const char *msg) {
+    if (msg == NULL) { return NOVA_E0000; }
+    if (strstr(msg, "too many registers"))       return NOVA_E1004;
+    if (strstr(msg, "too many nested scopes"))   return NOVA_E1005;
+    if (strstr(msg, "too many dec"))             return NOVA_E1003;
+    if (strstr(msg, "too many nested functions")) return NOVA_E1006;
+    if (strstr(msg, "invalid assignment"))       return NOVA_E1007;
+    if (strstr(msg, "break") || strstr(msg, "continue"))
+                                                  return NOVA_E1008;
+    if (strstr(msg, "duplicate label"))          return NOVA_E1009;
+    if (strstr(msg, "unresolved goto"))          return NOVA_E1010;
+    if (strstr(msg, "too many arguments"))       return NOVA_E1011;
+    if (strstr(msg, "too many pending goto"))    return NOVA_E1019;
+    if (strstr(msg, "too many labels"))          return NOVA_E1018;
+    if (strstr(msg, "constant overflow"))        return NOVA_E1013;
+    if (strstr(msg, "out of memory"))            return NOVA_E1017;
+    if (strstr(msg, "module name"))              return NOVA_E1020;
+    return NOVA_E0000;
+}
+
+/**
  * @brief Report a compilation error.
  *
  * Sets the error flag and stores the message. Compilation
@@ -101,7 +127,7 @@ static void novai_error(NovaFuncState *fs, uint32_t line,
         c->had_error  = 1;
         c->error_msg  = msg;
         c->error_line = line;
-        nova_diag_report(NOVA_DIAG_ERROR, NOVA_E0000,
+        nova_diag_report(NOVA_DIAG_ERROR, novai_infer_compile_code(msg),
                          c->source, (int)line, 0,
                          "%s", msg);
     }
@@ -169,11 +195,8 @@ static void novai_free_reg(NovaFuncState *fs, uint8_t reg) {
  * @param fs     Current function state
  * @param count  Number of registers to reserve
  */
-static void novai_reserve_regs(NovaFuncState *fs, int count) {
-    for (int i = 0; i < count; i++) {
-        (void)novai_alloc_reg(fs);
-    }
-}
+/* novai_reserve_regs removed — only used for old method-call
+ * codegen which has been replaced by OP_SELF emission */
 
 /* ============================================================
  * SCOPE MANAGEMENT
@@ -252,7 +275,7 @@ static void novai_leave_scope(NovaFuncState *fs) {
 static void novai_add_local(NovaFuncState *fs, const char *name,
                             uint32_t len) {
     if (fs->active_locals >= NOVA_MAX_LOCALS) {
-        novai_error(fs, 0, "too many local variables");
+        novai_error(fs, 0, "too many dec variables");
         return;
     }
 
@@ -995,24 +1018,48 @@ static void novai_compile_binary(NovaFuncState *fs, NovaRowExpr *expr,
         novai_compile_expr(fs, expr->as.binary.left, &left);
         novai_discharge_to_any(fs, &left);
 
-        /* TEST left_reg, condition
+        /* If the left operand is a local variable, the result must
+         * go into a fresh temporary register.  Otherwise, the right
+         * side's value (e.g. `not tbl[nb]`) is discharged directly
+         * into the local's register, clobbering the variable so that
+         * subsequent uses in the if-body see the boolean result
+         * instead of the original value. */
+        uint8_t result_reg;
+        if (left.kind == NOVA_EK_LOCAL) {
+            result_reg = novai_alloc_reg(fs);
+        } else {
+            result_reg = left.u.reg;
+        }
+
+        /* TESTSET result, left, condition
          * JMP → skip (if short-circuit taken) */
         uint8_t cond = (binop == NOVA_BINOP_AND) ? 0 : 1;
         nova_proto_emit_abc(PROTO(fs), NOVA_OP_TESTSET,
-                            left.u.reg, left.u.reg, cond, line);
+                            result_reg, left.u.reg, cond, line);
         uint32_t skip_jmp = novai_emit_jmp(fs, line);
 
-        /* Compile right side */
+        /* Compile right side into the result register */
         NovaExprDesc right;
         memset(&right, 0, sizeof(right));
         novai_compile_expr(fs, expr->as.binary.right, &right);
-        novai_discharge_to_reg(fs, &right, left.u.reg);
+        novai_discharge_to_reg(fs, &right, result_reg);
         novai_expr_free(fs, &right);
+
+        /* After freeing the right side's temp, the result register
+         * must stay reserved.  novai_expr_free freed result_reg
+         * because the right side was discharged there, but we still
+         * need it as our output.  Without this, the caller's next
+         * alloc will hand out result_reg again, clobbering the
+         * and/or result (e.g. `(x and y or z) * 10` → 10*10). */
+        if (fs->free_reg <= result_reg) {
+            novai_set_free_reg(fs, (uint8_t)(result_reg + 1));
+        }
 
         /* Patch: the skip goes to after the right side */
         novai_patch_to_here(fs, skip_jmp);
 
-        *e = left;
+        e->kind  = NOVA_EK_REG;
+        e->u.reg = result_reg;
         return;
     }
 
@@ -1087,37 +1134,102 @@ static void novai_compile_call(NovaFuncState *fs, NovaRowExpr *expr,
     uint32_t line = LOC_LINE(expr->loc);
     uint8_t base = fs->free_reg;
 
-    /* Compile callee */
-    NovaExprDesc callee;
-    memset(&callee, 0, sizeof(callee));
-    novai_compile_expr(fs, expr->as.call.callee, &callee);
-    novai_discharge_to_reg(fs, &callee, base);
-
-    /* Reserve the callee register so args go into base+1, base+2, ... */
-    novai_set_free_reg(fs, (uint8_t)(base + 1));
-
-    /* If method call, self goes into base+1 */
     if (is_method) {
-        novai_reserve_regs(fs, 1);
+        /* Method call: obj:method(args)
+         * Use OP_SELF to atomically copy receiver and look up method:
+         *   R[base+1] = R[obj]          (receiver as first arg)
+         *   R[base]   = R[obj][K[name]] (method via meta_index)
+         */
+        NovaRowExpr *callee_expr = nova_get_expr(AST(fs),
+                                                 expr->as.call.callee);
+
+        /* Compile the receiver object into a register */
+        NovaExprDesc obj;
+        memset(&obj, 0, sizeof(obj));
+        novai_compile_expr(fs, callee_expr->as.field.object, &obj);
+        novai_discharge_to_any(fs, &obj);
+
+        /* Add method name as constant and encode as RK */
+        uint32_t kidx = nova_proto_find_or_add_string(
+            PROTO(fs), callee_expr->as.field.name,
+            (uint32_t)callee_expr->as.field.name_len);
+        uint8_t rk_c = (uint8_t)(NOVA_RK_CONST_BASE + kidx);
+
+        /* Emit SELF: R[base+1]=obj, R[base]=obj[method] */
+        nova_proto_emit_abc(PROTO(fs), NOVA_OP_SELF,
+                            base, obj.u.reg, rk_c, line);
+
+        /* base = method, base+1 = self, args start at base+2 */
+        novai_set_free_reg(fs, (uint8_t)(base + 2));
+    } else {
+        /* Normal function call */
+        NovaExprDesc callee;
+        memset(&callee, 0, sizeof(callee));
+        novai_compile_expr(fs, expr->as.call.callee, &callee);
+        novai_discharge_to_reg(fs, &callee, base);
+
+        /* Reserve the callee register so args go into base+1 */
+        novai_set_free_reg(fs, (uint8_t)(base + 1));
     }
 
-    uint8_t arg_base = (uint8_t)(base + 1 + (is_method ? 1 : 0));
-    (void)arg_base; /* Register is implicitly allocated below */
-
-    /* Compile arguments into consecutive registers */
+    /* Compile arguments into consecutive registers.
+     * Track the last argument's expression kind so we can detect
+     * vararg (...) or multi-return call as the final argument.   */
     int nargs = expr->as.call.arg_count;
+    int last_is_multret = 0;
     for (int i = 0; i < nargs; i++) {
         NovaExprIdx arg_idx = nova_get_extra_expr(
             AST(fs), expr->as.call.args_start, i);
         NovaExprDesc arg;
         memset(&arg, 0, sizeof(arg));
         novai_compile_expr(fs, arg_idx, &arg);
-        novai_discharge_to_next(fs, &arg);
+
+        if (i == nargs - 1 && arg.kind == NOVA_EK_VARARG) {
+            /* Last argument is `...` — emit VARARG with C=0 so the
+             * VM expands ALL varargs and adjusts stack_top.  We do
+             * NOT use the normal discharge path which would emit
+             * C=0 but also bump free_reg by only 1.              */
+            uint8_t dest = fs->free_reg;
+            nova_proto_emit_abc(PROTO(fs), NOVA_OP_VARARG,
+                                dest, 0, 0, line);
+            /* Don't bump free_reg — CALL with B=0 reads stack_top */
+            last_is_multret = 1;
+        } else if (i == nargs - 1 && arg.kind == NOVA_EK_CALL) {
+            /* Last argument is a function call — discharge it
+             * normally (it emits a MOVE if needed), then walk back
+             * to find the inner OP_CALL and patch its C field to 0
+             * (variable results) so it adjusts stack_top.         */
+            novai_discharge_to_next(fs, &arg);
+            uint32_t end_pc = nova_proto_pc(PROTO(fs));
+            for (uint32_t scan = end_pc; scan > 0; scan--) {
+                NovaInstruction inst = PROTO(fs)->code[scan - 1];
+                if (NOVA_GET_OPCODE(inst) == NOVA_OP_CALL) {
+                    PROTO(fs)->code[scan - 1] = NOVA_ENCODE_ABC(
+                        NOVA_OP_CALL,
+                        NOVA_GET_A(inst),
+                        NOVA_GET_B(inst),
+                        0   /* C=0 → variable results */
+                    );
+                    break;
+                }
+            }
+            last_is_multret = 1;
+        } else {
+            novai_discharge_to_next(fs, &arg);
+        }
     }
 
-    /* B = nargs + 1 (0 for multi-return last arg), C = 2 (1 result) */
+    /* B = nargs + 1 (0 for multi-return last arg), C = 2 (1 result).
+     *
+     * If the last argument expanded to variable results (vararg or
+     * multi-return call), set B=0 so the VM computes nargs from
+     * stack_top instead of using a fixed count.                    */
     uint8_t b = (uint8_t)(nargs + 1 + (is_method ? 1 : 0));
     uint8_t c = 2; /* Single result expected */
+
+    if (last_is_multret) {
+        b = 0;
+    }
 
     nova_proto_emit_abc(PROTO(fs), NOVA_OP_CALL,
                         base, b, c, line);
@@ -1260,6 +1372,13 @@ static void novai_compile_function(NovaFuncState *fs, NovaRowExpr *expr,
     for (int i = 0; i < nparams; i++) {
         NovaRowParam *prm = &AST(fs)->params[pstart + (uint32_t)i];
         novai_add_local(&child_fs, prm->name, (uint32_t)prm->name_len);
+    }
+
+    /* Emit VARARGPREP to save excess args as varargs */
+    if (child->is_vararg) {
+        nova_proto_emit(child,
+                        NOVA_ENCODE_ABC(NOVA_OP_VARARGPREP, 0, 0, 0),
+                        line);
     }
 
     /* Compile body */
@@ -1595,7 +1714,7 @@ static void novai_compile_stmt_expr(NovaFuncState *fs,
     fs->free_reg = saved_free_reg;
 }
 
-/* ---- Statement: local declaration ---- */
+/* ---- Statement: dec declaration ---- */
 
 static void novai_compile_stmt_local(NovaFuncState *fs,
                                      NovaRowStmt *stmt) {
@@ -2320,7 +2439,7 @@ static void novai_compile_stmt_label(NovaFuncState *fs,
              * into a scope with more active locals than at the goto. */
             if (lbl->active_locals > g->active_locals) {
                 novai_error(fs, g->line,
-                            "goto jumps over local variable");
+                            "goto jumps over dec variable");
             }
             novai_patch_jmp(fs, g->pc, label_pc);
             /* Remove resolved goto by swapping with last */
@@ -2430,6 +2549,13 @@ static void novai_compile_stmt_function(NovaFuncState *fs,
     for (int i = 0; i < nparams; i++) {
         NovaRowParam *prm = &AST(fs)->params[pstart + (uint32_t)i];
         novai_add_local(&child_fs, prm->name, (uint32_t)prm->name_len);
+    }
+
+    /* Emit VARARGPREP to save excess args as varargs */
+    if (child->is_vararg) {
+        nova_proto_emit(child,
+                        NOVA_ENCODE_ABC(NOVA_OP_VARARGPREP, 0, 0, 0),
+                        line);
     }
 
     /* Compile body */
@@ -2553,6 +2679,488 @@ static void novai_compile_stmt_const(NovaFuncState *fs,
     (void)line;
 }
 
+/* ---- Statement: enum ---- */
+
+static void novai_compile_stmt_enum(NovaFuncState *fs,
+                                    NovaRowStmt *stmt) {
+    uint32_t line = LOC_LINE(stmt->loc);
+    int member_count = stmt->as.enum_stmt.member_count;
+
+    /* Create table: R(table_reg) = {} */
+    uint8_t table_reg = novai_alloc_reg(fs);
+    nova_proto_emit_abc(PROTO(fs), NOVA_OP_NEWTABLE,
+                        table_reg,
+                        0,
+                        (uint8_t)(member_count > 255 ? 255 : member_count),
+                        line);
+
+    NovaNameIdx  ns = stmt->as.enum_stmt.members_start;
+    NovaExtraIdx vs = stmt->as.enum_stmt.values_start;
+    nova_int_t auto_val = 0; /* running auto-increment counter */
+
+    for (int i = 0; i < member_count; i++) {
+        NovaRowNameRef *nm = &AST(fs)->names[ns + (uint32_t)i];
+
+        /* Key: constant string for member name */
+        uint32_t key_kidx = nova_proto_find_or_add_string(
+            PROTO(fs), nm->data, (uint32_t)nm->len);
+        if (key_kidx > NOVA_MAX_RK_CONST) {
+            novai_error(fs, line, "enum member name constant overflow");
+            return;
+        }
+        uint8_t key_rk = (uint8_t)NOVA_CONST_TO_RK(key_kidx);
+
+        /* Value: explicit expression or auto-increment integer */
+        NovaExprIdx val_idx = nova_get_extra_expr(AST(fs), vs, i);
+        uint8_t val_rk;
+
+        if (val_idx != NOVA_IDX_NONE) {
+            /* Explicit value: compile the expression */
+            NovaExprDesc val;
+            memset(&val, 0, sizeof(val));
+            novai_compile_expr(fs, val_idx, &val);
+            val_rk = novai_expr_to_rk(fs, &val, line);
+            nova_proto_emit_abc(PROTO(fs), NOVA_OP_SETTABLE,
+                                table_reg, key_rk, val_rk, line);
+            novai_expr_free(fs, &val);
+            /* Update auto counter if explicit value is integer literal */
+            NovaRowExpr *vexpr = &AST(fs)->exprs[val_idx];
+            if (vexpr->kind == NOVA_EXPR_INTEGER) {
+                auto_val = vexpr->as.integer.value + 1;
+            } else {
+                auto_val++;
+            }
+        } else {
+            /* Auto-value: running counter */
+            uint32_t int_kidx = nova_proto_add_integer(PROTO(fs),
+                                                       auto_val);
+            if (int_kidx > NOVA_MAX_RK_CONST) {
+                novai_error(fs, line,
+                            "enum auto-value constant overflow");
+                return;
+            }
+            val_rk = (uint8_t)NOVA_CONST_TO_RK(int_kidx);
+            nova_proto_emit_abc(PROTO(fs), NOVA_OP_SETTABLE,
+                                table_reg, key_rk, val_rk, line);
+            auto_val++;
+        }
+    }
+
+    /* Typed enum: add __type and __base metadata */
+    if (stmt->as.enum_stmt.typed) {
+        /* __type = "EnumName" */
+        uint32_t tkey = nova_proto_find_or_add_string(
+            PROTO(fs), "__type", 6);
+        uint32_t tval = nova_proto_find_or_add_string(
+            PROTO(fs), stmt->as.enum_stmt.name,
+            (uint32_t)stmt->as.enum_stmt.name_len);
+        if (tkey <= NOVA_MAX_RK_CONST && tval <= NOVA_MAX_RK_CONST) {
+            nova_proto_emit_abc(PROTO(fs), NOVA_OP_SETTABLE, table_reg,
+                (uint8_t)NOVA_CONST_TO_RK(tkey),
+                (uint8_t)NOVA_CONST_TO_RK(tval), line);
+        }
+        /* __base = "enum" */
+        uint32_t bkey = nova_proto_find_or_add_string(
+            PROTO(fs), "__base", 6);
+        uint32_t bval = nova_proto_find_or_add_string(
+            PROTO(fs), "enum", 4);
+        if (bkey <= NOVA_MAX_RK_CONST && bval <= NOVA_MAX_RK_CONST) {
+            nova_proto_emit_abc(PROTO(fs), NOVA_OP_SETTABLE, table_reg,
+                (uint8_t)NOVA_CONST_TO_RK(bkey),
+                (uint8_t)NOVA_CONST_TO_RK(bval), line);
+        }
+    }
+
+    /* Store as global: G[K("EnumName")] = R(table_reg) */
+    uint32_t name_kidx = nova_proto_find_or_add_string(
+        PROTO(fs), stmt->as.enum_stmt.name,
+        (uint32_t)stmt->as.enum_stmt.name_len);
+    if (name_kidx <= NOVA_MAX_BX) {
+        nova_proto_emit_abx(PROTO(fs), NOVA_OP_SETGLOBAL,
+                            table_reg, (uint16_t)name_kidx, line);
+    } else {
+        novai_error(fs, line, "enum name constant overflow");
+    }
+    novai_free_reg(fs, table_reg);
+}
+
+/* ---- Statement: struct ---- */
+
+static void novai_compile_stmt_struct(NovaFuncState *fs,
+                                      NovaRowStmt *stmt) {
+    uint32_t line = LOC_LINE(stmt->loc);
+    int field_count = stmt->as.struct_stmt.field_count;
+
+    /*
+     * Struct compiles to a constructor closure:
+     *
+     *   function StructName(arg0, arg1, ...)
+     *       dec t = {}
+     *       t.field0 = arg0 ~= nil and arg0 or default0
+     *       t.field1 = arg1 ~= nil and arg1 or default1
+     *       ...
+     *       t.__type = "StructName"
+     *       return t
+     *   end
+     *
+     * Simplified codegen (no nil-check, positional args override
+     * defaults; if arg is nil, default is used via TESTSET):
+     *
+     * For each field:
+     *   If argument was passed (param reg), use it.
+     *   If not passed or nil, use default.
+     *   We emit: MOVE param to temp, TEST, use default if nil.
+     *
+     * Actually, for simplicity and correctness, let's just
+     * emit straightforward code: the constructor takes N params.
+     * For each field, if the param is nil and a default exists,
+     * use the default. Otherwise use the param.
+     */
+
+    /* Create child proto for constructor */
+    NovaProto *child = nova_proto_create();
+    if (child == NULL) {
+        novai_error(fs, line, "out of memory creating struct proto");
+        return;
+    }
+
+    child->source       = fs->compiler->source;
+    child->line_defined = line;
+    child->num_params   = (uint8_t)field_count;
+    child->is_vararg    = 0;
+    child->is_async     = 0;
+
+    /* Set up child FuncState */
+    NovaFuncState child_fs;
+    novai_init_funcstate(&child_fs, child, fs, fs->compiler);
+
+    novai_enter_scope(&child_fs, 0);
+
+    /* Add params as locals (one per field) */
+    NovaNameIdx fns = stmt->as.struct_stmt.fields_start;
+    for (int i = 0; i < field_count; i++) {
+        NovaRowNameRef *nm = &AST(fs)->names[fns + (uint32_t)i];
+        novai_add_local(&child_fs, nm->data, (uint32_t)nm->len);
+    }
+
+    /* Create table: R(table_reg) = {} */
+    uint8_t table_reg = novai_alloc_reg(&child_fs);
+    nova_proto_emit_abc(child, NOVA_OP_NEWTABLE,
+                        table_reg, 0,
+                        (uint8_t)(field_count + 1 > 255
+                                  ? 255 : field_count + 1),
+                        line);
+
+    /* For each field, set table[field_name] = param_or_default */
+    NovaExtraIdx ds = stmt->as.struct_stmt.defaults_start;
+    for (int i = 0; i < field_count; i++) {
+        NovaRowNameRef *nm = &AST(fs)->names[fns + (uint32_t)i];
+
+        /* Key: field name as string constant */
+        uint32_t key_kidx = nova_proto_find_or_add_string(
+            child, nm->data, (uint32_t)nm->len);
+        if (key_kidx > NOVA_MAX_RK_CONST) {
+            novai_error(&child_fs, line,
+                        "struct field name constant overflow");
+            break;
+        }
+        uint8_t key_rk = (uint8_t)NOVA_CONST_TO_RK(key_kidx);
+
+        /* Value: param register is i (0-based) */
+        uint8_t param_reg = (uint8_t)i;
+
+        /* Check if there's a default value */
+        NovaExprIdx def_idx = nova_get_extra_expr(AST(fs), ds, i);
+
+        if (def_idx != NOVA_IDX_NONE) {
+            /* Has default: if param is nil, use default.
+             *
+             * Emit:
+             *   TEST param_reg, 0     -- if param is falsy, skip
+             *   JMP +2                -- param is truthy, use it
+             *   LOADK temp, default   -- load default
+             *   MOVE param_reg, temp  -- (we actually just set the
+             *                            field directly below)
+             *
+             * Simpler approach: use TESTSET to conditionally
+             * select param vs default:
+             *
+             *   R(temp) = default
+             *   TESTSET R(temp), R(param_reg), 0
+             *     -- if param is falsy: R(temp) = param stays default
+             *     -- if param is truthy: R(temp) = R(param), skip JMP
+             *   JMP +0 (patched)
+             *
+             * Actually even simpler: just SETFIELD with param.
+             * If caller doesn't pass an arg, it will be nil.
+             *
+             * We'll use a test-and-branch approach:
+             *   TEST R(param_reg), 1   -- test if truthy
+             *   JMP over_default       -- if truthy, skip default
+             *   [compile default to temp]
+             *   SETFIELD table, key, temp
+             *   JMP over_param_set
+             * over_default:
+             *   SETFIELD table, key, param_reg
+             * over_param_set:
+             *
+             * Actually, let's keep it simple. A struct with defaults
+             * should work like: if the argument is nil, use default.
+             * The simplest codegen:
+             *
+             *   TEST R(param), 1        -- skip next if truthy
+             *   JMP  +N                 -- jump to param_set
+             *   <compile default to R(temp)>
+             *   SETFIELD table, key, R(temp)
+             *   JMP  +1                 -- skip param_set
+             * param_set:
+             *   SETFIELD table, key, param
+             */
+            uint8_t temp_reg = novai_alloc_reg(&child_fs);
+
+            /* TEST param, 1: if param is truthy (non-nil/non-false),
+             * skip next instruction */
+            nova_proto_emit_abc(child, NOVA_OP_TEST,
+                                param_reg, 0, 1, line);
+            /* JMP to param_set (patched below) */
+            uint32_t jmp_to_param = nova_proto_pc(child);
+            nova_proto_emit_abx(child, NOVA_OP_JMP, 0, NOVA_SBX_BIAS,
+                                line);
+
+            /* Compile default value */
+            NovaExprDesc def_val;
+            memset(&def_val, 0, sizeof(def_val));
+            novai_compile_expr(&child_fs, def_idx, &def_val);
+            novai_discharge_to_reg(&child_fs, &def_val, temp_reg);
+
+            /* SETTABLE table, key, temp (default) */
+            nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+                                table_reg, key_rk, temp_reg, line);
+
+            /* JMP over param_set */
+            uint32_t jmp_over = nova_proto_pc(child);
+            nova_proto_emit_abx(child, NOVA_OP_JMP, 0, NOVA_SBX_BIAS,
+                                line);
+
+            /* Patch jmp_to_param: target is current pc */
+            uint32_t param_set_pc = nova_proto_pc(child);
+            int32_t offset1 = (int32_t)param_set_pc -
+                              (int32_t)jmp_to_param - 1;
+            NOVA_SET_SBX(child->code[jmp_to_param], offset1);
+
+            /* SETTABLE table, key, param_reg */
+            nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+                                table_reg, key_rk, param_reg, line);
+
+            /* Patch jmp_over: target is current pc */
+            uint32_t after_pc = nova_proto_pc(child);
+            int32_t offset2 = (int32_t)after_pc -
+                              (int32_t)jmp_over - 1;
+            NOVA_SET_SBX(child->code[jmp_over], offset2);
+
+            novai_free_reg(&child_fs, temp_reg);
+        } else {
+            /* No default: just set field from param (might be nil) */
+            nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+                                table_reg, key_rk, param_reg, line);
+        }
+    }
+
+    /* Set __type field: table.__type = "StructName" */
+    uint32_t type_key_kidx = nova_proto_find_or_add_string(
+        child, "__type", 6);
+    uint32_t type_val_kidx = nova_proto_find_or_add_string(
+        child, stmt->as.struct_stmt.name,
+        (uint32_t)stmt->as.struct_stmt.name_len);
+    if (type_key_kidx <= NOVA_MAX_RK_CONST &&
+        type_val_kidx <= NOVA_MAX_RK_CONST) {
+        nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+            table_reg,
+            (uint8_t)NOVA_CONST_TO_RK(type_key_kidx),
+            (uint8_t)NOVA_CONST_TO_RK(type_val_kidx),
+            line);
+    }
+
+    /* Typed struct: add __base = "struct" */
+    if (stmt->as.struct_stmt.typed) {
+        uint32_t bkey = nova_proto_find_or_add_string(
+            child, "__base", 6);
+        uint32_t bval = nova_proto_find_or_add_string(
+            child, "struct", 6);
+        if (bkey <= NOVA_MAX_RK_CONST && bval <= NOVA_MAX_RK_CONST) {
+            nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+                table_reg,
+                (uint8_t)NOVA_CONST_TO_RK(bkey),
+                (uint8_t)NOVA_CONST_TO_RK(bval),
+                line);
+        }
+    }
+
+    /* Return the table */
+    nova_proto_emit_abc(child, NOVA_OP_RETURN1, table_reg, 0, 0, line);
+    child->last_line = line;
+
+    novai_leave_scope(&child_fs);
+    fs->compiler->current_fs = fs;
+
+    /* Add child to parent and emit CLOSURE */
+    uint32_t child_idx = nova_proto_add_child(PROTO(fs), child);
+    uint8_t dest_reg = novai_alloc_reg(fs);
+
+    if (child_idx <= NOVA_MAX_BX) {
+        nova_proto_emit_abx(PROTO(fs), NOVA_OP_CLOSURE,
+                            dest_reg, (uint16_t)child_idx, line);
+    } else {
+        novai_error(fs, line, "too many nested functions");
+        novai_free_reg(fs, dest_reg);
+        return;
+    }
+
+    /* Emit upvalue pseudo-instructions after CLOSURE */
+    for (uint8_t i = 0; i < child->upvalue_count; i++) {
+        nova_proto_emit_abc(PROTO(fs), NOVA_OP_MOVE,
+                            child->upvalues[i].in_stack,
+                            child->upvalues[i].index, 0, line);
+    }
+
+    /* Store as global: G[K("StructName")] = R(dest_reg) */
+    uint32_t name_kidx = nova_proto_find_or_add_string(
+        PROTO(fs), stmt->as.struct_stmt.name,
+        (uint32_t)stmt->as.struct_stmt.name_len);
+    if (name_kidx <= NOVA_MAX_BX) {
+        nova_proto_emit_abx(PROTO(fs), NOVA_OP_SETGLOBAL,
+                            dest_reg, (uint16_t)name_kidx, line);
+    } else {
+        novai_error(fs, line, "struct name constant overflow");
+    }
+    novai_free_reg(fs, dest_reg);
+}
+
+/* ---- Statement: typedec ---- */
+
+static void novai_compile_stmt_typedec(NovaFuncState *fs,
+                                       NovaRowStmt *stmt) {
+    uint32_t line = LOC_LINE(stmt->loc);
+
+    /*
+     * typedec creates a constructor function:
+     *
+     *   function TypeName(value)
+     *       dec t = {}
+     *       t.__type = "TypeName"
+     *       t.__base = "base_type"
+     *       t.value  = value
+     *       return t
+     *   end
+     */
+
+    NovaProto *child = nova_proto_create();
+    if (child == NULL) {
+        novai_error(fs, line, "out of memory creating typedec proto");
+        return;
+    }
+
+    child->source       = fs->compiler->source;
+    child->line_defined = line;
+    child->num_params   = 1;
+    child->is_vararg    = 0;
+    child->is_async     = 0;
+
+    NovaFuncState child_fs;
+    novai_init_funcstate(&child_fs, child, fs, fs->compiler);
+
+    novai_enter_scope(&child_fs, 0);
+
+    /* Single param: "value" */
+    novai_add_local(&child_fs, "value", 5);
+    uint8_t val_param = 0;  /* param register */
+
+    /* Create table */
+    uint8_t table_reg = novai_alloc_reg(&child_fs);
+    nova_proto_emit_abc(child, NOVA_OP_NEWTABLE,
+                        table_reg, 0, 3, line);
+
+    /* t.__type = "TypeName" */
+    uint32_t type_key = nova_proto_find_or_add_string(
+        child, "__type", 6);
+    uint32_t type_val = nova_proto_find_or_add_string(
+        child, stmt->as.typedec_stmt.name,
+        (uint32_t)stmt->as.typedec_stmt.name_len);
+    if (type_key <= NOVA_MAX_RK_CONST &&
+        type_val <= NOVA_MAX_RK_CONST) {
+        nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+            table_reg,
+            (uint8_t)NOVA_CONST_TO_RK(type_key),
+            (uint8_t)NOVA_CONST_TO_RK(type_val),
+            line);
+    }
+
+    /* t.__base = "base_type" */
+    uint32_t base_key = nova_proto_find_or_add_string(
+        child, "__base", 6);
+    uint32_t base_val = nova_proto_find_or_add_string(
+        child, stmt->as.typedec_stmt.base_type,
+        (uint32_t)stmt->as.typedec_stmt.base_type_len);
+    if (base_key <= NOVA_MAX_RK_CONST &&
+        base_val <= NOVA_MAX_RK_CONST) {
+        nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+            table_reg,
+            (uint8_t)NOVA_CONST_TO_RK(base_key),
+            (uint8_t)NOVA_CONST_TO_RK(base_val),
+            line);
+    }
+
+    /* t.value = value (param reg 0) */
+    uint32_t val_key = nova_proto_find_or_add_string(
+        child, "value", 5);
+    if (val_key <= NOVA_MAX_RK_CONST) {
+        nova_proto_emit_abc(child, NOVA_OP_SETTABLE,
+            table_reg,
+            (uint8_t)NOVA_CONST_TO_RK(val_key),
+            val_param,
+            line);
+    }
+
+    /* Return the table */
+    nova_proto_emit_abc(child, NOVA_OP_RETURN1, table_reg, 0, 0, line);
+    child->last_line = line;
+
+    novai_leave_scope(&child_fs);
+    fs->compiler->current_fs = fs;
+
+    /* Add child to parent and emit CLOSURE */
+    uint32_t child_idx = nova_proto_add_child(PROTO(fs), child);
+    uint8_t dest_reg = novai_alloc_reg(fs);
+
+    if (child_idx <= NOVA_MAX_BX) {
+        nova_proto_emit_abx(PROTO(fs), NOVA_OP_CLOSURE,
+                            dest_reg, (uint16_t)child_idx, line);
+    } else {
+        novai_error(fs, line, "too many nested functions");
+        novai_free_reg(fs, dest_reg);
+        return;
+    }
+
+    /* Emit upvalue pseudo-instructions */
+    for (uint8_t i = 0; i < child->upvalue_count; i++) {
+        nova_proto_emit_abc(PROTO(fs), NOVA_OP_MOVE,
+                            child->upvalues[i].in_stack,
+                            child->upvalues[i].index, 0, line);
+    }
+
+    /* Store as global */
+    uint32_t name_kidx = nova_proto_find_or_add_string(
+        PROTO(fs), stmt->as.typedec_stmt.name,
+        (uint32_t)stmt->as.typedec_stmt.name_len);
+    if (name_kidx <= NOVA_MAX_BX) {
+        nova_proto_emit_abx(PROTO(fs), NOVA_OP_SETGLOBAL,
+                            dest_reg, (uint16_t)name_kidx, line);
+    } else {
+        novai_error(fs, line, "typedec name constant overflow");
+    }
+    novai_free_reg(fs, dest_reg);
+}
+
 /* ============================================================
  * MAIN STATEMENT DISPATCH
  * ============================================================ */
@@ -2639,6 +3247,18 @@ static void novai_compile_stmt(NovaFuncState *fs, NovaStmtIdx idx) {
 
         case NOVA_STMT_CONST:
             novai_compile_stmt_const(fs, stmt);
+            break;
+
+        case NOVA_STMT_ENUM:
+            novai_compile_stmt_enum(fs, stmt);
+            break;
+
+        case NOVA_STMT_STRUCT:
+            novai_compile_stmt_struct(fs, stmt);
+            break;
+
+        case NOVA_STMT_TYPEDEC:
+            novai_compile_stmt_typedec(fs, stmt);
             break;
 
         default:

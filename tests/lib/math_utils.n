@@ -1,7 +1,7 @@
 -- tests/lib/math_utils.n
 -- Second helper module for #require testing (nested path)
 
-local U = {}
+dec U = {}
 
 function U.square(x)
     return x * x

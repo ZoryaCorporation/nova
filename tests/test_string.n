@@ -6,10 +6,10 @@
 -- Date: 2026-07-21
 -- ============================================================
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, got, expect)
+dec function check(name, got, expect)
     if got == expect then
         pass = pass + 1
     else
@@ -31,7 +31,7 @@ print("\n--- find ---")
 do
 
 -- Basic literal find (backward-compatible)
-local s, e = string.find("hello world", "world")
+dec s, e = string.find("hello world", "world")
 check("find literal", s, 6)
 check("find literal end", e, 10)
 
@@ -89,7 +89,7 @@ s, e = string.find("colour", "colou?r")
 check("find optional u (with u)", s, 0)
 
 -- Complement class %D (non-digit)
-local m = string.match("abc123", "%D+")
+dec m = string.match("abc123", "%D+")
 check("match %D+", m, "abc")
 
 -- Hex class
@@ -112,7 +112,7 @@ end -- PART 1
 print("\n--- character sets ---")
 do
 
-local m = string.match("hello", "[helo]+")
+dec m = string.match("hello", "[helo]+")
 check("set [helo]+", m, "hello")
 
 m = string.match("abc123", "[a-z]+")
@@ -140,20 +140,20 @@ print("\n--- match with captures ---")
 do
 
 -- Single capture
-local m = string.match("hello 123 world", "(%d+)")
+dec m = string.match("hello 123 world", "(%d+)")
 check("match (%d+)", m, "123")
 
 -- Multiple captures
-local y, mo, d = string.match("2026-02-12", "(%d+)-(%d+)-(%d+)")
+dec y, mo, d = string.match("2026-02-12", "(%d+)-(%d+)-(%d+)")
 check("capture year", y, "2026")
 check("capture month", mo, "02")
 check("capture day", d, "12")
 
 -- Nested captures
-local outer, inner = string.match("((hello))", "%((.-)%)")
+dec outer, inner = string.match("((hello))", "%((.-)%)")
 -- Note: this tests escaped parens and lazy match
 -- Actually, let's do a simpler nested capture test
-local a, b = string.match("hello world", "((%w+))")
+dec a, b = string.match("hello world", "((%w+))")
 check("nested outer", a, "hello")
 check("nested inner", b, "hello")
 
@@ -185,7 +185,7 @@ print("\n--- gsub ---")
 do
 
 -- Basic pattern gsub
-local r, n = string.gsub("hello world", "%w+", "X")
+dec r, n = string.gsub("hello world", "%w+", "X")
 check("gsub %w+ -> X", r, "X X")
 check("gsub %w+ count", n, 2)
 
@@ -230,27 +230,27 @@ print("\n--- gmatch ---")
 do
 
 -- Basic word extraction
-local words = string.gmatch("one two three", "%w+")
+dec words = string.gmatch("one two three", "%w+")
 check("gmatch count", #words, 3)
 check("gmatch[0]", words[0], "one")
 check("gmatch[1]", words[1], "two")
 check("gmatch[2]", words[2], "three")
 
 -- Digit extraction
-local nums = string.gmatch("x=10, y=20, z=30", "%d+")
+dec nums = string.gmatch("x=10, y=20, z=30", "%d+")
 check("gmatch nums count", #nums, 3)
 check("gmatch nums[0]", nums[0], "10")
 check("gmatch nums[1]", nums[1], "20")
 check("gmatch nums[2]", nums[2], "30")
 
 -- Single capture gmatch
-local caps = string.gmatch("key1=val1&key2=val2", "(%w+)=%w+")
+dec caps = string.gmatch("key1=val1&key2=val2", "(%w+)=%w+")
 check("gmatch caps count", #caps, 2)
 check("gmatch caps[0]", caps[0], "key1")
 check("gmatch caps[1]", caps[1], "key2")
 
 -- No matches
-local empty = string.gmatch("hello", "%d+")
+dec empty = string.gmatch("hello", "%d+")
 check("gmatch no matches", #empty, 0)
 
 end -- PART 5
@@ -262,7 +262,7 @@ print("\n--- back-references ---")
 do
 
 -- %1 back-reference
-local m = string.match("abcabc", "(%w+)%1")
+dec m = string.match("abcabc", "(%w+)%1")
 check("backref %1", m, "abc")
 
 -- No backref match
@@ -277,7 +277,7 @@ end -- PART 6
 print("\n--- balance ---")
 do
 
-local m = string.match("(hello (world))", "%b()")
+dec m = string.match("(hello (world))", "%b()")
 check("balance ()", m, "(hello (world))")
 
 m = string.match("{nested {braces}}", "%b{}")
@@ -292,11 +292,11 @@ print("\n--- escapes ---")
 do
 
 -- Literal dot
-local m = string.match("file.txt", "%.txt")
+dec m = string.match("file.txt", "%.txt")
 check("escaped dot", m, ".txt")
 
 -- Literal brackets
-local s = string.find("[test]", "%[test%]")
+dec s = string.find("[test]", "%[test%]")
 check("escaped brackets", s, 0)
 
 -- Literal percent
@@ -312,7 +312,7 @@ print("\n--- edge cases ---")
 do
 
 -- Empty string
-local m = string.match("", "%a+")
+dec m = string.match("", "%a+")
 check("empty string", m, nil)
 
 -- Pattern that matches everything
@@ -324,7 +324,7 @@ m = string.match("a", ".")
 check("single char", m, "a")
 
 -- Repeated find with init
-local s = string.find("aaaa", "a", 2)
+dec s = string.find("aaaa", "a", 2)
 check("find with init 2", s, 2)
 
 end -- PART 9

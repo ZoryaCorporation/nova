@@ -15,7 +15,7 @@
  *
  * @author Anthony Taliento
  * @date 2025-06-15
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2025 Zorya Corporation
  * @license MIT
@@ -293,7 +293,8 @@ static int nova_co_wrap(NovaVM *vm) {
 
     /* Set metatable on wrapper */
     NovaValue mt_val = nova_vm_get(vm, mt_idx);
-    nova_as_table(wrap_val)->metatable = nova_as_table(mt_val);
+    nova_table_set_metatable(nova_as_table(wrap_val),
+                            nova_as_table(mt_val));
     nova_gc_barrier(vm, NOVA_GC_HDR(nova_as_table(wrap_val)));
 
     /* Reset stack and push only the wrapper */
@@ -323,8 +324,8 @@ static int nova_co_wrap_call(NovaVM *vm) {
     /* Extract coroutine from array slot 0 */
     NovaTable *t = nova_as_table(self);
     NovaValue co_val = nova_value_nil();
-    if (t->array_size > 0 && t->array != NULL) {
-        co_val = t->array[0];
+    if (nova_table_array_len(t) > 0) {
+        co_val = nova_table_get_int(t, 0);
     }
 
     if (!nova_is_thread(co_val)) {

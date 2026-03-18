@@ -1,0 +1,149 @@
+-- ============================================================
+-- loops.n — for, while, repeat, break, continue
+--
+-- Nova supports numeric for, generic for, while, repeat-until,
+-- plus break and continue for flow control.
+--
+-- Run:  ./bin/nova nova_syntax/03_control_flow/loops.n
+-- ============================================================
+
+echo "=== Loops ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Numeric for
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Numeric for ---"
+
+-- for var = start, stop [, step] do
+echo "  Count 0 to 4:"
+for i = 0, 4 do
+    printf("    %d\n", i)
+end
+
+echo "  Evens 0 to 10:"
+for i = 0, 10, 2 do
+    printf("    %d\n", i)
+end
+
+echo "  Countdown:"
+for i = 5, 0, -1 do
+    printf("    %d\n", i)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- while
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- while ---"
+
+-- Collatz sequence: pick a number, if even halve it,
+-- if odd multiply by 3 and add 1. Always reaches 1.
+dec n = 27
+dec steps = 0
+echo `  Collatz(${n}):`
+dec seq = tostring(n)
+while n != 1 do
+    if n % 2 == 0 then
+        n = n / 2
+    else
+        n = n * 3 + 1
+    end
+    steps = steps + 1
+    seq = seq .. " -> " .. tostring(n)
+end
+printf("  Reached 1 in %d steps\n", steps)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- repeat-until
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- repeat-until ---"
+
+-- Runs body at least once, checks condition after
+dec sum = 0
+dec count = 0
+repeat
+    count = count + 1
+    sum = sum + count
+until sum >= 50
+
+printf("  Smallest count where sum >= 50: count=%d, sum=%d\n",
+       count, sum)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- break
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- break ---"
+
+-- Find first negative number
+dec numbers = {5, 12, 8, -3, 7, -1, 9}
+dec first_neg = nil
+for i = 0, #numbers - 1 do
+    if numbers[i] < 0 then
+        first_neg = numbers[i]
+        break
+    end
+end
+printf("  First negative: %d\n", first_neg)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- continue
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- continue ---"
+
+-- Print only odd numbers
+echo "  Odd numbers 0-9:"
+for i = 0, 9 do
+    if i % 2 == 0 then continue end
+    printf("    %d\n", i)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Nested Loops
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Multiplication Table ---"
+
+printf("      ")
+for j = 1, 9 do
+    printf("%4d", j)
+end
+echo ""
+printf("      ")
+for j = 1, 9 do
+    printf("----")
+end
+echo ""
+
+for i = 1, 9 do
+    printf("  %2d |", i)
+    for j = 1, 9 do
+        printf("%4d", i * j)
+    end
+    echo ""
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Generic for  (ipairs / pairs)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Generic for ---"
+
+dec colors = {"red", "green", "blue", "yellow"}
+
+echo "  ipairs (ordered, 0-based):"
+for i, color in ipairs(colors) do
+    printf("    [%d] %s\n", i, color)
+end
+
+dec sizes = {small = 1, medium = 2, large = 3}
+
+echo "  pairs (unordered):"
+for k, v in pairs(sizes) do
+    printf("    %s = %d\n", k, v)
+end
+
+echo "\nDone!"

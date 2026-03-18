@@ -14,10 +14,10 @@
 #require lib/test_module
 #require lib/math_utils as mu
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, cond)
+dec function check(name, cond)
     if cond then
         pass = pass + 1
         printf("  PASS: %s\n", name)
@@ -32,7 +32,7 @@ end
 -- ==========================================================
 print("=== #require: Basic Loading ===")
 
-check("module loaded (not nil)", test_module ~= nil)
+check("module loaded (not nil)", test_module != nil)
 check("module is table", type(test_module) == "table")
 check("module field string", test_module.greeting == "hello from module")
 check("module field number", test_module.version == 42)
@@ -45,7 +45,7 @@ check("module function greet", test_module.greet("Nova") == "Hello, Nova!")
 -- ==========================================================
 print("=== #require: Alias Binding ===")
 
-check("alias loaded (not nil)", mu ~= nil)
+check("alias loaded (not nil)", mu != nil)
 check("alias is table", type(mu) == "table")
 check("alias field pi", mu.pi_approx == 3.14)
 check("alias func square", mu.square(5) == 25)
@@ -59,9 +59,9 @@ print("=== #require: Caching ===")
 
 do
     -- Require the same module again with a different name.
-    -- Since #require emits `local tm2 = __require__("...")`,
+    -- Since #require emits `dec tm2 = __require__("...")`,
     -- the require function should return the cached table.
-    local tm2 = __require__("lib.test_module")
+    dec tm2 = __require__("lib.test_module")
     check("cached same object", tm2 == test_module)
     check("cached field match", tm2.greeting == test_module.greeting)
     check("cached func match", tm2.add(1, 2) == test_module.add(1, 2))
@@ -72,9 +72,9 @@ end
 -- ==========================================================
 print("=== #require: Isolation ===")
 
-check("different modules different", test_module ~= mu)
-check("test_module has greeting", test_module.greeting ~= nil)
-check("mu has pi_approx", mu.pi_approx ~= nil)
+check("different modules different", test_module != mu)
+check("test_module has greeting", test_module.greeting != nil)
+check("mu has pi_approx", mu.pi_approx != nil)
 check("test_module no square", test_module.square == nil)
 check("mu no greeting", mu.greeting == nil)
 

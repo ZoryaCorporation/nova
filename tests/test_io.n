@@ -5,10 +5,10 @@
 --       Method syntax (f:write) requires 9.5 File Handle Methods.
 -- ============================================================
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, got, expected)
+dec function check(name, got, expected)
     if tostring(got) == tostring(expected) then
         pass = pass + 1
         print("  PASS: " .. name)
@@ -25,11 +25,11 @@ print("=== IO LIBRARY TESTS ===")
 -- ============================================================
 print("\n-- open/write/read/close --")
 
-local tmppath = os.tmpname()
+dec tmppath = os.tmpname()
 
 -- Write a temp file
-local fh = io.open(tmppath, "w")
-check("open for write", fh ~= nil, true)
+dec fh = io.open(tmppath, "w")
+check("open for write", fh != nil, true)
 check("handle is integer", type(fh), "integer")
 
 if fh then
@@ -40,40 +40,40 @@ if fh then
 end
 
 -- Read back with *a (all)
-local fh2 = io.open(tmppath, "r")
-check("open for read", fh2 ~= nil, true)
+dec fh2 = io.open(tmppath, "r")
+check("open for read", fh2 != nil, true)
 if fh2 then
-    local content = io.read(fh2, "*a")
-    check("read *a not nil", content ~= nil, true)
+    dec content = io.read(fh2, "*a")
+    check("read *a not nil", content != nil, true)
     if content then
         check("read *a has content", #content > 0, true)
-        check("read *a contains hello", string.find(content, "hello") ~= nil, true)
+        check("read *a contains hello", string.find(content, "hello") != nil, true)
     end
     io.close(fh2)
 end
 
 -- Read line by line with *l
-local fh3 = io.open(tmppath, "r")
+dec fh3 = io.open(tmppath, "r")
 if fh3 then
-    local line1 = io.read(fh3, "*l")
+    dec line1 = io.read(fh3, "*l")
     check("read *l line 1", line1, "hello world")
 
-    local line2 = io.read(fh3, "*l")
+    dec line2 = io.read(fh3, "*l")
     check("read *l line 2", line2, "line two")
 
-    local line3 = io.read(fh3, "*l")
+    dec line3 = io.read(fh3, "*l")
     check("read *l line 3", line3, "line three")
 
-    local line4 = io.read(fh3, "*l")
+    dec line4 = io.read(fh3, "*l")
     check("read *l EOF", line4, "nil")
 
     io.close(fh3)
 end
 
 -- Read N bytes
-local fh4 = io.open(tmppath, "r")
+dec fh4 = io.open(tmppath, "r")
 if fh4 then
-    local chunk = io.read(fh4, 5)
+    dec chunk = io.read(fh4, 5)
     check("read 5 bytes", chunk, "hello")
     io.close(fh4)
 end
@@ -83,7 +83,7 @@ end
 -- ============================================================
 print("\n-- io.type --")
 
-local tf = io.open(tmppath, "r")
+dec tf = io.open(tmppath, "r")
 if tf then
     check("io.type open file", io.type(tf), "file")
     io.close(tf)

@@ -2,7 +2,7 @@
 -- Helper module for #require testing
 -- Returns a table with fields and functions
 
-local M = {}
+dec M = {}
 
 M.greeting = "hello from module"
 M.version  = 42

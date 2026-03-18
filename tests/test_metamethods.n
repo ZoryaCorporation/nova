@@ -10,8 +10,8 @@ print("=== METAMETHOD TESTS ===")
 -- --------------------------------------------------------
 print("\n-- Test 1: __index table chaining --")
 
-local base = { greeting = "hello" }
-local child = {}
+dec base = { greeting = "hello" }
+dec child = {}
 setmetatable(child, { __index = base })
 
 print("child.greeting = " .. child.greeting)  -- should print "hello"
@@ -23,14 +23,14 @@ print("Test 1: PASSED")
 -- --------------------------------------------------------
 print("\n-- Test 2: __index function --")
 
-local proxy = {}
+dec proxy = {}
 setmetatable(proxy, {
     __index = function(t, k)
         return "default_" .. k
     end
 })
 
-local val = proxy.foo
+dec val = proxy.foo
 print("proxy.foo = " .. val)
 assert(val == "default_foo", "__index function failed")
 print("Test 2: PASSED")
@@ -40,8 +40,8 @@ print("Test 2: PASSED")
 -- --------------------------------------------------------
 print("\n-- Test 3: __newindex function --")
 
-local store = {}
-local readonly = {}
+dec store = {}
+dec readonly = {}
 setmetatable(readonly, {
     __newindex = function(t, k, v)
         store[k] = v  -- redirect writes to store
@@ -60,11 +60,11 @@ print("Test 3: PASSED")
 -- --------------------------------------------------------
 print("\n-- Test 4: __add --")
 
-local Vec = {}
+dec Vec = {}
 Vec.__index = Vec
 
 function Vec.new(x, y)
-    local v = { x = x, y = y }
+    dec v = { x = x, y = y }
     setmetatable(v, Vec)
     return v
 end
@@ -73,9 +73,9 @@ Vec.__add = function(a, b)
     return Vec.new(a.x + b.x, a.y + b.y)
 end
 
-local v1 = Vec.new(1, 2)
-local v2 = Vec.new(3, 4)
-local v3 = v1 + v2
+dec v1 = Vec.new(1, 2)
+dec v2 = Vec.new(3, 4)
+dec v3 = v1 + v2
 print("v1 + v2 = (" .. v3.x .. ", " .. v3.y .. ")")
 assert(v3.x == 4, "__add x failed")
 assert(v3.y == 6, "__add y failed")
@@ -90,7 +90,7 @@ Vec.__sub = function(a, b)
     return Vec.new(a.x - b.x, a.y - b.y)
 end
 
-local v4 = v2 - v1
+dec v4 = v2 - v1
 print("v2 - v1 = (" .. v4.x .. ", " .. v4.y .. ")")
 assert(v4.x == 2, "__sub x failed")
 assert(v4.y == 2, "__sub y failed")
@@ -109,7 +109,7 @@ Vec.__mul = function(a, b)
     end
 end
 
-local v5 = v1 * 3
+dec v5 = v1 * 3
 print("v1 * 3 = (" .. v5.x .. ", " .. v5.y .. ")")
 assert(v5.x == 3, "__mul scalar x failed")
 assert(v5.y == 6, "__mul scalar y failed")
@@ -124,9 +124,9 @@ Vec.__eq = function(a, b)
     return a.x == b.x and a.y == b.y
 end
 
-local va = Vec.new(5, 10)
-local vb = Vec.new(5, 10)
-local vc = Vec.new(5, 11)
+dec va = Vec.new(5, 10)
+dec vb = Vec.new(5, 10)
+dec vc = Vec.new(5, 11)
 
 -- Note: va and vb are different tables, so raw equality = false.
 -- But with __eq, they should be equal.
@@ -143,7 +143,7 @@ Vec.__len = function(v)
     return math.sqrt(v.x * v.x + v.y * v.y)
 end
 
-local magnitude = #Vec.new(3, 4)
+dec magnitude = #Vec.new(3, 4)
 print("|Vec(3,4)| = " .. magnitude)
 assert(magnitude == 5, "__len failed (expected 5, got " .. magnitude .. ")")
 print("Test 8: PASSED")
@@ -157,7 +157,7 @@ Vec.__tostring = function(v)
     return "Vec(" .. v.x .. ", " .. v.y .. ")"
 end
 
-local s = tostring(Vec.new(7, 8))
+dec s = tostring(Vec.new(7, 8))
 print("tostring(Vec(7,8)) = " .. s)
 assert(s == "Vec(7, 8)", "__tostring failed: " .. s)
 print("Test 9: PASSED")
@@ -171,7 +171,7 @@ Vec.__unm = function(v)
     return Vec.new(-v.x, -v.y)
 end
 
-local v6 = -Vec.new(3, -7)
+dec v6 = -Vec.new(3, -7)
 print("-Vec(3,-7) = (" .. v6.x .. ", " .. v6.y .. ")")
 assert(v6.x == -3, "__unm x failed")
 assert(v6.y == 7, "__unm y failed")
@@ -182,10 +182,10 @@ print("Test 10: PASSED")
 -- --------------------------------------------------------
 print("\n-- Test 11: __index 2-level chain --")
 
-local grandparent = { legacy = "ancient" }
-local parent = {}
+dec grandparent = { legacy = "ancient" }
+dec parent = {}
 setmetatable(parent, { __index = grandparent })
-local child2 = {}
+dec child2 = {}
 setmetatable(child2, { __index = parent })
 
 print("child2.legacy = " .. child2.legacy)
@@ -197,7 +197,7 @@ print("Test 11: PASSED")
 -- --------------------------------------------------------
 print("\n-- Test 12: rawget/rawset bypass --")
 
-local guarded = {}
+dec guarded = {}
 setmetatable(guarded, {
     __index = function(t, k)
         return "intercepted"
@@ -212,7 +212,7 @@ assert(rawget(guarded, "val") == 20, "rawset in __newindex failed")
 print("rawget(guarded, 'val') = " .. rawget(guarded, "val"))
 
 -- rawget on missing key should return nil (no __index)
-local rg = rawget(guarded, "missing")
+dec rg = rawget(guarded, "missing")
 assert(rg == nil, "rawget should bypass __index")
 print("Test 12: PASSED")
 

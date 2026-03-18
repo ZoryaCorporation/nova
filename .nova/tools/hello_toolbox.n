@@ -1,0 +1,8 @@
+-- hello_toolbox.n — Nova toolbox test script
+-- Created: 2026-03-06
+
+echo("=== Nova Toolbox Test ===")
+echo("Script loaded from .nova/tools/")
+echo("Platform:", os.platform())
+echo("Working directory:", os.cwd())
+echo("=== PASS ===")

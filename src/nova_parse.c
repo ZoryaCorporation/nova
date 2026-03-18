@@ -16,7 +16,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -30,6 +30,7 @@
  */
 
 #include "nova/nova_parse.h"
+#include "nova/nova_error.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -128,6 +129,17 @@ static int novai_match(NovaParser *P, NovaTokenType type) {
 }
 
 /**
+ * @brief Infer the best error code from a parser error message.
+ */
+static NovaErrorCode novai_infer_parse_code(const char *msg) {
+    if (msg == NULL) { return NOVA_E1001; }
+    if (strncmp(msg, "expected", 8) == 0)               return NOVA_E1014;
+    if (strncmp(msg, "unexpected", 10) == 0)             return NOVA_E1001;
+    if (strncmp(msg, "out of memory", 13) == 0)          return NOVA_E1017;
+    return NOVA_E1001;
+}
+
+/**
  * @brief Report a parse error
  */
 static void novai_error(NovaParser *P, const char *fmt, ...) {
@@ -150,6 +162,12 @@ static void novai_error(NovaParser *P, const char *fmt, ...) {
                    "%s:%d:%d: error: %s",
                    loc->filename ? loc->filename : "<input>",
                    loc->line, loc->column, msg);
+
+    /* Emit rich colored diagnostic */
+    nova_diag_report(NOVA_DIAG_ERROR, novai_infer_parse_code(msg),
+                     loc->filename ? loc->filename : "<input>",
+                     loc->line, loc->column,
+                     "%s", msg);
 }
 
 /**
@@ -579,16 +597,14 @@ static int novai_parse_args(NovaParser *P, NovaExpr ***args, int *count) {
     /* Handle special Lua-style call syntax:
      *   f "string"   -> f("string")
      *   f { table }  -> f({table})
+     *
+     * For strings, we parse a full expression so that concatenation
+     * and other operators work naturally:
+     *   echo "hello " .. name   -> echo("hello " .. name)
      */
     if (P->current.type == NOVA_TOKEN_STRING ||
         P->current.type == NOVA_TOKEN_LONG_STRING) {
-        NovaExpr *str_arg = nova_expr_new(NOVA_EXPR_STRING, P->current.loc);
-        if (str_arg != NULL) {
-            str_arg->as.string.data = P->current.value.string.data;
-            str_arg->as.string.len = P->current.value.string.len;
-        }
-        novai_advance(P);
-        (*args)[0] = str_arg;
+        (*args)[0] = novai_parse_expr(P, PREC_NONE);
         *count = 1;
         return 0;
     }
@@ -1294,20 +1310,20 @@ static int novai_parse_exprlist(NovaParser *P, NovaExpr ***exprs,
 static NovaStmt *novai_parse_local(NovaParser *P) {
     NovaSourceLoc loc = P->previous.loc;
 
-    /* local function name(...) ... end
+    /* dec function name(...) ... end
      * local async function name(...) ... end */
     int local_is_async = 0;
     if (novai_match(P, NOVA_TOKEN_ASYNC)) {
         local_is_async = 1;
         if (!novai_check(P, NOVA_TOKEN_FUNCTION)) {
             novai_error(P,
-                "expected 'function' after 'local async'");
+                "expected 'function' after 'dec async'");
             return NULL;
         }
     }
     if (novai_match(P, NOVA_TOKEN_FUNCTION)) {
         if (!novai_check(P, NOVA_TOKEN_NAME)) {
-            novai_error(P, "expected function name after 'local function'");
+            novai_error(P, "expected function name after 'dec function'");
             return NULL;
         }
 
@@ -1341,7 +1357,7 @@ static NovaStmt *novai_parse_local(NovaParser *P) {
         return s;
     }
 
-    /* local name [, name ...] */
+    /* dec name [, name ...] */
     int cap = 4;
     int name_count = 0;
     const char **names = (const char **)calloc((size_t)cap,
@@ -1356,7 +1372,7 @@ static NovaStmt *novai_parse_local(NovaParser *P) {
 
     do {
         if (!novai_check(P, NOVA_TOKEN_NAME)) {
-            novai_error(P, "expected name in local declaration");
+            novai_error(P, "expected name in dec declaration");
             free(names);
             free(name_lens);
             return NULL;

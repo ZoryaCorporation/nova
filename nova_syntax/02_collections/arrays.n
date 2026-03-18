@@ -1,0 +1,126 @@
+-- ============================================================
+-- arrays.n — 0-Indexed Arrays and Iteration
+--
+-- REMEMBER: Nova arrays start at index 0, NOT 1.
+-- This is the #1 thing that trips people up.
+--
+-- Run:  ./bin/nova nova_syntax/02_collections/arrays.n
+-- ============================================================
+
+echo "=== Arrays (0-Indexed!) ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Creating Arrays
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Creating Arrays ---"
+
+-- Table constructor creates 0-indexed array
+dec fruits = {"apple", "banana", "cherry", "date"}
+
+-- Under the hood: fruits[0]="apple", fruits[1]="banana", ...
+printf("  fruits[0] = %s\n", fruits[0])
+printf("  fruits[1] = %s\n", fruits[1])
+printf("  fruits[2] = %s\n", fruits[2])
+printf("  fruits[3] = %s\n", fruits[3])
+printf("  #fruits   = %d (this is the COUNT)\n", #fruits)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- The Golden Loop Pattern
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Iteration (the right way) ---"
+
+-- THIS is how you loop over arrays in Nova:
+echo "  for i = 0, #fruits - 1:"
+for i = 0, #fruits - 1 do
+    printf("    [%d] %s\n", i, fruits[i])
+end
+
+-- Using ipairs (also 0-based in Nova)
+echo "  Using ipairs:"
+for i, fruit in ipairs(fruits) do
+    printf("    [%d] %s\n", i, fruit)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Building Arrays
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Building Arrays ---"
+
+-- Start empty, use table.insert to append
+dec squares = {}
+for i = 0, 7 do
+    table.insert(squares, i * i)
+end
+
+echo "  Squares of 0-7:"
+for i = 0, #squares - 1 do
+    printf("    %d^2 = %d\n", i, squares[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Array Operations
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Array Operations ---"
+
+dec numbers = {50, 10, 30, 40, 20}
+echo "  Original: "
+for i = 0, #numbers - 1 do
+    printf("    [%d] = %d\n", i, numbers[i])
+end
+
+-- Sort in place
+table.sort(numbers)
+echo "  After sort: "
+for i = 0, #numbers - 1 do
+    printf("    [%d] = %d\n", i, numbers[i])
+end
+
+-- Insert at end
+table.insert(numbers, 60)
+dec cnt = #numbers
+printf("  After insert(60): count = %d, last = %d\n",
+       cnt, numbers[cnt - 1])
+
+-- Remove first element
+table.remove(numbers, 0)
+printf("  After remove(0): first = %d\n", numbers[0])
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Common Patterns
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Common Patterns ---"
+
+dec data = {3, 7, 2, 9, 1, 5, 8, 4, 6}
+
+-- Find max
+dec max_val = data[0]
+for i = 1, #data - 1 do
+    if data[i] > max_val then max_val = data[i] end
+end
+printf("  Max: %d\n", max_val)
+
+-- Sum
+dec total = 0
+for i = 0, #data - 1 do
+    total = total + data[i]
+end
+printf("  Sum: %d\n", total)
+
+-- Filter (collect evens)
+dec evens = {}
+for i = 0, #data - 1 do
+    if data[i] % 2 == 0 then
+        table.insert(evens, data[i])
+    end
+end
+echo "  Evens: "
+for i = 0, #evens - 1 do
+    printf("    %d\n", evens[i])
+end
+
+echo "\nDone!"

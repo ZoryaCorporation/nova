@@ -13,7 +13,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -50,11 +50,18 @@ typedef struct {
 
 /**
  * @brief Token in a macro body (replacement list)
+ *
+ * For numeric tokens (INTEGER/NUMBER), the actual value is stored
+ * in numeric_int / numeric_num rather than relying on the text field
+ * alone. This avoids union aliasing bugs when the lexer token's
+ * value.string is read for a numeric type.
  */
 typedef struct {
     NovaTokenType type;     /**< Token type                     */
     const char   *text;     /**< Token text (owned by PP)       */
     size_t        text_len; /**< Token text length              */
+    nova_int_t    numeric_int;  /**< Integer value (for INTEGER) */
+    nova_number_t numeric_num;  /**< Float value (for NUMBER)    */
     int           param_idx;/**< If >= 0, index of macro param  */
     int           stringify;/**< Preceded by # (stringify op)   */
     int           paste_left;/**< Followed by ## (paste left)   */
@@ -160,6 +167,7 @@ typedef struct {
  *   #import toml   -> NOVA_IMPORT_TOML
  *   #import html   -> NOVA_IMPORT_HTML
  *   #import yaml   -> NOVA_IMPORT_YAML
+ *   #import nini   -> NOVA_IMPORT_NINI
  *   #import data   -> NOVA_IMPORT_ALL (all formats + data.*)
  * ============================================================ */
 
@@ -170,8 +178,11 @@ typedef struct {
 #define NOVA_IMPORT_TOML  ((uint32_t)0x0010)
 #define NOVA_IMPORT_HTML  ((uint32_t)0x0020)
 #define NOVA_IMPORT_YAML  ((uint32_t)0x0040)
+#define NOVA_IMPORT_NET   ((uint32_t)0x0080)  /**< net.* HTTP/HTTPS    */
+#define NOVA_IMPORT_SQL   ((uint32_t)0x0100)  /**< sql.* database      */
+#define NOVA_IMPORT_NINI  ((uint32_t)0x0200)  /**< nini.* Nova INI     */
 #define NOVA_IMPORT_DATA  ((uint32_t)0x8000)  /**< data.* meta-module  */
-#define NOVA_IMPORT_ALL   ((uint32_t)0x807F)  /**< all of the above    */
+#define NOVA_IMPORT_ALL   ((uint32_t)0x83FF)  /**< all of the above    */
 
 /* ============================================================
  * PREPROCESSOR API

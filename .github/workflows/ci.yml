@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build: [release, debug, no-net]
+        include:
+          - build: release
+            make_args: ""
+          - build: debug
+            make_args: "DEBUG=1"
+          - build: no-net
+            make_args: "NOVA_NO_NET=1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libcurl (release/debug only)
+        if: matrix.build != 'no-net'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
+      - name: Build (${{ matrix.build }})
+        run: make ${{ matrix.make_args }}
+
+      - name: Build tools
+        run: make tools ${{ matrix.make_args }}
+
+      - name: Test
+        if: matrix.build != 'no-net'
+        run: make test ${{ matrix.make_args }}
+
+      - name: Test (no-net, skip net test)
+        if: matrix.build == 'no-net'
+        run: |
+          for f in tests/test_*.n; do
+            case "$f" in
+              tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
+            esac
+            echo "=== $f ==="
+            ./bin/nova "$f" || exit 1
+          done
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: make CC=clang NOVA_NO_NET=1
+
+      - name: Build tools
+        run: make tools CC=clang
+
+      - name: Test (skip net)
+        run: |
+          for f in tests/test_*.n; do
+            case "$f" in
+              tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
+            esac
+            echo "=== $f ==="
+            ./bin/nova "$f" || exit 1
+          done
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc make
+
+      - name: Build
+        run: make NOVA_NO_NET=1
+
+      - name: Build tools
+        run: make tools
+
+      - name: Test (skip net + platform-specific)
+        run: |
+          for f in tests/test_*.n; do
+            case "$f" in
+              tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
+            esac
+            echo "=== $f ==="
+            ./bin/nova "$f" || exit 1
+          done

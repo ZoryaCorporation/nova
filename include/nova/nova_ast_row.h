@@ -21,7 +21,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-06
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -357,6 +357,35 @@ struct NovaRowStmt {
             size_t      name_len;
             NovaExprIdx value;
         } const_stmt;
+
+        /* NOVA_STMT_ENUM */
+        struct {
+            const char  *name;          /**< Enum type name            */
+            size_t       name_len;
+            NovaNameIdx  members_start; /**< Start in names[]          */
+            int          member_count;
+            NovaExtraIdx values_start;  /**< Start in expr_extra[]     */
+            int          has_values;    /**< 1 if any explicit = val   */
+            int          typed;         /**< 1 if typedec enum { }     */
+        } enum_stmt;
+
+        /* NOVA_STMT_STRUCT */
+        struct {
+            const char  *name;          /**< Struct type name          */
+            size_t       name_len;
+            NovaNameIdx  fields_start;  /**< Field names in names[]    */
+            int          field_count;
+            NovaExtraIdx defaults_start;/**< Defaults in expr_extra[]  */
+            int          typed;         /**< 1 if typedec struct { }   */
+        } struct_stmt;
+
+        /* NOVA_STMT_TYPEDEC */
+        struct {
+            const char  *name;          /**< Type alias name           */
+            size_t       name_len;
+            const char  *base_type;     /**< Base type name            */
+            size_t       base_type_len;
+        } typedec_stmt;
 
         /* NOVA_STMT_BREAK: no extra data */
 

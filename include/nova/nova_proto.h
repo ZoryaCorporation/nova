@@ -22,7 +22,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-06
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -125,7 +125,12 @@ typedef struct {
  * Top-level chunks are also protos (the "main" function).
  * ============================================================ */
 
-typedef struct NovaProto {
+#ifndef NOVA_PROTO_TYPEDEF
+#define NOVA_PROTO_TYPEDEF
+typedef struct NovaProto NovaProto;
+#endif
+
+struct NovaProto {
     /* == Bytecode ============================================ */
     NovaInstruction *code;          /* Instruction array              */
     uint32_t         code_count;    /* Number of instructions         */
@@ -162,7 +167,7 @@ typedef struct NovaProto {
     uint32_t         line_defined;  /* Source line where func starts  */
     uint32_t         last_line;     /* Source line where func ends    */
 
-} NovaProto;
+};
 
 /* ============================================================
  * PROTO LIFECYCLE API

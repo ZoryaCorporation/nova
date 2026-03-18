@@ -1,0 +1,39 @@
+-- gc_repro_minimal.n: Test if the register bug happens without GC pressure
+dec graph = {}
+dec N = 10
+for i = 0, N - 1 do
+    graph[i] = {}
+end
+for i = 0, N - 2 do
+    dec neighbors = graph[i]
+    dec edge1 = i + 1
+    dec edge2 = (i + 3) % N
+    neighbors[#neighbors] = edge1
+    neighbors[#neighbors] = edge2
+end
+
+dec visited = {}
+dec queue = {}
+queue[0] = 0
+dec qhead = 0
+dec qtail = 0
+visited[0] = true
+
+while qhead <= qtail do
+    dec node = queue[qhead]
+    qhead = qhead + 1
+    dec neighbors = graph[node]
+    if neighbors then
+        dec nlen = #neighbors
+        for k = 0, nlen - 1 do
+            dec nb = neighbors[k]
+            if nb and not visited[nb] then
+                visited[nb] = true
+                qtail = qtail + 1
+                queue[qtail] = nb
+            end
+        end
+    end
+end
+
+echo("BFS PASSED without GC pressure")

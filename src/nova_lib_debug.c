@@ -270,7 +270,7 @@ static int nova_debug_getinfo(NovaVM *vm) {
         nova_vm_push_string(vm, name_buf, (size_t)n);
         nova_vm_set_field(vm, tidx, "name");
 
-        nova_vm_push_string(vm, "local", 5);
+        nova_vm_push_string(vm, "dec", 3);
         nova_vm_set_field(vm, tidx, "namewhat");
     }
 

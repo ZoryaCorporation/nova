@@ -261,6 +261,8 @@ void ndp_options_init(NdpOptions *opts) {
     opts->indent        = 2;
     opts->ini_typed     = 1;
     opts->html_text_only = 0;
+    opts->nini_interpolate = 1;
+    opts->nini_tasks_only  = 0;
 }
 
 const char *ndp_format_name(NdpFormat fmt) {
@@ -272,6 +274,7 @@ const char *ndp_format_name(NdpFormat fmt) {
         case NDP_FORMAT_TOML: return "toml";
         case NDP_FORMAT_HTML: return "html";
         case NDP_FORMAT_YAML: return "yaml";
+        case NDP_FORMAT_NINI: return "nini";
         default:              return "unknown";
     }
 }
@@ -290,6 +293,7 @@ NdpFormat ndp_format_from_name(const char *name) {
     if (strcasecmp(name, "htm") == 0)  { return NDP_FORMAT_HTML; }
     if (strcasecmp(name, "yaml") == 0) { return NDP_FORMAT_YAML; }
     if (strcasecmp(name, "yml") == 0)  { return NDP_FORMAT_YAML; }
+    if (strcasecmp(name, "nini") == 0) { return NDP_FORMAT_NINI; }
     return NDP_FORMAT_UNKNOWN;
 }
 
@@ -897,11 +901,11 @@ static int ndp_table_is_array(NovaTable *t) {
         return 0;
     }
     /* Has array elements and no hash entries -> array */
-    if (t->array_used > 0 && t->hash_used == 0) {
+    if (nova_table_array_len(t) > 0 && nova_table_hash_count(t) == 0) {
         return 1;
     }
     /* Empty table -> array (encode as []) */
-    if (t->array_used == 0 && t->hash_used == 0) {
+    if (nova_table_array_len(t) == 0 && nova_table_hash_count(t) == 0) {
         return 0;  /* empty -> object {} by default */
     }
     return 0;
@@ -954,17 +958,17 @@ static int ndp_json_encode_value(NovaVM *vm, NovaValue val,
                 /* Encode as JSON array */
                 ndp_buf_putc(out, '[');
                 uint32_t i = 0;
-                for (i = 0; i < t->array_used; i++) {
+                for (i = 0; i < nova_table_array_len(t); i++) {
                     if (i > 0) {
                         ndp_buf_putc(out, ',');
                     }
                     ndp_json_indent(out, opts, depth + 1);
-                    if (ndp_json_encode_value(vm, t->array[i], out,
+                    if (ndp_json_encode_value(vm, nova_table_get_int(t, i), out,
                                               opts, depth + 1, errbuf) != 0) {
                         return -1;
                     }
                 }
-                if (t->array_used > 0) {
+                if (nova_table_array_len(t) > 0) {
                     ndp_json_indent(out, opts, depth);
                 }
                 ndp_buf_putc(out, ']');
@@ -974,13 +978,9 @@ static int ndp_json_encode_value(NovaVM *vm, NovaValue val,
                 int first = 1;
 
                 /* Hash entries (string keys) */
-                uint32_t j = 0;
-                for (j = 0; j < t->hash_size; j++) {
-                    if (!t->hash[j].occupied) {
-                        continue;
-                    }
-                    NovaValue hkey = t->hash[j].key;
-                    NovaValue hval = t->hash[j].value;
+                uint32_t iter_h = nova_table_array_len(t);
+                NovaValue hkey, hval;
+                while (nova_table_next(t, &iter_h, &hkey, &hval)) {
 
                     if (!first) {
                         ndp_buf_putc(out, ',');
@@ -1014,7 +1014,7 @@ static int ndp_json_encode_value(NovaVM *vm, NovaValue val,
 
                 /* Also encode array part elements with integer keys */
                 uint32_t ai = 0;
-                for (ai = 0; ai < t->array_used; ai++) {
+                for (ai = 0; ai < nova_table_array_len(t); ai++) {
                     if (!first) {
                         ndp_buf_putc(out, ',');
                     }
@@ -1027,7 +1027,7 @@ static int ndp_json_encode_value(NovaVM *vm, NovaValue val,
                     if (opts->pretty) {
                         ndp_buf_putc(out, ' ');
                     }
-                    if (ndp_json_encode_value(vm, t->array[ai], out,
+                    if (ndp_json_encode_value(vm, nova_table_get_int(t, ai), out,
                                               opts, depth + 1, errbuf) != 0) {
                         return -1;
                     }
@@ -1209,8 +1209,30 @@ static int ndp_csv_decode(NovaVM *vm, const char *text, size_t len,
             }
             if (ncols >= cap) {
                 cap *= 2;
-                headers = (char **)realloc(headers, (size_t)cap * sizeof(char *));
-                header_lens = (size_t *)realloc(header_lens, (size_t)cap * sizeof(size_t));
+                char **new_headers = (char **)realloc(
+                    headers, (size_t)cap * sizeof(char *));
+                if (new_headers == NULL) {
+                    int fi = 0;
+                    for (fi = 0; fi < ncols; fi++) { free(headers[fi]); }
+                    free(headers);
+                    free(header_lens);
+                    free(field);
+                    ndp_error(&P, "out of memory expanding CSV headers");
+                    return -1;
+                }
+                headers = new_headers;
+                size_t *new_lens = (size_t *)realloc(
+                    header_lens, (size_t)cap * sizeof(size_t));
+                if (new_lens == NULL) {
+                    int fi = 0;
+                    for (fi = 0; fi < ncols; fi++) { free(headers[fi]); }
+                    free(headers);
+                    free(header_lens);
+                    free(field);
+                    ndp_error(&P, "out of memory expanding CSV headers");
+                    return -1;
+                }
+                header_lens = new_lens;
             }
             headers[ncols] = field;
             header_lens[ncols] = flen;
@@ -1324,7 +1346,7 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     }
 
     NovaTable *t = nova_as_table(val);
-    if (t == NULL || t->array_used == 0) {
+    if (t == NULL || nova_table_array_len(t) == 0) {
         return 0;  /* empty -> empty output */
     }
 
@@ -1334,7 +1356,7 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     }
 
     /* Check first row to determine structure */
-    NovaValue first_row = t->array[0];
+    NovaValue first_row = nova_table_get_int(t, 0);
     if (!nova_is_table(first_row)) {
         if (errbuf != NULL) {
             (void)snprintf(errbuf, 256, "CSV encode: rows must be tables");
@@ -1343,14 +1365,14 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     }
 
     NovaTable *fr = nova_as_table(first_row);
-    int is_named = (fr->hash_used > 0);
+    int is_named = (nova_table_hash_count(fr) > 0);
 
     /* Collect header names from first row hash keys */
     char **headers = NULL;
     int ncols = 0;
 
     if (is_named && opts->csv_header) {
-        ncols = (int)fr->hash_used;
+        ncols = (int)nova_table_hash_count(fr);
         headers = (char **)calloc((size_t)ncols, sizeof(char *));
         if (headers == NULL) {
             if (errbuf != NULL) {
@@ -1359,13 +1381,11 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
             return -1;
         }
         int hi = 0;
-        uint32_t hj = 0;
-        for (hj = 0; hj < fr->hash_size; hj++) {
-            if (!fr->hash[hj].occupied) {
-                continue;
-            }
-            if (nova_is_string(fr->hash[hj].key) && hi < ncols) {
-                headers[hi] = nova_str_data(nova_as_string(fr->hash[hj].key));
+        uint32_t hj_iter = nova_table_array_len(fr);
+        NovaValue hk_it, hv_it;
+        while (nova_table_next(fr, &hj_iter, &hk_it, &hv_it)) {
+            if (nova_is_string(hk_it) && hi < ncols) {
+                headers[hi] = nova_str_data(nova_as_string(hk_it));
                 hi++;
             }
         }
@@ -1384,8 +1404,8 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
 
     /* Write data rows */
     uint32_t ri = 0;
-    for (ri = 0; ri < t->array_used; ri++) {
-        NovaValue row = t->array[ri];
+    for (ri = 0; ri < nova_table_array_len(t); ri++) {
+        NovaValue row = nova_table_get_int(t, ri);
         if (!nova_is_table(row)) {
             continue;
         }
@@ -1403,15 +1423,7 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
                     strlen(headers[ci]));
                 NovaValue cv = nova_value_nil();
                 if (key != NULL) {
-                    uint32_t hj = 0;
-                    for (hj = 0; hj < rt->hash_size; hj++) {
-                        if (rt->hash[hj].occupied &&
-                            nova_is_string(rt->hash[hj].key) &&
-                            nova_as_string(rt->hash[hj].key) == key) {
-                            cv = rt->hash[hj].value;
-                            break;
-                        }
-                    }
+                    cv = nova_table_get_str(rt, key);
                 }
                 /* Format value */
                 if (nova_is_string(cv)) {
@@ -1451,11 +1463,11 @@ static int ndp_csv_encode(NovaVM *vm, int idx, const NdpOptions *opts,
         } else {
             /* Array-indexed columns */
             uint32_t ci = 0;
-            for (ci = 0; ci < rt->array_used; ci++) {
+            for (ci = 0; ci < nova_table_array_len(rt); ci++) {
                 if (ci > 0) {
                     ndp_buf_putc(out, delim);
                 }
-                NovaValue cv = rt->array[ci];
+                NovaValue cv = nova_table_get_int(rt, ci);
                 if (nova_is_string(cv)) {
                     ndp_buf_append(out, nova_str_data(nova_as_string(cv)),
                                    nova_str_len(nova_as_string(cv)));
@@ -1737,13 +1749,9 @@ static int ndp_ini_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     }
 
     /* First pass: write bare key=value pairs (non-table values) */
-    uint32_t j = 0;
-    for (j = 0; j < t->hash_size; j++) {
-        if (!t->hash[j].occupied) {
-            continue;
-        }
-        NovaValue hkey = t->hash[j].key;
-        NovaValue hval = t->hash[j].value;
+    uint32_t iter_ini = nova_table_array_len(t);
+    NovaValue hkey, hval;
+    while (nova_table_next(t, &iter_ini, &hkey, &hval)) {
 
         if (!nova_is_string(hkey)) {
             continue;
@@ -1776,34 +1784,27 @@ static int ndp_ini_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     }
 
     /* Second pass: write [section] blocks */
-    for (j = 0; j < t->hash_size; j++) {
-        if (!t->hash[j].occupied) {
-            continue;
-        }
-        NovaValue hkey = t->hash[j].key;
-        NovaValue hval = t->hash[j].value;
+    uint32_t iter_sec = nova_table_array_len(t);
+    NovaValue hkey2, hval2;
+    while (nova_table_next(t, &iter_sec, &hkey2, &hval2)) {
 
-        if (!nova_is_string(hkey) || !nova_is_table(hval)) {
+        if (!nova_is_string(hkey2) || !nova_is_table(hval2)) {
             continue;
         }
 
         ndp_buf_putc(out, '\n');
         ndp_buf_putc(out, '[');
-        ndp_buf_puts(out, nova_str_data(nova_as_string(hkey)));
+        ndp_buf_puts(out, nova_str_data(nova_as_string(hkey2)));
         ndp_buf_puts(out, "]\n");
 
-        NovaTable *sec = nova_as_table(hval);
+        NovaTable *sec = nova_as_table(hval2);
         if (sec == NULL) {
             continue;
         }
 
-        uint32_t sk = 0;
-        for (sk = 0; sk < sec->hash_size; sk++) {
-            if (!sec->hash[sk].occupied) {
-                continue;
-            }
-            NovaValue skey = sec->hash[sk].key;
-            NovaValue sval = sec->hash[sk].value;
+        uint32_t iter_sk = nova_table_array_len(sec);
+        NovaValue skey, sval;
+        while (nova_table_next(sec, &iter_sk, &skey, &sval)) {
 
             if (!nova_is_string(skey)) {
                 continue;
@@ -2124,19 +2125,11 @@ static int ndp_toml_decode(NovaVM *vm, const char *text, size_t len,
             NovaTable *arr = NULL;
 
             /* Search for existing array using content comparison.
-             * Pointer comparison fails because strings are not interned. */
+             * nova_table_get_cstr handles non-interned string lookup. */
             if (rt != NULL) {
-                uint32_t hj = 0;
-                for (hj = 0; hj < rt->hash_size; hj++) {
-                    if (rt->hash[hj].occupied &&
-                        nova_is_string(rt->hash[hj].key) &&
-                        nova_str_len(nova_as_string(rt->hash[hj].key)) == nlen &&
-                        memcmp(nova_str_data(nova_as_string(rt->hash[hj].key)),
-                               sec_name, nlen) == 0 &&
-                        nova_is_table(rt->hash[hj].value)) {
-                        arr = nova_as_table(rt->hash[hj].value);
-                        break;
-                    }
+                NovaValue existing = nova_table_get_cstr(rt, sec_name, (uint32_t)nlen);
+                if (nova_is_table(existing)) {
+                    arr = nova_as_table(existing);
                 }
             }
 
@@ -2160,7 +2153,7 @@ static int ndp_toml_decode(NovaVM *vm, const char *text, size_t len,
             nova_vm_push_table(vm);
             target_idx = nova_vm_get_top(vm) - 1;
             NovaValue elem = nova_vm_get(vm, target_idx);
-            nova_table_raw_set_int(vm, arr, (nova_int_t)arr->array_used, elem);
+            nova_table_raw_set_int(vm, arr, (nova_int_t)nova_table_array_len(arr), elem);
 
             /* Skip rest of line */
             while (!ndp_eof(&P) && ndp_peek(&P) != '\n') { ndp_advance(&P); }
@@ -2285,11 +2278,9 @@ static int ndp_toml_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     /* We inline a small helper here */
 
     /* First pass: write bare key = value (non-table values) */
-    uint32_t j = 0;
-    for (j = 0; j < t->hash_size; j++) {
-        if (!t->hash[j].occupied) { continue; }
-        NovaValue hkey = t->hash[j].key;
-        NovaValue hval = t->hash[j].value;
+    uint32_t iter_tp1 = nova_table_array_len(t);
+    NovaValue hkey, hval;
+    while (nova_table_next(t, &iter_tp1, &hkey, &hval)) {
         if (!nova_is_string(hkey)) { continue; }
         if (nova_is_table(hval)) { continue; }
 
@@ -2335,37 +2326,36 @@ static int ndp_toml_encode(NovaVM *vm, int idx, const NdpOptions *opts,
     }
 
     /* Second pass: [section] blocks for table values */
-    for (j = 0; j < t->hash_size; j++) {
-        if (!t->hash[j].occupied) { continue; }
-        NovaValue hkey = t->hash[j].key;
-        NovaValue hval = t->hash[j].value;
-        if (!nova_is_string(hkey) || !nova_is_table(hval)) {
+    uint32_t iter_tp2 = nova_table_array_len(t);
+    NovaValue hkey2, hval2;
+    while (nova_table_next(t, &iter_tp2, &hkey2, &hval2)) {
+        if (!nova_is_string(hkey2) || !nova_is_table(hval2)) {
             continue;
         }
 
-        NovaTable *sec = nova_as_table(hval);
+        NovaTable *sec = nova_as_table(hval2);
         if (sec == NULL) { continue; }
 
         /* Check if it's an array of tables (array part with table elements) */
-        if (sec->array_used > 0 && sec->hash_used == 0 &&
-            nova_is_table(sec->array[0])) {
+        if (nova_table_array_len(sec) > 0 && nova_table_hash_count(sec) == 0 &&
+            nova_is_table(nova_table_get_int(sec, 0))) {
             /* [[array_of_tables]] */
             uint32_t ai = 0;
-            for (ai = 0; ai < sec->array_used; ai++) {
+            for (ai = 0; ai < nova_table_array_len(sec); ai++) {
                 ndp_buf_puts(out, "\n[[");
-                ndp_buf_puts(out, nova_str_data(nova_as_string(hkey)));
+                ndp_buf_puts(out, nova_str_data(nova_as_string(hkey2)));
                 ndp_buf_puts(out, "]]\n");
 
-                if (nova_is_table(sec->array[ai])) {
-                    NovaTable *elem = nova_as_table(sec->array[ai]);
+                NovaValue sec_elem = nova_table_get_int(sec, ai);
+                if (nova_is_table(sec_elem)) {
+                    NovaTable *elem = nova_as_table(sec_elem);
                     if (elem != NULL) {
-                        uint32_t ek = 0;
-                        for (ek = 0; ek < elem->hash_size; ek++) {
-                            if (!elem->hash[ek].occupied) { continue; }
-                            if (!nova_is_string(elem->hash[ek].key)) { continue; }
-                            ndp_buf_puts(out, nova_str_data(nova_as_string(elem->hash[ek].key)));
+                        uint32_t iter_ek = nova_table_array_len(elem);
+                        NovaValue ek_key, ev;
+                        while (nova_table_next(elem, &iter_ek, &ek_key, &ev)) {
+                            if (!nova_is_string(ek_key)) { continue; }
+                            ndp_buf_puts(out, nova_str_data(nova_as_string(ek_key)));
                             ndp_buf_puts(out, " = ");
-                            NovaValue ev = elem->hash[ek].value;
                             if (nova_is_string(ev)) {
                                 ndp_buf_putc(out, '"');
                                 ndp_buf_append(out, nova_str_data(nova_as_string(ev)), nova_str_len(nova_as_string(ev)));
@@ -2385,16 +2375,15 @@ static int ndp_toml_encode(NovaVM *vm, int idx, const NdpOptions *opts,
         } else {
             /* Regular [table] */
             ndp_buf_puts(out, "\n[");
-            ndp_buf_puts(out, nova_str_data(nova_as_string(hkey)));
+            ndp_buf_puts(out, nova_str_data(nova_as_string(hkey2)));
             ndp_buf_puts(out, "]\n");
 
-            uint32_t sk = 0;
-            for (sk = 0; sk < sec->hash_size; sk++) {
-                if (!sec->hash[sk].occupied) { continue; }
-                if (!nova_is_string(sec->hash[sk].key)) { continue; }
-                ndp_buf_puts(out, nova_str_data(nova_as_string(sec->hash[sk].key)));
+            uint32_t iter_sk = nova_table_array_len(sec);
+            NovaValue sk_key, sv;
+            while (nova_table_next(sec, &iter_sk, &sk_key, &sv)) {
+                if (!nova_is_string(sk_key)) { continue; }
+                ndp_buf_puts(out, nova_str_data(nova_as_string(sk_key)));
                 ndp_buf_puts(out, " = ");
-                NovaValue sv = sec->hash[sk].value;
                 if (nova_is_string(sv)) {
                     ndp_buf_putc(out, '"');
                     ndp_buf_append(out, nova_str_data(nova_as_string(sv)), nova_str_len(nova_as_string(sv)));
@@ -2408,12 +2397,12 @@ static int ndp_toml_encode(NovaVM *vm, int idx, const NdpOptions *opts,
                 } else if (nova_is_table(sv)) {
                     /* Inline array */
                     NovaTable *at = nova_as_table(sv);
-                    if (at != NULL && at->array_used > 0) {
+                    if (at != NULL && nova_table_array_len(at) > 0) {
                         ndp_buf_putc(out, '[');
                         uint32_t ai2 = 0;
-                        for (ai2 = 0; ai2 < at->array_used; ai2++) {
+                        for (ai2 = 0; ai2 < nova_table_array_len(at); ai2++) {
                             if (ai2 > 0) { ndp_buf_puts(out, ", "); }
-                            NovaValue av = at->array[ai2];
+                            NovaValue av = nova_table_get_int(at, ai2);
                             if (nova_is_string(av)) {
                                 ndp_buf_putc(out, '"');
                                 ndp_buf_append(out, nova_str_data(nova_as_string(av)), nova_str_len(nova_as_string(av)));
@@ -3029,13 +3018,13 @@ static void ndp_yaml_emit_table(NdpBuf *out, NovaTable *t, int depth) {
     }
 
     /* Check if it's an array (has integer-indexed elements) */
-    if (t->array_used > 0) {
+    if (nova_table_array_len(t) > 0) {
         /* Emit as sequence */
         uint32_t ai = 0;
-        for (ai = 0; ai < t->array_used; ai++) {
+        for (ai = 0; ai < nova_table_array_len(t); ai++) {
             ndp_yaml_emit_indent(out, depth);
             ndp_buf_puts(out, "- ");
-            NovaValue av = t->array[ai];
+            NovaValue av = nova_table_get_int(t, ai);
             if (nova_is_table(av)) {
                 ndp_buf_putc(out, '\n');
                 ndp_yaml_emit_table(out, nova_as_table(av), depth + 1);
@@ -3048,11 +3037,9 @@ static void ndp_yaml_emit_table(NdpBuf *out, NovaTable *t, int depth) {
     }
 
     /* Emit as mapping */
-    uint32_t j = 0;
-    for (j = 0; j < t->hash_size; j++) {
-        if (!t->hash[j].occupied) { continue; }
-        NovaValue hkey = t->hash[j].key;
-        NovaValue hval = t->hash[j].value;
+    uint32_t iter_ym = nova_table_array_len(t);
+    NovaValue hkey, hval;
+    while (nova_table_next(t, &iter_ym, &hkey, &hval)) {
 
         if (!nova_is_string(hkey)) { continue; }
 
@@ -3497,20 +3484,12 @@ static void ndp_html_extract_text(NovaVM *vm, NovaValue val, NdpBuf *out) {
     /* Look for "children" field */
     NovaString *ckey = nova_vm_intern_string(vm, "children", 8);
     if (ckey != NULL) {
-        uint32_t hj = 0;
-        for (hj = 0; hj < t->hash_size; hj++) {
-            if (t->hash[hj].occupied &&
-                nova_is_string(t->hash[hj].key) &&
-                nova_as_string(t->hash[hj].key) == ckey) {
-                NovaValue children = t->hash[hj].value;
-                if (nova_is_table(children) && nova_as_table(children) != NULL) {
-                    NovaTable *ct = nova_as_table(children);
-                    uint32_t ci = 0;
-                    for (ci = 0; ci < ct->array_used; ci++) {
-                        ndp_html_extract_text(vm, ct->array[ci], out);
-                    }
-                }
-                break;
+        NovaValue children = nova_table_get_str(t, ckey);
+        if (nova_is_table(children) && nova_as_table(children) != NULL) {
+            NovaTable *ct = nova_as_table(children);
+            uint32_t ci = 0;
+            for (ci = 0; ci < nova_table_array_len(ct); ci++) {
+                ndp_html_extract_text(vm, nova_table_get_int(ct, ci), out);
             }
         }
     }
@@ -3632,13 +3611,14 @@ static void ndp_html_encode_node(NovaVM *vm, NovaValue val,
     NovaTable *attrs = NULL;
     NovaTable *children_tbl = NULL;
 
-    uint32_t hj = 0;
-    for (hj = 0; hj < t->hash_size; hj++) {
-        if (!t->hash[hj].occupied || !nova_is_string(t->hash[hj].key)) {
+    uint32_t iter_hn = nova_table_array_len(t);
+    NovaValue hk_n, hv_n;
+    while (nova_table_next(t, &iter_hn, &hk_n, &hv_n)) {
+        if (!nova_is_string(hk_n)) {
             continue;
         }
-        const char *k = nova_str_data(nova_as_string(t->hash[hj].key));
-        NovaValue v = t->hash[hj].value;
+        const char *k = nova_str_data(nova_as_string(hk_n));
+        NovaValue v = hv_n;
         if (strcmp(k, "tag") == 0 && nova_is_string(v)) {
             tag = nova_str_data(nova_as_string(v));
         } else if (strcmp(k, "attrs") == 0 && nova_is_table(v)) {
@@ -3660,15 +3640,15 @@ static void ndp_html_encode_node(NovaVM *vm, NovaValue val,
 
         /* Attributes */
         if (attrs != NULL) {
-            uint32_t aj = 0;
-            for (aj = 0; aj < attrs->hash_size; aj++) {
-                if (!attrs->hash[aj].occupied ||
-                    !nova_is_string(attrs->hash[aj].key)) {
+            uint32_t iter_at = nova_table_array_len(attrs);
+            NovaValue ak_it, av_it;
+            while (nova_table_next(attrs, &iter_at, &ak_it, &av_it)) {
+                if (!nova_is_string(ak_it)) {
                     continue;
                 }
                 ndp_buf_putc(out, ' ');
-                ndp_buf_puts(out, nova_str_data(nova_as_string(attrs->hash[aj].key)));
-                NovaValue av = attrs->hash[aj].value;
+                ndp_buf_puts(out, nova_str_data(nova_as_string(ak_it)));
+                NovaValue av = av_it;
                 if (nova_is_string(av)) {
                     ndp_buf_puts(out, "=\"");
                     /* Escape attribute value */
@@ -3700,8 +3680,8 @@ static void ndp_html_encode_node(NovaVM *vm, NovaValue val,
     if (children_tbl != NULL) {
         uint32_t ci = 0;
         int child_indent = is_doc ? indent_level : indent_level + 1;
-        for (ci = 0; ci < children_tbl->array_used; ci++) {
-            ndp_html_encode_node(vm, children_tbl->array[ci], out,
+        for (ci = 0; ci < nova_table_array_len(children_tbl); ci++) {
+            ndp_html_encode_node(vm, nova_table_get_int(children_tbl, ci), out,
                                  child_indent, opts);
         }
     }
@@ -3748,7 +3728,48 @@ static int ndp_html_encode(NovaVM *vm, int idx, const NdpOptions *opts,
 }
 
 /* ============================================================
- * PART 9: PUBLIC API DISPATCH
+ * PART 9A: NINI CODEC (delegated to nova_nini.c)
+ *
+ * The full NINI parser/encoder lives in its own module:
+ *   include/nova/nova_nini.h  -- public API
+ *   src/nova_nini.c           -- implementation
+ *
+ * NDP provides thin wrappers that bridge NdpOptions <-> NiniOptions
+ * and delegate to the standalone codec.
+ * ============================================================ */
+
+#include "nova/nova_nini.h"
+
+/* ---- NINI NDP decode wrapper ---- */
+static int ndp_nini_decode(NovaVM *vm, const char *text, size_t len,
+                            const NdpOptions *opts, char *errbuf) {
+    NiniOptions nini_opts;
+    nova_nini_options_init(&nini_opts);
+    nini_opts.interpolate = opts->nini_interpolate;
+    nini_opts.tasks_only  = opts->nini_tasks_only;
+    return nova_nini_decode(vm, text, len, &nini_opts, errbuf, 256);
+}
+
+/* ---- NINI NDP encode wrapper ---- */
+static int ndp_nini_encode(NovaVM *vm, int idx, const NdpOptions *opts,
+                            NdpBuf *out, char *errbuf) {
+    NiniOptions nini_opts;
+    nova_nini_options_init(&nini_opts);
+    nini_opts.interpolate = opts->nini_interpolate;
+    nini_opts.tasks_only  = opts->nini_tasks_only;
+    char *result = NULL;
+    size_t result_len = 0;
+    int rc = nova_nini_encode(vm, idx, &nini_opts,
+                              &result, &result_len, errbuf, 256);
+    if (rc == 0 && result != NULL) {
+        ndp_buf_append(out, result, result_len);
+        free(result);
+    }
+    return rc;
+}
+
+/* ============================================================
+ * PART 10: PUBLIC API DISPATCH
  * ============================================================ */
 
 int ndp_decode(NovaVM *vm, const char *text, size_t len,
@@ -3774,6 +3795,8 @@ int ndp_decode(NovaVM *vm, const char *text, size_t len,
             return ndp_html_decode(vm, text, len, opts, errbuf);
         case NDP_FORMAT_YAML:
             return ndp_yaml_decode(vm, text, len, opts, errbuf);
+        case NDP_FORMAT_NINI:
+            return ndp_nini_decode(vm, text, len, opts, errbuf);
         default:
             if (errbuf != NULL) {
                 (void)snprintf(errbuf, 256, "unknown format: %d",
@@ -3806,6 +3829,8 @@ int ndp_encode(NovaVM *vm, int idx, const NdpOptions *opts,
             return ndp_html_encode(vm, idx, opts, out, errbuf);
         case NDP_FORMAT_YAML:
             return ndp_yaml_encode(vm, idx, opts, out, errbuf);
+        case NDP_FORMAT_NINI:
+            return ndp_nini_encode(vm, idx, opts, out, errbuf);
         default:
             if (errbuf != NULL) {
                 (void)snprintf(errbuf, 256, "unknown format: %d",
@@ -3814,3 +3839,4 @@ int ndp_encode(NovaVM *vm, int idx, const NdpOptions *opts,
             return -1;
     }
 }
+

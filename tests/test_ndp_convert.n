@@ -1,0 +1,245 @@
+-- test_ndp_convert.n — Cross-format data conversion test
+-- Tests CSV → NINI, JSON → NINI, and roundtrip conversions
+-- Copyright (c) 2026 Zorya Corporation
+
+#import data
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+        printf("  PASS: %s\n", name)
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+dec function check_eq(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        printf("  PASS: %s\n", name)
+    else
+        fail = fail + 1
+        printf("  FAIL: %s (got %s, expected %s)\n",
+            name, tostring(got), tostring(expected))
+    end
+end
+
+print("=== NDP CROSS-FORMAT CONVERSION TESTS ===")
+
+-- ==========================================================
+-- 1. CSV decode basics
+-- ==========================================================
+print("\n--- 1. CSV decode (small) ---")
+do
+    dec csv_text = "name,age,email\nAlice,30,alice@example.com\nBob,25,bob@example.com\n"
+    dec rows = csv.decode(csv_text)
+    check("csv type",       type(rows) == "table")
+    check_eq("csv rows",    #rows, 2)
+    check("row0.name",      rows[0].name == "Alice")
+    check_eq("row0.age",    rows[0].age, 30)
+    check("row0.email",     rows[0].email == "alice@example.com")
+    check("row1.name",      rows[1].name == "Bob")
+    check_eq("row1.age",    rows[1].age, 25)
+end
+
+-- ==========================================================
+-- 2. CSV → NINI encode
+-- ==========================================================
+print("\n--- 2. CSV -> NINI encode ---")
+do
+    dec csv_text = "name,age,email\nAlice,30,alice@example.com\nBob,25,bob@example.com\n"
+    dec rows = csv.decode(csv_text)
+
+    -- Wrap rows in a table structure for NINI
+    dec doc = {}
+    doc.meta = { source = "users.csv", row_count = #rows }
+    for i = 0, #rows - 1 do
+        doc["row_" .. tostring(i)] = rows[i]
+    end
+
+    dec nini_out = nini.encode(doc)
+    check("csv->nini type",    type(nini_out) == "string")
+    check("csv->nini size",    #nini_out > 10)
+    printf("  [CSV->NINI: %d bytes]\n", #nini_out)
+
+    -- Decode back and verify
+    dec back = nini.decode(nini_out)
+    check("csv->nini->back meta", type(back.meta) == "table")
+    check_eq("csv->nini->back count", back.meta.row_count, 2)
+end
+
+-- ==========================================================
+-- 3. Larger CSV (10-row sensor data)
+-- ==========================================================
+print("\n--- 3. Larger CSV (10 rows) ---")
+do
+    dec csv_text = "id,sensor,temperature,humidity,timestamp\n"
+    csv_text = csv_text .. "1,S001,22.5,45,2026-02-18T10:00:00\n"
+    csv_text = csv_text .. "2,S002,23.1,42,2026-02-18T10:05:00\n"
+    csv_text = csv_text .. "3,S001,22.8,44,2026-02-18T10:10:00\n"
+    csv_text = csv_text .. "4,S003,21.0,50,2026-02-18T10:15:00\n"
+    csv_text = csv_text .. "5,S002,23.5,41,2026-02-18T10:20:00\n"
+    csv_text = csv_text .. "6,S001,22.3,46,2026-02-18T10:25:00\n"
+    csv_text = csv_text .. "7,S003,20.8,51,2026-02-18T10:30:00\n"
+    csv_text = csv_text .. "8,S002,24.0,40,2026-02-18T10:35:00\n"
+    csv_text = csv_text .. "9,S001,22.1,47,2026-02-18T10:40:00\n"
+    csv_text = csv_text .. "10,S003,21.5,49,2026-02-18T10:45:00\n"
+
+    dec rows = csv.decode(csv_text)
+    check_eq("10-row count",    #rows, 10)
+    check("row0.sensor",        rows[0].sensor == "S001")
+    check("row9.sensor",        rows[9].sensor == "S003")
+    check_eq("row0.id",         rows[0].id, 1)
+    check_eq("row9.id",         rows[9].id, 10)
+
+    -- Convert to NINI
+    dec doc = { meta = { source = "sensors.csv", columns = "id,sensor,temperature,humidity,timestamp" } }
+    doc.data = rows
+    dec nini_out = nini.encode(doc)
+    check("10row->nini type",   type(nini_out) == "string")
+    check("10row->nini size",   #nini_out > 50)
+    printf("  [10-row CSV->NINI: %d bytes]\n", #nini_out)
+end
+
+-- ==========================================================
+-- 4. JSON decode basics
+-- ==========================================================
+print("\n--- 4. JSON decode ---")
+do
+    dec obj = json.decode('{"name":"Nova","version":2,"debug":false}')
+    check("json type",       type(obj) == "table")
+    check("json name",       obj.name == "Nova")
+    check_eq("json version", obj.version, 2)
+    check("json debug",      obj.debug == false)
+end
+
+-- ==========================================================
+-- 5. JSON with arrays and nesting
+-- ==========================================================
+print("\n--- 5. JSON nested ---")
+do
+    dec json_text = '{"features":["vm","gc","closures"],"config":{"debug":false,"workers":4}}'
+    dec obj = json.decode(json_text)
+    check("features type",   type(obj.features) == "table")
+    check_eq("features len", #obj.features, 3)
+    check("feature[0]",      obj.features[0] == "vm")
+    check("feature[2]",      obj.features[2] == "closures")
+    check("config type",     type(obj.config) == "table")
+    check("config.debug",    obj.config.debug == false)
+    check_eq("config.work",  obj.config.workers, 4)
+end
+
+-- ==========================================================
+-- 6. JSON → NINI encode
+-- ==========================================================
+print("\n--- 6. JSON -> NINI encode ---")
+do
+    dec json_text = '{"project":"Nova","version":2,"features":["vm","gc","closures"]}'
+    dec obj = json.decode(json_text)
+    dec nini_out = nini.encode(obj)
+    check("json->nini type",   type(nini_out) == "string")
+    check("json->nini size",   #nini_out > 10)
+    printf("  [JSON->NINI: %d bytes]\n", #nini_out)
+
+    -- Decode back and verify structure survived
+    dec back = nini.decode(nini_out)
+    check("json->nini->back project", back.project == "Nova")
+    check_eq("json->nini->back ver",  back.version, 2)
+end
+
+-- ==========================================================
+-- 7. Complex JSON (package.json-like)
+-- ==========================================================
+print("\n--- 7. Complex JSON ---")
+do
+    dec json_text = [[
+{
+    "name": "webapp",
+    "version": "3.1.0",
+    "dependencies": {
+        "express": "4.18.0",
+        "lodash": "4.17.21"
+    },
+    "scripts": {
+        "build": "tsc && node dist/index.js",
+        "test": "jest --coverage"
+    },
+    "keywords": ["web", "api", "typescript"],
+    "private": true,
+    "port": 3000
+}
+]]
+    dec obj = json.decode(json_text)
+    check("pkg name",          obj.name == "webapp")
+    check("pkg version",       obj.version == "3.1.0")
+    check("pkg deps type",     type(obj.dependencies) == "table")
+    check("pkg express",       obj.dependencies.express == "4.18.0")
+    check("pkg keywords",      type(obj.keywords) == "table")
+    check("pkg kw[0]",         obj.keywords[0] == "web")
+    check("pkg private",       obj.private == true)
+    check_eq("pkg port",       obj.port, 3000)
+
+    -- Convert to NINI
+    dec nini_out = nini.encode(obj)
+    check("pkg->nini ok",      type(nini_out) == "string")
+    printf("  [Complex JSON->NINI: %d bytes]\n", #nini_out)
+end
+
+-- ==========================================================
+-- 8. JSON → CSV roundtrip (flat objects)
+-- ==========================================================
+print("\n--- 8. JSON array → CSV encode ---")
+do
+    dec json_text = '[{"name":"Alice","age":30},{"name":"Bob","age":25}]'
+    dec arr = json.decode(json_text)
+    check_eq("json arr len",   #arr, 2)
+    check("json arr[0].name",  arr[0].name == "Alice")
+
+    dec csv_out = csv.encode(arr)
+    check("json->csv type",    type(csv_out) == "string")
+    check("json->csv size",    #csv_out > 10)
+    printf("  [JSON->CSV: %d bytes]\n", #csv_out)
+end
+
+-- ==========================================================
+-- 9. NINI decode → JSON encode
+-- ==========================================================
+print("\n--- 9. NINI -> JSON ---")
+do
+    dec nini_text = [[
+name = MyApp
+version = 2
+debug = false
+
+[server]
+host = localhost
+port = 8080
+]]
+    dec t = nini.decode(nini_text)
+    dec json_out = json.encode(t)
+    check("nini->json type",   type(json_out) == "string")
+    check("nini->json size",   #json_out > 10)
+    printf("  [NINI->JSON: %d bytes]\n", #json_out)
+
+    -- Roundtrip back
+    dec back = json.decode(json_out)
+    check("nini->json name",   back.name == "MyApp")
+    check_eq("nini->json ver", back.version, 2)
+    check("nini->json debug",  back.debug == false)
+end
+
+-- ==========================================================
+-- Results
+-- ==========================================================
+print("")
+printf("=== NDP CONVERT RESULTS: %d/%d ===\n", pass, pass + fail)
+if fail > 0 then
+    printf("FAILURES: %d\n", fail)
+    error("NDP conversion tests failed")
+else
+    print("=== ALL NDP CONVERSION TESTS PASSED ===")
+end

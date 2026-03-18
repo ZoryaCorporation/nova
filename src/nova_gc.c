@@ -4,7 +4,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-08
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -293,7 +293,7 @@ static size_t novai_gc_propagate_one(NovaVM *vm) {
     switch (hdr->gc_type) {
         case NOVA_TYPE_STRING:
             /* Strings are leaves — no children to traverse */
-            work = sizeof(NovaString) + ((NovaString *)hdr)->length;
+            work = sizeof(NovaString) + nova_str_len((NovaString *)hdr);
             break;
 
         case NOVA_TYPE_TABLE:
@@ -464,6 +464,14 @@ static void novai_gc_mark_roots(NovaVM *vm) {
             novai_gc_mark_object(vm, NOVA_GC_HDR(vm->task_queue[i]));
         }
     }
+
+    /* 8. Mark per-type metatables.
+     * The string metatable is a module-global pointer that must
+     * survive GC.  Marking it here ensures it stays reachable
+     * across every collection cycle. */
+    if (vm->string_mt != NULL) {
+        novai_gc_mark_object(vm, NOVA_GC_HDR(vm->string_mt));
+    }
 }
 
 /* ============================================================
@@ -490,7 +498,7 @@ static size_t novai_gc_free_object(NovaGCHeader *hdr) {
              * nova_string_new, the string was GC-linked as fallback
              * and can be freed here normally. */
             NovaString *str = (NovaString *)hdr;
-            freed = sizeof(NovaString) + str->length + 1;
+            freed = sizeof(NovaString) + nova_str_len(str) + 1;
             free(str);
             break;
         }

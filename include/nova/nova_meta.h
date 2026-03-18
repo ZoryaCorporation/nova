@@ -106,6 +106,18 @@ typedef enum {
 NovaTable *nova_meta_get_mt(NovaValue v);
 
 /**
+ * @brief Set the shared string metatable.
+ *
+ * When set, all string values will appear to have this metatable,
+ * enabling method-call syntax: s:find(), s:upper(), s:sub(), etc.
+ * The metatable should have __index pointing to the string module.
+ *
+ * @param vm  VM instance (for GC rooting)
+ * @param mt  The string metatable (NULL to clear)
+ */
+void nova_meta_set_string_mt(NovaVM *vm, NovaTable *mt);
+
+/**
  * @brief Look up a metamethod by tag in a metatable.
  *
  * Searches the given metatable for the string key corresponding

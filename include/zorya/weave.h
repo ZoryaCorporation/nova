@@ -1,6 +1,6 @@
 /**
  * @file weave.h
- * @brief WEAVE - The Third Sister: Industrial-Strength String Library
+ * @brief WEAVE - The Third Sister: Zorya Corporation's String Library
  *
  * @author Anthony Taliento
  * @date 2025-12-18
@@ -38,6 +38,23 @@
  *   PIE *webh- "to weave, to braid" -> womb, weft, web, weave
  *   Tablet: The cards with holes used in tablet weaving
  *   Cord: A bundle of threads woven together
+ *
+ * NOTE:
+ *   I am aware that PIE is an 'academic' conlang at best by ignoring Basque, circumpolar, and Uralic languages.
+ *   If we are going to hypothesize that PIE was spoken as far back as 7000 - 8000BCE, which places it in the neolithic time period.
+ *   That is 10,000 - 12,000 years ago, therefore the PIE language model which is primarily based on comparative linguistics
+ *   favoring grecco-roman languages heavily over other languages. The problem here? The hellenistic and roman peoples as we know them didn't exist in the neolithic time period.
+ *   So we are with PIE using very young languages. To give you a quick analogy, that's like building a house with trees that haven't even sprouted yet.
+ *   I'm well aware tha this has nothing to do with the actual code implentations. This is my small contribution to the field of history, anthropology, and linguistics.
+ *   In the off chance that any lingustic researchers ever read this, please devote resources and urge your colleagues
+ *   to research and study lingustic substrata and fossils present in various living, and dead languages!
+ *
+ * ADDTIONALLY:
+ *   Any researchers that are interested in any of Zorya Corporation's work I will personally and happily work with you to further your field of study.
+ *   If you are a linguist, historian, anthropologist, (or studying any field at all for that matter), I and Zorya will always stand with, support and collaborate
+ *   with you or your team to in any way that I can.
+ *   Get in contact with me and we can work together!
+ *
  *
  * THREAD SAFETY:
  *   Not thread-safe. Use external synchronization or per-thread instances.
@@ -148,8 +165,8 @@ extern "C" {
  * 4. Low XOR collision with NXH primes (≥20 bits different)
  * 5. Good avalanche properties when rotated/XORed
  *
- * CRITICAL: Do not modify without running tools/weave_prime_selector.py
- *           to verify collision resistance!
+ * CRITICAL: Do not modify WITHOUT VERIFYING COLLISION RESISTANCE!
+ *           These primes WILL NOT BE CHANGED.
  *
  * Collision validation: 2025-12-21
  * - STITCH:  27+ bit XOR distance from NXH primes ✓

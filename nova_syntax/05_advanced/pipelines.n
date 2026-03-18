@@ -1,0 +1,177 @@
+-- ============================================================
+-- pipelines.n — Coroutine-Based Data Pipelines
+--
+-- Coroutines let you build lazy pipelines where data flows
+-- through stages one item at a time — like Unix pipes but
+-- within your program.
+--
+-- Run:  ./bin/nova nova_syntax/05_advanced/pipelines.n
+-- ============================================================
+
+echo "=== Coroutine Pipelines ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Basic Coroutine Refresher
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Coroutine Basics ---"
+
+dec function fibonacci(max)
+    dec a, b = 0, 1
+    while a <= max do
+        coroutine.yield(a)
+        a, b = b, a + b
+    end
+end
+
+echo "  Fibonacci numbers up to 50:"
+dec co = coroutine.create(fibonacci)
+dec nums = ""
+while true do
+    dec ok, val = coroutine.resume(co, 50)
+    if not ok or coroutine.status(co) == "dead" then break end
+    if #nums > 0 then nums = nums .. ", " end
+    nums = nums .. tostring(val)
+end
+echo "  " .. nums
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Pipeline Stage: Generator
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Data Pipeline ---"
+echo "  Building a pipeline: generate -> filter -> transform -> collect"
+
+-- Stage 1: Generate numbers
+dec function generate(start, stop)
+    return coroutine.create(function()
+        for i = start, stop do
+            coroutine.yield(i)
+        end
+    end)
+end
+
+-- Stage 2: Filter (keep items matching predicate)
+dec function filter(source, predicate)
+    return coroutine.create(function()
+        while true do
+            dec ok, val = coroutine.resume(source)
+            if not ok or coroutine.status(source) == "dead" then break end
+            if predicate(val) then
+                coroutine.yield(val)
+            end
+        end
+    end)
+end
+
+-- Stage 3: Transform (map each item)
+dec function transform(source, fn)
+    return coroutine.create(function()
+        while true do
+            dec ok, val = coroutine.resume(source)
+            if not ok or coroutine.status(source) == "dead" then break end
+            coroutine.yield(fn(val))
+        end
+    end)
+end
+
+-- Stage 4: Collect into a table
+dec function collect(source)
+    dec results = {}
+    while true do
+        dec ok, val = coroutine.resume(source)
+        if not ok or coroutine.status(source) == "dead" then break end
+        table.insert(results, val)
+    end
+    return results
+end
+
+-- Build the pipeline:
+-- Numbers 1-20 -> keep evens -> square them -> collect
+dec pipeline = transform(
+    filter(
+        generate(1, 20),
+        function(x) return x % 2 == 0 end
+    ),
+    function(x) return x * x end
+)
+
+dec results = collect(pipeline)
+
+echo "  Pipeline: 1..20 | keep evens | square"
+echo "  Result:"
+for i = 0, #results - 1 do
+    printf("    [%d] %d\n", i, results[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Pipeline on Text Data
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Text Pipeline ---"
+echo "  Pipeline: words -> lowercase -> filter stopwords -> stem"
+
+dec words = {"The", "Quick", "Brown", "Foxes", "Are", "Running",
+               "Through", "The", "Forest", "At", "Night"}
+
+-- Generate words
+dec function word_source(word_list)
+    return coroutine.create(function()
+        for i = 0, #word_list - 1 do
+            coroutine.yield(word_list[i])
+        end
+    end)
+end
+
+-- Lowercase stage
+dec lower_stage = transform(
+    word_source(words),
+    function(w) return string.lower(w) end
+)
+
+-- Stopword filter
+dec stop_stage = filter(lower_stage, function(w)
+    return not nlp.is_stopword(w)
+end)
+
+-- Stem stage
+dec stem_stage = transform(stop_stage, function(w)
+    return nlp.stem(w)
+end)
+
+dec stems = collect(stem_stage)
+
+echo "  Input:  " .. table.concat(words, ", ")
+echo "  Output: " .. table.concat(stems, ", ")
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Producer/Consumer Pattern
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Producer/Consumer ---"
+
+dec function producer()
+    dec items = {"task_a", "task_b", "task_c", "task_d", "task_e"}
+    for i = 0, #items - 1 do
+        printf("    [producer] sending: %s\n", items[i])
+        coroutine.yield(items[i])
+    end
+end
+
+dec function consumer(source)
+    echo "    [consumer] ready"
+    dec processed = 0
+    while true do
+        dec ok, item = coroutine.resume(source)
+        if not ok or coroutine.status(source) == "dead" then break end
+        printf("    [consumer] received: %s -> processing...\n", item)
+        processed = processed + 1
+    end
+    printf("    [consumer] done. Processed %d items.\n", processed)
+end
+
+echo "  Running producer/consumer:"
+dec prod = coroutine.create(producer)
+consumer(prod)
+
+echo "\nDone!"

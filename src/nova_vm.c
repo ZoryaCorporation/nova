@@ -7,7 +7,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-07
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -30,6 +30,7 @@
 #include "nova/nova_proto.h"
 #include "nova/nova_conf.h"
 #include "nova/nova_trace.h"
+#include "nova/nova_error.h"
 #include "zorya/nxh.h"
 #include "zorya/pcm.h"
 #include "zorya/dagger.h"
@@ -47,8 +48,7 @@
 /** Initial hash table size for globals */
 #define NOVAI_GLOBALS_INIT_SIZE 64
 
-/* NXH64 seed: use NOVA_STRING_SEED from nova_vm.h (single source of truth) */
-#define NOVAI_STRING_SEED NOVA_STRING_SEED  /* compat alias */
+/* NXH64 seed: NOVA_STRING_SEED from nova_vm.h (single source of truth) */
 
 /* ============================================================
  * INTERNAL COMPATIBILITY ALIASES (Phase 10.5)
@@ -166,7 +166,7 @@ NovaString *nova_string_new(NovaVM *vm, const char *s, size_t len) {
     str->gc.gc_size = (uint32_t)alloc_size;
 
     str->length = len;
-    str->hash = nxh64(s, len, NOVAI_STRING_SEED);
+    str->hash = nxh64(s, len, NOVA_STRING_SEED);
     if (len > 0) {
         memcpy(str->data, s, len);
     }
@@ -605,6 +605,130 @@ int nova_table_next(NovaTable *t, uint32_t *iter_idx,
     return 0;
 }
 
+/**
+ * @brief Lookup a table value by C string key (non-interned).
+ *
+ * Hashes the raw C string and probes the hash table directly.
+ * Does NOT require the key to be an interned NovaString.
+ *
+ * @param t        Table to search
+ * @param key      C string key (NUL-terminated)
+ * @param key_len  Byte length of key (excluding NUL)
+ * @return Value associated with key, or nil if not found
+ */
+NovaValue nova_table_get_cstr(NovaTable *t, const char *key,
+                              uint32_t key_len) {
+    if (t == NULL || key == NULL || t->hash_size == 0) {
+        return nova_value_nil();
+    }
+
+    uint64_t h = nxh64(key, (size_t)key_len, NOVA_STRING_SEED);
+    uint32_t mask = t->hash_size - 1;
+    uint32_t idx = HASH_SLOT((uint32_t)h, mask);
+    uint32_t start = idx;
+
+    do {
+        if (t->hash[idx].occupied == 0) {
+            return nova_value_nil();
+        }
+        if (nova_is_string(t->hash[idx].key)) {
+            NovaString *ks = nova_as_string(t->hash[idx].key);
+            if (nova_str_hash(ks) == h &&
+                nova_str_len(ks) == key_len &&
+                memcmp(nova_str_data(ks), key, (size_t)key_len) == 0) {
+                return t->hash[idx].value;
+            }
+        }
+        HASH_PROBE_LINEAR(idx, mask);
+    } while (idx != start);
+
+    return nova_value_nil();
+}
+
+/**
+ * @brief Find the iterator cursor position for a given key.
+ *
+ * Searches both array and hash parts. Returns the iter_idx
+ * (compatible with nova_table_next) pointing to the slot AFTER
+ * the found key. Returns (uint32_t)-1 if not found.
+ */
+uint32_t nova_table_find_iter_idx(NovaTable *t, NovaValue key) {
+    if (t == NULL) {
+        return (uint32_t)-1;
+    }
+
+    /* Nil key means "start from beginning" */
+    if (nova_is_nil(key)) {
+        return 0;
+    }
+
+    /* Integer key in array range */
+    if (nova_is_integer(key)) {
+        nova_int_t idx = nova_as_integer(key);
+        if (idx >= 0 && (uint32_t)idx < t->array_used) {
+            return (uint32_t)idx + 1;
+        }
+    }
+
+    /* Search hash part */
+    if (t->hash_size > 0) {
+        /* String keys: use hash-directed probe */
+        if (nova_is_string(key)) {
+            NovaString *ks = nova_as_string(key);
+            uint64_t h = nova_str_hash(ks);
+            uint32_t mask = t->hash_size - 1;
+            uint32_t slot = HASH_SLOT((uint32_t)h, mask);
+            uint32_t start = slot;
+            do {
+                if (t->hash[slot].occupied == 0) {
+                    break;
+                }
+                if (nova_is_string(t->hash[slot].key)) {
+                    NovaString *sk = nova_as_string(t->hash[slot].key);
+                    if (nova_str_hash(sk) == h &&
+                        nova_str_len(sk) == nova_str_len(ks) &&
+                        memcmp(nova_str_data(sk), nova_str_data(ks),
+                               nova_str_len(ks)) == 0) {
+                        return t->array_used + slot + 1;
+                    }
+                }
+                HASH_PROBE_LINEAR(slot, mask);
+            } while (slot != start);
+        }
+
+        /* Non-string keys: linear scan of hash part */
+        for (uint32_t j = 0; j < t->hash_size; j++) {
+            if (!t->hash[j].occupied) {
+                continue;
+            }
+            if (nova_typeof(t->hash[j].key) == nova_typeof(key)) {
+                int match = 0;
+                switch (nova_typeof(key)) {
+                    case NOVA_TYPE_INTEGER:
+                        match = (nova_as_integer(t->hash[j].key) ==
+                                 nova_as_integer(key));
+                        break;
+                    case NOVA_TYPE_NUMBER:
+                        match = (nova_as_number(t->hash[j].key) ==
+                                 nova_as_number(key));
+                        break;
+                    case NOVA_TYPE_BOOL:
+                        match = (nova_as_bool(t->hash[j].key) ==
+                                 nova_as_bool(key));
+                        break;
+                    default:
+                        break;
+                }
+                if (match) {
+                    return t->array_used + j + 1;
+                }
+            }
+        }
+    }
+
+    return (uint32_t)-1;
+}
+
 /* ============================================================
  * PART 4: UPVALUE HELPERS
  * ============================================================ */
@@ -902,6 +1026,9 @@ static inline NovaValue novai_rk(NovaVM *vm, NovaValue *base,
  */
 void novai_error(NovaVM *vm, int code, const char *msg) {
     vm->status = code;
+    /* diag_code is set by the caller (via nova_vm_raise_error_ex or
+     * directly) BEFORE calling novai_error.  If not set (0), the CLI
+     * falls back to mapping vm->status to a NovaErrorCode.           */
     free(vm->error_msg);
     if (msg != NULL) {
         /* For runtime errors, prepend source:line if we can determine
@@ -1001,7 +1128,12 @@ static NovaValue novai_concat(NovaVM *vm, NovaValue *base, int count) {
         } else if (nova_is_number(v)) {
             total += 32;  /* generous for double */
         } else {
-            novai_error(vm, NOVA_VM_ERR_TYPE, "cannot concatenate non-string");
+            char errbuf[256];
+            snprintf(errbuf, sizeof(errbuf),
+                     "attempt to concatenate a %s value",
+                     nova_vm_typename(nova_typeof(v)));
+            vm->diag_code = NOVA_E2015;
+            novai_error(vm, NOVA_VM_ERR_TYPE, errbuf);
             return nova_value_nil();
         }
     }
@@ -2133,21 +2265,21 @@ int novai_execute(NovaVM *vm) {
                 base[A + i] = results_start[i];
             }
             /* Adjust results and restore register window.
-             * For fixed results, ensure stack_top covers the full
-             * caller register window so GC sees all live values.
-             * For variable results, take max so the consumer can
-             * read the actual count from stack_top. */
+             * For fixed results, nil-pad and ensure stack_top
+             * covers the full caller register window for GC.
+             * For variable results (nresults < 0, from C=0),
+             * set stack_top to exactly result_end so the next
+             * instruction with B=0 can compute nargs correctly. */
             if (nresults >= 0) {
                 for (int i = got; i < nresults; i++) {
                     base[A + i] = nova_value_nil();
                 }
-            }
-            {
                 NovaValue *frame_end = base + proto->max_stack;
-                NovaValue *result_end = &base[A +
-                    ((nresults >= 0) ? nresults : got)];
+                NovaValue *result_end = &base[A + nresults];
                 vm->stack_top = (result_end > frame_end)
                                 ? result_end : frame_end;
+            } else {
+                vm->stack_top = &base[A + got];
             }
             vm->cfunc_base = save_cfunc_base;
             ip++;
@@ -2156,7 +2288,12 @@ int novai_execute(NovaVM *vm) {
 
         if (!nova_is_function(func)) {
             /* __call already tried above; this shouldn't happen */
-            novai_error(vm, NOVA_VM_ERR_TYPE, "attempt to call non-function");
+            char errbuf[256];
+            snprintf(errbuf, sizeof(errbuf),
+                     "attempt to call a %s value",
+                     nova_vm_typename(nova_typeof(func)));
+            vm->diag_code = NOVA_E2008;
+            novai_error(vm, NOVA_VM_ERR_TYPE, errbuf);
             return vm->status;
         }
 
@@ -2290,7 +2427,12 @@ int novai_execute(NovaVM *vm) {
         }
 
         if (!nova_is_function(func)) {
-            novai_error(vm, NOVA_VM_ERR_TYPE, "attempt to tailcall non-function");
+            char errbuf[256];
+            snprintf(errbuf, sizeof(errbuf),
+                     "attempt to tailcall a %s value",
+                     nova_vm_typename(nova_typeof(func)));
+            vm->diag_code = NOVA_E2008;
+            novai_error(vm, NOVA_VM_ERR_TYPE, errbuf);
             return vm->status;
         }
 
@@ -2381,15 +2523,17 @@ int novai_execute(NovaVM *vm) {
         }
 
         /* Restore stack_top to caller's register window.
-         * For variable-result calls (expected < 0), the caller
-         * may need stack_top to reflect actual result count,
-         * so take the maximum of result area and register window. */
-        {
+         * For fixed results, ensure GC sees the full window.
+         * For variable results (expected < 0, from C=0),
+         * set stack_top precisely so the next B=0 instruction
+         * reads the correct argument count. */
+        if (expected >= 0) {
             NovaValue *frame_end = base + proto->max_stack;
-            NovaValue *result_end = dst +
-                ((expected >= 0) ? expected : nresults);
+            NovaValue *result_end = dst + expected;
             vm->stack_top = (result_end > frame_end)
                             ? result_end : frame_end;
+        } else {
+            vm->stack_top = dst + nresults;
         }
 
         DISPATCH();
@@ -2457,13 +2601,20 @@ int novai_execute(NovaVM *vm) {
         K = proto->constants;
         ip = frame->ip;
 
-        /* Restore caller's register window.  dst+1 may be below
-         * the caller's max_stack so use the larger of the two. */
+        /* Restore caller's register window.
+         * For variable results (expected < 0), set stack_top
+         * precisely so the next B=0 instruction reads the
+         * correct argument count. */
         {
-            NovaValue *frame_end = base + proto->max_stack;
-            NovaValue *result_end = dst + 1;
-            vm->stack_top = (result_end > frame_end)
-                            ? result_end : frame_end;
+            int expected = frame->num_results;
+            if (expected >= 0) {
+                NovaValue *frame_end = base + proto->max_stack;
+                NovaValue *result_end = dst + 1;
+                vm->stack_top = (result_end > frame_end)
+                                ? result_end : frame_end;
+            } else {
+                vm->stack_top = dst + 1;
+            }
         }
         DISPATCH();
     }
@@ -2491,7 +2642,15 @@ int novai_execute(NovaVM *vm) {
         nova_number_t init = 0, step = 0;
         if (!novai_to_number(base[A], &init) ||
             !novai_to_number(base[A + 2], &step)) {
-            novai_error(vm, NOVA_VM_ERR_TYPE, "for loop expects numbers");
+            char errbuf[256];
+            const char *bad_type = !novai_to_number(base[A], &init)
+                ? nova_vm_typename(nova_typeof(base[A]))
+                : nova_vm_typename(nova_typeof(base[A + 2]));
+            snprintf(errbuf, sizeof(errbuf),
+                     "'for' loop requires numeric values, got %s",
+                     bad_type);
+            vm->diag_code = NOVA_E2020;
+            novai_error(vm, NOVA_VM_ERR_TYPE, errbuf);
             return vm->status;
         }
 
@@ -2766,12 +2925,15 @@ int novai_execute(NovaVM *vm) {
         if (n_va > 0) {
             frame->varargs = (NovaValue *)malloc(
                 (size_t)n_va * sizeof(NovaValue));
-            if (frame->varargs != NULL) {
-                for (int i = 0; i < n_va; i++) {
-                    frame->varargs[i] = base[num_params + i];
-                }
-                frame->num_varargs = n_va;
+            if (frame->varargs == NULL) {
+                novai_error(vm, NOVA_VM_ERR_MEMORY,
+                            "out of memory allocating varargs");
+                DISPATCH();
             }
+            for (int i = 0; i < n_va; i++) {
+                frame->varargs[i] = base[num_params + i];
+            }
+            frame->num_varargs = n_va;
         }
 
         ip++;
@@ -3012,7 +3174,9 @@ NovaVM *nova_vm_create(void) {
     vm->task_queue = NULL;
     vm->task_count = 0;
     vm->task_capacity = 0;
+    vm->string_mt = NULL;
     vm->status = NOVA_VM_OK;
+    vm->diag_code = 0;
     vm->error_msg = NULL;
     vm->error_jmp = NULL;
     vm->bytes_allocated = sizeof(NovaVM) + NOVA_INITIAL_STACK_SIZE * sizeof(NovaValue);
@@ -3047,6 +3211,14 @@ NovaVM *nova_vm_create(void) {
     return vm;
 }
 
+/**
+ * @brief Destroy a VM instance and free all associated resources.
+ *
+ * Shuts down the GC, destroys the string interning pool, and frees
+ * the stack and VM struct.  Safe to call with NULL.
+ *
+ * @param vm  VM instance to destroy (may be NULL)
+ */
 void nova_vm_destroy(NovaVM *vm) {
     if (vm == NULL) {
         return;
@@ -3080,6 +3252,17 @@ void nova_vm_destroy(NovaVM *vm) {
     free(vm);
 }
 
+/**
+ * @brief Execute a compiled proto in the VM.
+ *
+ * Sets up the top-level call frame for @p proto and runs the
+ * bytecode dispatch loop until completion or error.
+ *
+ * @param vm     VM instance (must not be NULL)
+ * @param proto  Compiled prototype to execute (must not be NULL)
+ *
+ * @return NOVA_VM_OK on success, or an error code.
+ */
 int nova_vm_execute(NovaVM *vm, const NovaProto *proto) {
     if (vm == NULL || proto == NULL) {
         return NOVA_VM_ERR_NULLPTR;
@@ -3128,6 +3311,19 @@ int nova_vm_execute(NovaVM *vm, const NovaProto *proto) {
     return novai_execute(vm);
 }
 
+/**
+ * @brief Call a function on the VM stack.
+ *
+ * Expects the function followed by @p nargs arguments on the stack.
+ * Supports closures, C functions, and __call metamethods.
+ * On return, results replace the function slot on the stack.
+ *
+ * @param vm        VM instance (must not be NULL)
+ * @param nargs     Number of arguments pushed after the function
+ * @param nresults  Expected number of results (-1 = all)
+ *
+ * @return NOVA_VM_OK on success, or an error code.
+ */
 int nova_vm_call(NovaVM *vm, int nargs, int nresults) {
     if (vm == NULL) {
         return NOVA_VM_ERR_NULLPTR;
@@ -3214,8 +3410,12 @@ int nova_vm_call(NovaVM *vm, int nargs, int nresults) {
             return NOVA_VM_OK;
         }
         if (!nova_is_function(func)) {
-            novai_error(vm, NOVA_VM_ERR_TYPE,
-                        "attempt to call non-function");
+            char buf[256];
+            snprintf(buf, sizeof(buf),
+                     "attempt to call a %s value",
+                     nova_vm_typename(nova_typeof(func)));
+            vm->diag_code = NOVA_E2008;
+            novai_error(vm, NOVA_VM_ERR_TYPE, buf);
             return vm->status;
         }
     }
@@ -3357,30 +3557,63 @@ int nova_vm_pcall(NovaVM *vm, int nargs, int nresults) {
  * PART 14: STACK OPERATIONS
  * ============================================================ */
 
+/**
+ * @brief Push nil onto the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ */
 void nova_vm_push_nil(NovaVM *vm) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
     *vm->stack_top++ = nova_value_nil();
 }
 
+/**
+ * @brief Push a boolean value onto the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ * @param b   Boolean value (0 = false, nonzero = true)
+ */
 void nova_vm_push_bool(NovaVM *vm, int b) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
     *vm->stack_top++ = nova_value_bool(b);
 }
 
+/**
+ * @brief Push an integer value onto the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ * @param n   Integer value to push
+ */
 void nova_vm_push_integer(NovaVM *vm, nova_int_t n) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
     *vm->stack_top++ = nova_value_integer(n);
 }
 
+/**
+ * @brief Push a floating-point number onto the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ * @param n   Number value to push
+ */
 void nova_vm_push_number(NovaVM *vm, nova_number_t n) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
     *vm->stack_top++ = nova_value_number(n);
 }
 
+/**
+ * @brief Push a string onto the VM stack.
+ *
+ * The string is copied and interned.  If allocation fails,
+ * nil is pushed instead.
+ *
+ * @param vm   VM instance (may be NULL)
+ * @param s    Pointer to string data
+ * @param len  Length of string in bytes
+ */
 void nova_vm_push_string(NovaVM *vm, const char *s, size_t len) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
@@ -3392,18 +3625,42 @@ void nova_vm_push_string(NovaVM *vm, const char *s, size_t len) {
     }
 }
 
+/**
+ * @brief Push a C function onto the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ * @param fn  C function pointer to push
+ */
 void nova_vm_push_cfunction(NovaVM *vm, nova_cfunc_t fn) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
     *vm->stack_top++ = nova_value_cfunction(fn);
 }
 
+/**
+ * @brief Push an arbitrary NovaValue onto the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ * @param v   Value to push
+ */
 void nova_vm_push_value(NovaVM *vm, NovaValue v) {
     if (vm == NULL) return;
     if (novai_stack_ensure(vm, 1) != 0) return;
     *vm->stack_top++ = v;
 }
 
+/**
+ * @brief Get a value from the VM stack by index.
+ *
+ * Positive indices are relative to the base (0 = first argument).
+ * Negative indices are relative to the stack top (-1 = top).
+ * Returns nil if the index is out of range.
+ *
+ * @param vm   VM instance (may be NULL)
+ * @param idx  Stack index (positive = from base, negative = from top)
+ *
+ * @return The value at the given index, or nil.
+ */
 NovaValue nova_vm_get(NovaVM *vm, int idx) {
     if (vm == NULL) {
         return nova_value_nil();
@@ -3423,6 +3680,13 @@ NovaValue nova_vm_get(NovaVM *vm, int idx) {
     return *slot;
 }
 
+/**
+ * @brief Get the number of values on the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ *
+ * @return Number of values on the stack, or 0 if vm is NULL.
+ */
 int nova_vm_get_top(NovaVM *vm) {
     if (vm == NULL) {
         return 0;
@@ -3431,6 +3695,15 @@ int nova_vm_get_top(NovaVM *vm) {
     return (int)(vm->stack_top - base_ptr);
 }
 
+/**
+ * @brief Set the stack top to a specific index.
+ *
+ * Positive indices set the top relative to the base.  Negative
+ * indices are relative to the current top.  Grows with nil if needed.
+ *
+ * @param vm   VM instance (may be NULL)
+ * @param idx  Target stack index
+ */
 void nova_vm_set_top(NovaVM *vm, int idx) {
     if (vm == NULL) {
         return;
@@ -3450,6 +3723,12 @@ void nova_vm_set_top(NovaVM *vm, int idx) {
     }
 }
 
+/**
+ * @brief Pop n values from the VM stack.
+ *
+ * @param vm  VM instance (may be NULL)
+ * @param n   Number of values to pop (must be > 0)
+ */
 void nova_vm_pop(NovaVM *vm, int n) {
     if (vm == NULL || n <= 0) {
         return;
@@ -3465,6 +3744,13 @@ void nova_vm_pop(NovaVM *vm, int n) {
  * PART 15: GLOBAL TABLE OPERATIONS
  * ============================================================ */
 
+/**
+ * @brief Set a global variable by name.
+ *
+ * @param vm    VM instance (must not be NULL)
+ * @param name  Variable name (must not be NULL)
+ * @param val   Value to assign
+ */
 void nova_vm_set_global(NovaVM *vm, const char *name, NovaValue val) {
     if (vm == NULL || name == NULL) {
         return;
@@ -3476,6 +3762,14 @@ void nova_vm_set_global(NovaVM *vm, const char *name, NovaValue val) {
     novai_table_set_str(vm, vm->globals, key, val);
 }
 
+/**
+ * @brief Get a global variable by name.
+ *
+ * @param vm    VM instance (must not be NULL)
+ * @param name  Variable name (must not be NULL)
+ *
+ * @return The global's value, or nil if not found.
+ */
 NovaValue nova_vm_get_global(NovaVM *vm, const char *name) {
     if (vm == NULL || name == NULL) {
         return nova_value_nil();
@@ -3509,6 +3803,16 @@ const char *nova_vm_typename(NovaValueType type) {
     }
 }
 
+/**
+ * @brief Get the last error message from the VM.
+ *
+ * Returns the stored error message, or a default string based
+ * on the VM status code.
+ *
+ * @param vm  VM instance (may be NULL)
+ *
+ * @return Error message string (never NULL).
+ */
 const char *nova_vm_error(const NovaVM *vm) {
     if (vm == NULL) {
         return "null VM";
@@ -3534,6 +3838,73 @@ const char *nova_vm_error(const NovaVM *vm) {
 
 #include <stdarg.h>
 
+/**
+ * @brief Auto-classify an error message into a fine-grained diagnostic code.
+ *
+ * Detects common stdlib error patterns and returns the appropriate
+ * NovaErrorCode so diag_code is set without changing call sites.
+ *
+ * @param msg  Formatted error message
+ * @return NovaErrorCode, or 0 if no pattern matches
+ */
+static int novai_auto_classify(const char *msg) {
+    if (msg == NULL) { return 0; }
+
+    /* "bad argument #N to 'func' (... expected ...)" → argument type error */
+    if (strncmp(msg, "bad argument", 12) == 0) {
+        if (strstr(msg, "value expected") != NULL) { return NOVA_E2022; }
+        return NOVA_E2021;
+    }
+
+    /* Memory errors */
+    if (strstr(msg, "out of memory") != NULL ||
+        strstr(msg, "memory allocation") != NULL ||
+        strstr(msg, "allocation failed") != NULL) {
+        return NOVA_E2003;
+    }
+
+    /* Module loading */
+    if (strstr(msg, "module") != NULL &&
+        strstr(msg, "not found") != NULL) {
+        return NOVA_E2023;
+    }
+
+    /* SQL errors */
+    if (strncmp(msg, "sql.", 4) == 0) { return NOVA_E3006; }
+
+    /* Network errors */
+    if (strncmp(msg, "net.", 4) == 0 ||
+        strncmp(msg, "net:", 4) == 0) {
+        return NOVA_E3005;
+    }
+
+    /* File I/O errors */
+    if (strstr(msg, "cannot open") != NULL ||
+        strstr(msg, "cannot read") != NULL ||
+        strstr(msg, "cannot seek") != NULL) {
+        return NOVA_E3007;
+    }
+
+    /* Format / parse / codec errors */
+    if (strstr(msg, ".decode:") != NULL ||
+        strstr(msg, ".encode:") != NULL ||
+        strstr(msg, ".load:") != NULL) {
+        return NOVA_E3008;
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Raise a formatted runtime error.
+ *
+ * Formats the message with printf-style arguments and sets
+ * the VM into an error state via novai_error().
+ *
+ * @param vm   VM instance (must not be NULL)
+ * @param fmt  printf-style format string
+ * @param ...  Format arguments
+ */
 void nova_vm_raise_error(NovaVM *vm, const char *fmt, ...) {
     if (vm == NULL || fmt == NULL) {
         return;
@@ -3549,10 +3920,39 @@ void nova_vm_raise_error(NovaVM *vm, const char *fmt, ...) {
         n = 0;
     }
 
+    vm->diag_code = novai_auto_classify(buf);
     novai_error(vm, NOVA_VM_ERR_RUNTIME, buf);
     (void)n;
 }
 
+void nova_vm_raise_error_ex(NovaVM *vm, int vm_err, int diag,
+                            const char *fmt, ...) {
+    if (vm == NULL || fmt == NULL) {
+        return;
+    }
+
+    char buf[512];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+
+    if (n < 0) {
+        n = 0;
+    }
+
+    vm->diag_code = diag;
+    novai_error(vm, vm_err, buf);
+    (void)n;
+}
+
+/**
+ * @brief Create a new table and push it onto the stack.
+ *
+ * If table allocation fails, nil is pushed instead.
+ *
+ * @param vm  VM instance (may be NULL)
+ */
 void nova_vm_push_table(NovaVM *vm) {
     if (vm == NULL) {
         return;
@@ -3569,6 +3969,17 @@ void nova_vm_push_table(NovaVM *vm) {
     }
 }
 
+/**
+ * @brief Set a named field on a table at the given stack index.
+ *
+ * Pops the value from the top of the stack and assigns it to
+ * the field @p name in the table at @p idx.  No-op if the
+ * value at @p idx is not a table.
+ *
+ * @param vm    VM instance (must not be NULL)
+ * @param idx   Stack index of the table
+ * @param name  Field name (must not be NULL)
+ */
 void nova_vm_set_field(NovaVM *vm, int idx, const char *name) {
     if (vm == NULL || name == NULL) {
         return;
@@ -3641,6 +4052,18 @@ int nova_table_raw_set_str(NovaVM *vm, NovaTable *t,
     return novai_table_set_str(vm, t, key, val);
 }
 
+/**
+ * @brief Intern a string in the VM's string pool.
+ *
+ * Returns the canonical interned pointer for the given string
+ * data, allocating a new NovaString if one does not already exist.
+ *
+ * @param vm   VM instance (must not be NULL)
+ * @param s    String data
+ * @param len  Length of string in bytes
+ *
+ * @return Interned NovaString pointer, or NULL on allocation failure.
+ */
 NovaString *nova_vm_intern_string(NovaVM *vm, const char *s, size_t len) {
     return novai_string_new(vm, s, len);
 }

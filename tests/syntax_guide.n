@@ -1,0 +1,2009 @@
+-- ============================================================
+-- syntax_guide.n — The Nova Language Syntax Guide & Benchmark
+--
+-- This file serves two purposes:
+--   1. A comprehensive, annotated syntax guide that teaches
+--      every feature of the Nova programming language.
+--   2. A benchmark and stress test that exercises the VM,
+--      compiler, GC, and standard library.
+--
+-- Nova is a dynamically-typed, register-based bytecode VM
+-- with Lua-like syntax, 0-based indexing, NaN-boxed values,
+-- DAGGER hash tables, Weave string interning, and a powerful
+-- preprocessor with #import directives.
+--
+-- Run:  ./bin/nova tests/syntax_guide.n
+--
+-- Author:  Anthony Taliento (Zorya Corporation)
+-- Date:    2026-02-15
+-- Copyright (c) 2026 Zorya Corporation
+-- ============================================================
+
+-- ============================================================
+-- PREPROCESSOR: #import data
+--
+-- The #import directive gates access to built-in modules.
+-- "#import data" makes json, csv, tsv, ini, toml, html, and
+-- data tables available, and defines PP flags like
+-- NOVA_HAS_JSON, NOVA_HAS_DATA, etc.
+-- ============================================================
+#import data
+
+-- Record wall-clock start for total elapsed time
+dec __start_time = os.clock()
+
+-- ============================================================
+-- GLOBAL COUNTERS & CHECK UTILITY
+--
+-- We define a simple pass/fail counter and a check() helper
+-- used throughout the guide. Every section validates its
+-- results so this file doubles as a test suite.
+-- ============================================================
+dec pass = 0
+dec fail = 0
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+-- ============================================================
+-- SECTION 1: PRIMITIVE TYPES & VALUES
+--
+-- Nova has five primitive types:
+--   nil       — the absence of a value (falsy)
+--   boolean   — true or false
+--   integer   — 64-bit signed integers (NaN-boxed)
+--   number    — 64-bit IEEE 754 doubles
+--   string    — immutable, interned byte sequences
+--
+-- Tables and functions are reference types (covered later).
+-- type() returns a string name for any value.
+-- ============================================================
+dec function section_types()
+    print("=== SECTION 1: PRIMITIVE TYPES ===")
+
+    -- nil: the only value of type "nil"
+    dec nothing = nil
+    check("nil type", type(nothing) == "nil")
+    check("nil is falsy", not nothing)
+
+    -- booleans
+    dec yes = true
+    dec no = false
+    check("true type", type(yes) == "boolean")
+    check("false type", type(no) == "boolean")
+    check("true is truthy", yes)
+    check("false is falsy", not no)
+
+    -- integers: whole numbers, no decimal point
+    dec i = 42
+    check("int type", type(i) == "integer")
+    check("int value", i == 42)
+    check("negative int", -7 == -7)
+    check("zero int", 0 == 0)
+
+    -- numbers (floats): decimal point or scientific notation
+    dec f = 3.14
+    check("float type", type(f) == "number")
+    check("float value", f == 3.14)
+
+    -- strings: double-quoted, single-quoted, or backtick
+    dec s1 = "hello"
+    dec s2 = 'world'
+    check("string type", type(s1) == "string")
+    check("double quotes", s1 == "hello")
+    check("single quotes", s2 == "world")
+
+    -- tostring() converts any value to a string representation
+    check("tostring nil", tostring(nil) == "nil")
+    check("tostring int", tostring(42) == "42")
+    check("tostring bool", tostring(true) == "true")
+
+    -- tonumber() converts strings to numbers
+    check("tonumber int", tonumber("123") == 123)
+    check("tonumber float", tonumber("3.14") == 3.14)
+    check("tonumber fail", tonumber("abc") == nil)
+
+    print("  Section 1 complete.")
+end
+section_types()
+
+-- ============================================================
+-- SECTION 2: VARIABLES & SCOPE
+--
+-- Nova uses lexical scoping with `dec` declarations.
+-- Variables without `dec` are global (stored in _G).
+-- `do...end` blocks create new scopes.
+-- ============================================================
+dec function section_scope()
+    print("\n=== SECTION 2: VARIABLES & SCOPE ===")
+
+    -- Local variables are visible only in their enclosing block
+    dec x = 10
+    check("dec var", x == 10)
+
+    -- do...end creates a nested scope
+    do
+        dec y = 20
+        check("inner scope", y == 20)
+        check("outer visible", x == 10)
+        -- x is visible here; y is not visible outside
+    end
+
+    -- Multiple assignment: assign multiple locals at once
+    dec a, b, c = 1, 2, 3
+    check("multi assign a", a == 1)
+    check("multi assign b", b == 2)
+    check("multi assign c", c == 3)
+
+    -- Swap without temporaries
+    a, b = b, a
+    check("swap a", a == 2)
+    check("swap b", b == 1)
+
+    -- Extra values are discarded; missing values become nil
+    dec p, q = 100
+    check("extra nil", q == nil)
+    check("first val", p == 100)
+
+    print("  Section 2 complete.")
+end
+section_scope()
+
+-- ============================================================
+-- SECTION 3: OPERATORS
+--
+-- Arithmetic: + - * / % ^ (power)
+-- Relational: == != < > <= >=
+-- Logical:    and or not
+-- String:     .. (concatenation)  # (length)
+-- Note: `!=` is "not equal" (C-style, not Lua's `~=`)
+--
+-- Division always returns a float. Use math.floor() for
+-- integer division.
+-- ============================================================
+dec function section_operators()
+    print("\n=== SECTION 3: OPERATORS ===")
+
+    -- Arithmetic
+    check("add", 2 + 3 == 5)
+    check("sub", 10 - 4 == 6)
+    check("mul", 3 * 7 == 21)
+    check("pow", 2 ^ 10 == 1024)
+    check("mod", 17 % 5 == 2)
+
+    -- Division returns float — use math.floor for integer result
+    dec div = 10 / 3
+    check("div is float", type(div) == "number")
+    check("int div", math.floor(10 / 3) == 3)
+
+    -- Negation (unary minus)
+    dec neg = -42
+    check("unary minus", neg == -42)
+
+    -- Relational operators
+    check("equal", 1 == 1)
+    check("not equal", 1 != 2)
+    check("less than", 1 < 2)
+    check("greater than", 3 > 2)
+    check("less or equal", 2 <= 2)
+    check("greater or equal", 5 >= 4)
+
+    -- Logical operators
+    -- `and` returns the first falsy operand, or the last operand
+    -- `or` returns the first truthy operand, or the last operand
+    check("and true", true and true)
+    check("and false", not (true and false))
+    check("or true", false or true)
+    check("or false", not (false or false))
+    check("not true", not true == false)
+    check("not false", not false == true)
+
+    -- Short-circuit: `and` skips right if left is falsy
+    -- `or` skips right if left is truthy
+    dec val = nil or "default"
+    check("or default", val == "default")
+
+    -- String concatenation with ..
+    check("concat", "hello" .. " " .. "world" == "hello world")
+
+    -- Length operator #
+    check("string len", #"hello" == 5)
+    dec arr = {10, 20, 30}
+    check("table len", #arr == 3)
+
+    print("  Section 3 complete.")
+end
+section_operators()
+
+-- ============================================================
+-- SECTION 4: CONTROL FLOW
+--
+-- if / elseif / else / end
+-- while ... do ... end
+-- repeat ... until <condition>
+-- for i = start, stop [, step] do ... end   (numeric for)
+-- for k, v in pairs(t) do ... end           (generic for)
+-- break — exit innermost loop
+-- goto / labels — jump to a named label (::name::)
+-- ============================================================
+dec function section_control()
+    print("\n=== SECTION 4: CONTROL FLOW ===")
+
+    -- if / elseif / else
+    dec x = 15
+    dec result = ""
+    if x > 20 then
+        result = "big"
+    elseif x > 10 then
+        result = "medium"
+    else
+        result = "small"
+    end
+    check("if/elseif/else", result == "medium")
+
+    -- Truthiness: only `false` and `nil` are falsy.
+    -- 0, "", and empty tables are TRUTHY (unlike some languages).
+    check("0 is truthy", 0 and true)
+    check("empty str truthy", "" and true)
+    check("empty tbl truthy", {} and true)
+
+    -- while loop
+    dec sum = 0
+    dec i = 1
+    while i <= 10 do
+        sum = sum + i
+        i = i + 1
+    end
+    check("while sum 1..10", sum == 55)
+
+    -- repeat...until (loop body runs at least once)
+    dec count = 0
+    repeat
+        count = count + 1
+    until count >= 5
+    check("repeat/until", count == 5)
+
+    -- Numeric for: for var = start, stop [, step] do
+    -- The loop variable is dec to the for body.
+    dec total = 0
+    for j = 0, 9 do
+        total = total + j
+    end
+    check("for 0..9", total == 45)
+
+    -- Numeric for with step
+    dec evens = 0
+    for j = 0, 10, 2 do
+        evens = evens + 1
+    end
+    check("for step 2", evens == 6)  -- 0,2,4,6,8,10
+
+    -- Counting down with negative step
+    dec countdown = {}
+    for j = 5, 1, -1 do
+        table.insert(countdown, j)
+    end
+    check("for negative step", #countdown == 5)
+    check("countdown first", countdown[0] == 5)
+    check("countdown last", countdown[4] == 1)
+
+    -- Generic for with pairs() — iterates all table keys
+    dec t = {a = 1, b = 2, c = 3}
+    dec key_count = 0
+    for k, v in pairs(t) do
+        key_count = key_count + 1
+    end
+    check("pairs count", key_count == 3)
+
+    -- break: exit loop early
+    dec found = -1
+    for j = 0, 99 do
+        if j == 42 then
+            found = j
+            break
+        end
+    end
+    check("break", found == 42)
+
+    -- goto / labels: jump to a named label
+    dec jumped = false
+    goto skip_this
+    jumped = true  -- this line is skipped
+    ::skip_this::
+    check("goto skipped", not jumped)
+
+    print("  Section 4 complete.")
+end
+section_control()
+
+-- ============================================================
+-- SECTION 5: FUNCTIONS
+--
+-- Functions are first-class values in Nova.
+-- Declared with `function name(...) ... end`
+-- or `dec function name(...) ... end`
+-- Anonymous: `function(...) ... end`
+-- Functions can return multiple values.
+-- Closures capture upvalues from enclosing scopes.
+-- ============================================================
+dec function section_functions()
+    print("\n=== SECTION 5: FUNCTIONS ===")
+
+    -- Named dec function
+    dec function add(a, b)
+        return a + b
+    end
+    check("named func", add(3, 4) == 7)
+
+    -- Anonymous function assigned to variable
+    dec mul = function(a, b) return a * b end
+    check("anonymous func", mul(3, 4) == 12)
+
+    -- Multiple return values
+    dec function divmod(a, b)
+        return math.floor(a / b), a % b
+    end
+    dec q, r = divmod(17, 5)
+    check("multi return q", q == 3)
+    check("multi return r", r == 2)
+
+    -- Functions as arguments (higher-order)
+    dec function apply(f, x, y)
+        return f(x, y)
+    end
+    check("higher-order", apply(add, 10, 20) == 30)
+
+    -- Functions returning functions
+    dec function make_adder(n)
+        return function(x)
+            return x + n
+        end
+    end
+    dec add5 = make_adder(5)
+    check("closure factory", add5(10) == 15)
+    check("closure captures", add5(0) == 5)
+
+    -- Closure capturing upvalue — upvalue migrates to heap
+    -- when the enclosing function returns
+    dec function make_counter()
+        dec count = 0
+        return function()
+            count = count + 1
+            return count
+        end
+    end
+    dec counter = make_counter()
+    check("counter 1", counter() == 1)
+    check("counter 2", counter() == 2)
+    check("counter 3", counter() == 3)
+
+    -- Recursion: Classic Fibonacci
+    dec function fib(n)
+        if n < 2 then return n end
+        return fib(n - 1) + fib(n - 2)
+    end
+    check("fib(10)", fib(10) == 55)
+    check("fib(0)", fib(0) == 0)
+    check("fib(1)", fib(1) == 1)
+
+    -- Mutual recursion via forward declaration
+    dec is_even, is_odd
+    is_even = function(n)
+        if n == 0 then return true end
+        return is_odd(n - 1)
+    end
+    is_odd = function(n)
+        if n == 0 then return false end
+        return is_even(n - 1)
+    end
+    check("mutual even", is_even(10))
+    check("mutual odd", is_odd(7))
+
+    print("  Section 5 complete.")
+end
+section_functions()
+
+-- ============================================================
+-- SECTION 6: TABLES (Arrays & Hash Maps)
+--
+-- Tables are Nova's only compound data structure.
+-- They function as arrays, dictionaries, objects, and modules.
+--
+-- IMPORTANT: Nova uses 0-BASED indexing for arrays.
+-- (Unlike Lua which uses 1-based indexing.)
+--
+-- Constructors: { value, value } for arrays
+--               { key = value } for hash maps
+-- Access: t[index] or t.field (sugar for t["field"])
+-- ============================================================
+dec function section_tables()
+    print("\n=== SECTION 6: TABLES ===")
+
+    -- Array-style table (0-based!)
+    dec arr = {10, 20, 30, 40, 50}
+    check("arr[0]", arr[0] == 10)
+    check("arr[1]", arr[1] == 20)
+    check("arr[4]", arr[4] == 50)
+    check("array #", #arr == 5)
+
+    -- Hash-style table (string keys)
+    dec person = {name = "Alice", age = 30, active = true}
+    check("hash .name", person.name == "Alice")
+    check("hash .age", person.age == 30)
+    check("hash [key]", person["active"] == true)
+
+    -- Mixed table
+    dec mixed = {100, 200, label = "test"}
+    check("mixed [0]", mixed[0] == 100)
+    check("mixed .label", mixed.label == "test")
+
+    -- Nested tables
+    dec matrix = {{1, 2}, {3, 4}, {5, 6}}
+    check("nested [0][0]", matrix[0][0] == 1)
+    check("nested [1][1]", matrix[1][1] == 4)
+    check("nested [2][0]", matrix[2][0] == 5)
+
+    -- Dynamic key assignment
+    dec d = {}
+    d["x"] = 10
+    d.y = 20
+    d[0] = "zero"
+    check("dynamic str key", d.x == 10)
+    check("dynamic dot key", d.y == 20)
+    check("dynamic int key", d[0] == "zero")
+
+    -- table.insert: append or insert at position
+    dec list = {}
+    table.insert(list, "a")
+    table.insert(list, "b")
+    table.insert(list, "c")
+    check("insert #", #list == 3)
+    check("insert [0]", list[0] == "a")
+    check("insert [2]", list[2] == "c")
+
+    -- table.insert at position
+    table.insert(list, 1, "X")
+    check("insert at 1", list[1] == "X")
+    check("shifted", list[2] == "b")
+
+    -- table.remove: remove last or at position
+    dec rem = {10, 20, 30, 40}
+    dec removed = table.remove(rem)
+    check("remove last", removed == 40)
+    check("remove # after", #rem == 3)
+
+    dec removed2 = table.remove(rem, 1)
+    check("remove at 1", removed2 == 20)
+
+    -- table.concat: join array elements as string
+    dec words = {"hello", "world", "nova"}
+    check("concat comma", table.concat(words, ", ") == "hello, world, nova")
+    check("concat empty", table.concat(words, "") == "helloworldnova")
+
+    -- table.sort: in-place sort (default: ascending)
+    dec nums = {5, 3, 1, 4, 2}
+    table.sort(nums)
+    check("sort [0]", nums[0] == 1)
+    check("sort [4]", nums[4] == 5)
+
+    -- table.sort with custom comparator (descending)
+    table.sort(nums, function(a, b) return a > b end)
+    check("sort desc [0]", nums[0] == 5)
+    check("sort desc [4]", nums[4] == 1)
+
+    -- table.move(src, from, to, dest_start [, dest_table])
+    dec src = {10, 20, 30, 40, 50}
+    dec dst = {}
+    table.move(src, 1, 3, 0, dst)
+    check("move [0]", dst[0] == 20)
+    check("move [2]", dst[2] == 40)
+
+    -- table.pack: pack values into an array
+    dec packed = table.pack(10, 20, 30)
+    check("pack [0]", packed[0] == 10)
+    check("pack [1]", packed[1] == 20)
+    check("pack [2]", packed[2] == 30)
+
+    print("  Section 6 complete.")
+end
+section_tables()
+
+-- ============================================================
+-- SECTION 7: STRINGS
+--
+-- Strings are immutable and interned (O(1) equality via
+-- pointer comparison thanks to Weave string interning).
+--
+-- Quoting: "double", 'single', `backtick with ${interpolation}`
+-- Concatenation: ..
+-- Length: # operator
+-- Standard library: string.sub, string.find, string.match,
+--   string.gsub, string.gmatch, string.len, string.rep,
+--   string.reverse, string.upper, string.lower,
+--   string.byte, string.char, string.format
+-- printf() and sprintf() are global (C-style format strings).
+-- ============================================================
+dec function section_strings()
+    print("\n=== SECTION 7: STRINGS ===")
+
+    -- Basic operations
+    check("concat ..", "hello" .. " " .. "world" == "hello world")
+    check("length #", #"Nova" == 4)
+    check("string.len", string.len("test") == 4)
+
+    -- String interpolation with backticks
+    -- Expressions inside ${...} are evaluated and stringified
+    dec name = "Nova"
+    dec ver = 1
+    dec greeting = `Hello, ${name}!`
+    check("interpolation basic", greeting == "Hello, Nova!")
+
+    dec math_expr = `2+3=${2 + 3}`
+    check("interpolation expr", math_expr == "2+3=5")
+
+    -- Function calls inside interpolation
+    dec function double(n) return n * 2 end
+    dec interp_fn = `doubled: ${double(21)}`
+    check("interpolation fn", interp_fn == "doubled: 42")
+
+    -- Table field access in interpolation
+    dec t = {x = 99}
+    dec interp_tbl = `x is ${t.x}`
+    check("interpolation tbl", interp_tbl == "x is 99")
+
+    -- Consecutive interpolations
+    dec a = "A"
+    dec b = "B"
+    check("consecutive interp", `${a}${b}` == "AB")
+
+    -- string.sub(s, i, j): substring (0-based in Nova)
+    check("sub", string.sub("hello", 0, 2) == "hel")
+    check("sub neg", string.sub("hello", -3) == "llo")
+
+    -- string.find: returns start,end positions
+    dec s, e = string.find("hello world", "world")
+    check("find start", s == 6)
+    check("find end", e == 10)
+
+    -- string.find with patterns
+    dec ds, de = string.find("abc 123 def", "%d+")
+    check("find pattern", ds == 4)
+
+    -- string.match: returns captures or full match
+    dec m = string.match("hello 123 world", "(%d+)")
+    check("match capture", m == "123")
+
+    -- Multiple captures
+    dec y, mo, d = string.match("2026-02-15", "(%d+)-(%d+)-(%d+)")
+    check("match year", y == "2026")
+    check("match month", mo == "02")
+    check("match day", d == "15")
+
+    -- string.gsub: global substitution
+    dec replaced = string.gsub("hello world", "world", "Nova")
+    check("gsub", replaced == "hello Nova")
+
+    -- string.gsub with pattern
+    dec digits_gone = string.gsub("abc123def456", "%d+", "NUM")
+    check("gsub pattern", digits_gone == "abcNUMdefNUM")
+
+    -- string.gmatch: returns a table of all matches
+    -- (In Nova, gmatch returns a table — not an iterator)
+    dec found = string.gmatch("one two three", "%a+")
+    check("gmatch count", #found == 3)
+    check("gmatch first", found[0] == "one")
+    check("gmatch last", found[2] == "three")
+
+    -- string.rep: repeat a string
+    check("rep", string.rep("ab", 3) == "ababab")
+
+    -- string.reverse
+    check("reverse", string.reverse("hello") == "olleh")
+
+    -- string.upper / lower
+    check("upper", string.upper("hello") == "HELLO")
+    check("lower", string.lower("WORLD") == "world")
+
+    -- string.byte / char
+    check("byte", string.byte("A") == 65)
+    check("char", string.char(65) == "A")
+
+    -- string.format (like C sprintf)
+    check("format int", string.format("%d", 42) == "42")
+    check("format float", string.format("%.2f", 3.14159) == "3.14")
+    check("format string", string.format("%s=%d", "x", 10) == "x=10")
+
+    -- printf: global, prints formatted output (no return value)
+    -- sprintf: global, returns formatted string
+    dec fmted = sprintf("pi=%.4f", 3.14159)
+    check("sprintf", fmted == "pi=3.1416")
+
+    print("  Section 7 complete.")
+end
+section_strings()
+
+-- ============================================================
+-- SECTION 8: MATH LIBRARY
+--
+-- The math table provides standard mathematical functions.
+-- All angles are in radians.
+-- math.type(v) returns "integer", "float", or "false" (string).
+-- ============================================================
+dec function section_math()
+    print("\n=== SECTION 8: MATH LIBRARY ===")
+
+    -- Constants
+    check("math.pi", math.pi > 3.14 and math.pi < 3.15)
+    check("math.huge", math.huge > 1e300)
+    check("math.maxinteger", math.maxinteger > 0)
+
+    -- Floor, ceil, abs
+    check("floor", math.floor(3.7) == 3)
+    check("ceil", math.ceil(3.2) == 4)
+    check("abs pos", math.abs(42) == 42)
+    check("abs neg", math.abs(-42) == 42)
+
+    -- Min, max
+    check("min", math.min(3, 1, 4, 1, 5) == 1)
+    check("max", math.max(3, 1, 4, 1, 5) == 5)
+
+    -- Power and roots
+    check("sqrt", math.sqrt(144) == 12)
+    check("pow", math.pow(2, 10) == 1024)
+
+    -- Exponential and logarithm
+    dec e_val = math.exp(1)
+    check("exp(1) ~ 2.718", e_val > 2.71 and e_val < 2.72)
+    dec ln_e = math.log(math.exp(1))
+    check("log(e) ~ 1", ln_e > 0.99 and ln_e < 1.01)
+
+    -- Trigonometric functions
+    dec sin0 = math.sin(0)
+    check("sin(0)", sin0 == 0)
+    dec cos0 = math.cos(0)
+    check("cos(0)", cos0 == 1)
+    dec tan0 = math.tan(0)
+    check("tan(0)", tan0 == 0)
+
+    -- Inverse trig
+    dec asin1 = math.asin(1)
+    check("asin(1) ~ pi/2", asin1 > 1.57 and asin1 < 1.58)
+    dec acos0 = math.acos(0)
+    check("acos(0) ~ pi/2", acos0 > 1.57 and acos0 < 1.58)
+    dec atan1 = math.atan(1)
+    check("atan(1) ~ pi/4", atan1 > 0.78 and atan1 < 0.79)
+
+    -- Modulo
+    check("fmod", math.fmod(10, 3) == 1)
+
+    -- Type checking
+    check("math.type int", math.type(42) == "integer")
+    check("math.type float", math.type(3.14) == "float")
+    check("math.type str", math.type("hello") == false)
+
+    -- tointeger
+    check("tointeger", math.tointeger(3.0) == 3)
+
+    -- Random (just check it returns a number, seed for determinism)
+    math.randomseed(12345)
+    dec r = math.random()
+    check("random type", type(r) == "number")
+    check("random range", r >= 0 and r < 1)
+
+    -- Random with range
+    dec ri = math.random(1, 100)
+    check("random int range", ri >= 1 and ri <= 100)
+
+    print("  Section 8 complete.")
+end
+section_math()
+
+-- ============================================================
+-- SECTION 9: METATABLES & OBJECT-ORIENTED PROGRAMMING
+--
+-- Metatables allow operator overloading and prototype-based OOP.
+-- setmetatable(t, mt) assigns a metatable.
+-- getmetatable(t) retrieves it.
+--
+-- Metamethods:
+--   __index    — lookup fallback (table or function)
+--   __newindex — intercept field writes
+--   __add      — overload + operator
+--   __sub      — overload - operator
+--   __mul      — overload * operator
+--   __eq       — overload == operator
+--   __tostring — custom string representation
+--   __len      — overload # operator
+--   __call     — make a table callable
+--
+-- OOP Pattern: Create a class table with __index pointing
+-- to itself, then `setmetatable(instance, Class)`.
+-- ============================================================
+dec function section_metatables()
+    print("\n=== SECTION 9: METATABLES & OOP ===")
+
+    -- __index with table chaining (prototype pattern)
+    dec base = {greeting = "hello"}
+    dec child = {}
+    setmetatable(child, {__index = base})
+    check("__index chain", child.greeting == "hello")
+
+    -- __index with function (computed properties)
+    dec proxy = {}
+    setmetatable(proxy, {
+        __index = function(t, k)
+            return "default_" .. k
+        end
+    })
+    check("__index function", proxy.foo == "default_foo")
+
+    -- __newindex: intercept writes
+    dec store = {}
+    dec readonly = {}
+    setmetatable(readonly, {
+        __newindex = function(t, k, v)
+            store[k] = v
+        end,
+        __index = store
+    })
+    readonly.x = 42
+    check("__newindex redirect", readonly.x == 42)
+    check("__newindex stored", store.x == 42)
+
+    -- Vector class with arithmetic metamethods
+    dec Vec = {}
+    Vec.__index = Vec
+
+    function Vec.new(x, y)
+        dec v = {x = x, y = y}
+        setmetatable(v, Vec)
+        return v
+    end
+
+    Vec.__add = function(a, b)
+        return Vec.new(a.x + b.x, a.y + b.y)
+    end
+    Vec.__sub = function(a, b)
+        return Vec.new(a.x - b.x, a.y - b.y)
+    end
+    Vec.__mul = function(a, b)
+        if type(b) == "integer" or type(b) == "number" then
+            return Vec.new(a.x * b, a.y * b)
+        end
+        return Vec.new(a.x * b.x, a.y * b.y)
+    end
+    Vec.__eq = function(a, b)
+        return a.x == b.x and a.y == b.y
+    end
+    Vec.__tostring = function(v)
+        return sprintf("(%d, %d)", v.x, v.y)
+    end
+
+    dec v1 = Vec.new(1, 2)
+    dec v2 = Vec.new(3, 4)
+    dec v3 = v1 + v2
+    check("__add vec", v3.x == 4 and v3.y == 6)
+
+    dec v4 = v2 - v1
+    check("__sub vec", v4.x == 2 and v4.y == 2)
+
+    dec v5 = v1 * 3
+    check("__mul scalar", v5.x == 3 and v5.y == 6)
+
+    check("__eq same", Vec.new(1, 1) == Vec.new(1, 1))
+    check("__tostring", tostring(v1) == "(1, 2)")
+
+    -- Inheritance chain: Animal → Dog
+    dec Animal = {}
+    Animal.__index = Animal
+    function Animal.new(name, sound)
+        dec a = {name = name, sound = sound}
+        setmetatable(a, Animal)
+        return a
+    end
+    Animal.speak = function(self)
+        return self.name .. " says " .. self.sound
+    end
+
+    dec Dog = {}
+    Dog.__index = Dog
+    setmetatable(Dog, {__index = Animal})
+
+    function Dog.new(name)
+        dec d = Animal.new(name, "woof")
+        setmetatable(d, Dog)
+        return d
+    end
+    Dog.fetch = function(self, item)
+        return self.name .. " fetches " .. item
+    end
+
+    dec rex = Dog.new("Rex")
+    check("inherit speak", rex.speak(rex) == "Rex says woof")
+    check("own method", rex.fetch(rex, "ball") == "Rex fetches ball")
+
+    -- __len metamethod
+    dec sized = {}
+    setmetatable(sized, {__len = function(t) return 42 end})
+    check("__len", #sized == 42)
+
+    -- __call metamethod (callable table)
+    dec callable = {}
+    setmetatable(callable, {
+        __call = function(t, x)
+            return x * 2
+        end
+    })
+    check("__call", callable(21) == 42)
+
+    print("  Section 9 complete.")
+end
+section_metatables()
+
+-- ============================================================
+-- SECTION 10: ERROR HANDLING
+--
+-- error(msg)          — raise an error (unwinds via longjmp)
+-- pcall(f, ...)       — protected call, returns ok, result_or_err
+-- xpcall(f, handler, ...) — like pcall but with error handler
+-- assert(cond, msg)   — error if cond is falsy
+--
+-- pcall catches errors and returns a status boolean.
+-- xpcall passes the error through a handler function first.
+-- ============================================================
+dec function section_errors()
+    print("\n=== SECTION 10: ERROR HANDLING ===")
+
+    -- pcall: success path
+    dec ok, val = pcall(function() return 42 end)
+    check("pcall success ok", ok == true)
+    check("pcall success val", val == 42)
+
+    -- pcall: error path
+    dec ok2, err = pcall(function()
+        error("boom")
+    end)
+    check("pcall error ok", ok2 == false)
+    check("pcall error msg", type(err) == "string")
+
+    -- pcall with arguments
+    dec ok3, sum = pcall(function(a, b) return a + b end, 10, 20)
+    check("pcall args", ok3 and sum == 30)
+
+    -- Nested pcall: inner error does not affect outer
+    dec ok4, inner_ok = pcall(function()
+        dec ok_inner, msg_inner = pcall(function()
+            error("inner error")
+        end)
+        return ok_inner
+    end)
+    check("nested pcall outer", ok4 == true)
+    check("nested pcall inner", inner_ok == false)
+
+    -- xpcall: error handler transforms the error
+    dec function crasher()
+        error("raw error")
+    end
+    dec function handler(err)
+        return "CAUGHT: " .. tostring(err)
+    end
+    dec ok5, msg5 = xpcall(crasher, handler)
+    check("xpcall ok", ok5 == false)
+    check("xpcall handler", type(msg5) == "string")
+
+    -- xpcall success
+    dec ok6, val6 = xpcall(function() return 99 end, handler)
+    check("xpcall success", ok6 and val6 == 99)
+
+    -- xpcall with multiple returns
+    dec ok7, r1, r2 = xpcall(function(a, b)
+        return a, b
+    end, handler, 10, 20)
+    check("xpcall multi", ok7 and r1 == 10 and r2 == 20)
+
+    -- assert: passes through value on success
+    dec aval = assert(42, "should not fire")
+    check("assert pass", aval == 42)
+
+    -- assert: error on nil
+    dec ok8, aerr = pcall(function()
+        assert(nil, "assertion failed!")
+    end)
+    check("assert fail", ok8 == false)
+
+    print("  Section 10 complete.")
+end
+section_errors()
+
+-- ============================================================
+-- SECTION 11: COROUTINES
+--
+-- Coroutines provide cooperative multitasking with independent
+-- call stacks. They can yield and resume, passing values.
+--
+-- coroutine.create(f)    — create a new coroutine (thread)
+-- coroutine.resume(co, ...) — resume (or start) execution
+-- coroutine.yield(...)   — suspend and return values to caller
+-- coroutine.status(co)   — "suspended", "running", "dead"
+-- coroutine.wrap(f)      — returns an iterator function
+-- ============================================================
+dec function section_coroutines()
+    print("\n=== SECTION 11: COROUTINES ===")
+
+    -- Create and check type
+    dec function hello() return "hi" end
+    dec co = coroutine.create(hello)
+    check("coroutine type", type(co) == "thread")
+
+    -- Status: suspended before first resume
+    check("initial status", coroutine.status(co) == "suspended")
+
+    -- Resume runs the function
+    dec ok, val = coroutine.resume(co)
+    check("resume ok", ok == true)
+    check("resume val", val == "hi")
+    check("dead after return", coroutine.status(co) == "dead")
+
+    -- Cannot resume dead coroutine
+    dec ok2, msg = coroutine.resume(co)
+    check("dead resume fails", ok2 == false)
+
+    -- Yield and resume cycle
+    dec function yielder()
+        coroutine.yield(10)
+        coroutine.yield(20)
+        return 30
+    end
+    dec co2 = coroutine.create(yielder)
+    dec ok3, v1 = coroutine.resume(co2)
+    check("yield 1", ok3 and v1 == 10)
+    dec ok4, v2 = coroutine.resume(co2)
+    check("yield 2", ok4 and v2 == 20)
+    dec ok5, v3 = coroutine.resume(co2)
+    check("final return", ok5 and v3 == 30)
+    check("dead after yields", coroutine.status(co2) == "dead")
+
+    -- Passing values through resume
+    dec function echo()
+        dec a = coroutine.yield()       -- first resume sends a
+        dec b = coroutine.yield(a * 2)  -- responds with a*2
+        return a + b
+    end
+    dec co3 = coroutine.create(echo)
+    coroutine.resume(co3)           -- start, hits first yield
+    dec ok6, doubled = coroutine.resume(co3, 5)  -- pass 5
+    check("echo doubled", ok6 and doubled == 10)
+    dec ok7, sum = coroutine.resume(co3, 3)       -- pass 3
+    check("echo sum", ok7 and sum == 8)
+
+    -- Loop yielding: producer pattern
+    dec function counter(n)
+        for i = 1, n do
+            coroutine.yield(i)
+        end
+    end
+    dec co4 = coroutine.create(counter)
+    dec results = {}
+    while true do
+        dec ok_r, val_r = coroutine.resume(co4, 5)
+        if not ok_r or val_r == nil then break end
+        table.insert(results, val_r)
+    end
+    check("loop yield count", #results == 5)
+    check("loop yield values", results[0] == 1 and results[4] == 5)
+
+    -- coroutine.wrap: returns callable iterator
+    dec gen = coroutine.wrap(function()
+        coroutine.yield("a")
+        coroutine.yield("b")
+        coroutine.yield("c")
+    end)
+    check("wrap 1", gen() == "a")
+    check("wrap 2", gen() == "b")
+    check("wrap 3", gen() == "c")
+
+    print("  Section 11 complete.")
+end
+section_coroutines()
+
+-- ============================================================
+-- SECTION 12: ASYNC / AWAIT
+--
+-- Nova supports async/await for cooperative concurrency,
+-- built on top of coroutines with a task scheduler.
+--
+-- async function name(...)   — declares an async function
+-- await expr                 — suspends until task completes
+-- spawn fn(...)              — queue a task for execution
+-- task.run(fn)               — run the event loop
+-- ============================================================
+dec function section_async()
+    print("\n=== SECTION 12: ASYNC / AWAIT ===")
+
+    -- Basic async function returns a task
+    async function simple()
+        return 42
+    end
+
+    dec result = nil
+    async function test_simple()
+        result = await simple()
+    end
+    task.run(test_simple)
+    check("async/await basic", result == 42)
+
+    -- Async with arguments
+    async function add_async(a, b)
+        return a + b
+    end
+
+    dec sum = nil
+    async function test_add()
+        sum = await add_async(10, 20)
+    end
+    task.run(test_add)
+    check("async args", sum == 30)
+
+    -- Chaining awaits
+    async function double_async(x) return x * 2 end
+    async function triple_async(x) return x * 3 end
+
+    dec chained = nil
+    async function test_chain()
+        dec a = await double_async(5)    -- 10
+        dec b = await triple_async(a)    -- 30
+        chained = b
+    end
+    task.run(test_chain)
+    check("async chaining", chained == 30)
+
+    -- Nested async calls
+    async function inner(x) return x + 1 end
+    async function outer(x)
+        dec a = await inner(x)
+        dec b = await inner(a)
+        return b
+    end
+    dec nested = nil
+    async function test_nested()
+        nested = await outer(10)
+    end
+    task.run(test_nested)
+    check("async nested", nested == 12)
+
+    -- Await on non-task value passes through
+    dec passthrough = nil
+    async function test_passthrough()
+        passthrough = await 42
+    end
+    task.run(test_passthrough)
+    check("await passthrough", passthrough == 42)
+
+    -- Spawn: queue multiple tasks
+    dec spawn_log = {}
+    async function worker(id)
+        table.insert(spawn_log, id)
+    end
+    async function test_spawn()
+        dec _ = spawn worker(1)
+        dec _ = spawn worker(2)
+        dec _ = spawn worker(3)
+    end
+    task.run(test_spawn)
+    check("spawn count", #spawn_log == 3)
+
+    print("  Section 12 complete.")
+end
+section_async()
+
+-- ============================================================
+-- SECTION 13: NDP — NOVA DATA PROCESSING
+--
+-- The #import data directive provides codec tables for
+-- parsing and serializing common data formats:
+--   json — JSON objects, arrays, primitives
+--   csv  — Comma-separated values with headers
+--   tsv  — Tab-separated values with headers
+--   ini  — INI config files with sections
+--   toml — TOML config files
+--   html — HTML entities (encode/decode)
+--   data — Format auto-detection
+-- ============================================================
+dec function section_ndp()
+    print("\n=== SECTION 13: NDP DATA CODECS ===")
+
+    -- Verify modules are available
+    check("json available", type(json) == "table")
+    check("csv available", type(csv) == "table")
+    check("ini available", type(ini) == "table")
+    check("toml available", type(toml) == "table")
+
+    -- Preprocessor flags set by #import data
+#ifdef NOVA_HAS_JSON
+    check("NOVA_HAS_JSON defined", true)
+#else
+    check("NOVA_HAS_JSON defined", false)
+#endif
+#ifdef NOVA_HAS_DATA
+    check("NOVA_HAS_DATA defined", true)
+#else
+    check("NOVA_HAS_DATA defined", false)
+#endif
+
+    -- === JSON ===
+    print("  -- JSON --")
+
+    -- Decode object
+    dec j1 = json.decode('{"name": "Nova", "version": 1}')
+    check("json obj", j1.name == "Nova" and j1.version == 1)
+
+    -- Decode array (0-based)
+    dec j2 = json.decode("[10, 20, 30]")
+    check("json arr", j2[0] == 10 and j2[1] == 20 and j2[2] == 30)
+
+    -- Decode nested
+    dec j3 = json.decode('{"a": {"b": 42}}')
+    check("json nested", j3.a.b == 42)
+
+    -- Primitives
+    check("json true", json.decode("true") == true)
+    check("json false", json.decode("false") == false)
+    check("json null", json.decode("null") == nil)
+    check("json number", json.decode("3.14") == 3.14)
+    check("json neg int", json.decode("-42") == -42)
+
+    -- Encode
+    check("json encode nil", json.encode(nil) == "null")
+    check("json encode true", json.encode(true) == "true")
+    check("json encode int", json.encode(42) == "42")
+
+    -- Round-trip
+    dec j5 = json.decode(json.encode({name = "test"}))
+    check("json roundtrip", j5.name == "test")
+
+    -- === CSV ===
+    print("  -- CSV --")
+    dec c1 = csv.decode("name,age,city\nAlice,30,NYC\nBob,25,LA")
+    check("csv type", type(c1) == "table")
+    dec cr0 = c1[0]
+    check("csv row", cr0.name == "Alice" and cr0.age == 30)
+
+    -- Quoted fields
+    dec c2 = csv.decode('a,b\n"hello, world","ok"')
+    check("csv quoted", c2[0].a == "hello, world")
+
+    -- === INI ===
+    print("  -- INI --")
+    dec i1 = ini.decode("[server]\nhost = localhost\nport = 8080\n")
+    check("ini section", i1.server.host == "localhost")
+    check("ini int val", i1.server.port == 8080)
+
+    -- Comments
+    dec i3 = ini.decode("; comment\n# also comment\nkey = val")
+    check("ini comments", i3.key == "val")
+
+    -- === TOML ===
+    print("  -- TOML --")
+    dec m1 = toml.decode('title = "My App"\n\n[database]\nserver = "192.168.1.1"\nport = 5432\nenabled = true\n')
+    check("toml title", m1.title == "My App")
+    check("toml section", m1.database.server == "192.168.1.1")
+    check("toml int", m1.database.port == 5432)
+    check("toml bool", m1.database.enabled == true)
+
+    -- TOML array
+    dec m2 = toml.decode('colors = ["red", "green", "blue"]\n')
+    check("toml array", m2.colors[0] == "red" and m2.colors[2] == "blue")
+
+    -- === data (auto-detect) ===
+    print("  -- Auto-detect --")
+    dec det = data.detect('{"key": "value"}')
+    check("detect json", det == "json")
+
+    dec det2 = data.detect("name,age\nAlice,30")
+    check("detect csv", det2 == "csv")
+
+    print("  Section 13 complete.")
+end
+section_ndp()
+
+-- ============================================================
+-- SECTION 14: GARBAGE COLLECTION
+--
+-- collectgarbage(opt [, arg])
+--   "collect"      — full GC cycle
+--   "count"        — returns KB, bytes
+--   "isrunning"    — returns true/false
+--   "setpause"     — set GC pause (returns old value)
+--   "setstepmul"   — set step multiplier (returns old value)
+-- ============================================================
+dec function section_gc()
+    print("\n=== SECTION 14: GARBAGE COLLECTION ===")
+
+    -- GC is running by default
+    check("gc running", collectgarbage("isrunning") == true)
+
+    -- Memory usage
+    dec kb, bytes = collectgarbage("count")
+    check("gc memory", kb > 0)
+
+    -- Manual collect
+    collectgarbage("collect")
+    check("gc collect ok", true)
+
+    -- Tune and restore
+    dec old_pause = collectgarbage("setpause", 300)
+    check("gc default pause", old_pause == 200)
+    collectgarbage("setpause", 200)
+
+    dec old_mul = collectgarbage("setstepmul", 400)
+    check("gc default stepmul", old_mul == 200)
+    collectgarbage("setstepmul", 200)
+
+    -- Allocation stress: create and discard many objects
+    dec before_kb = collectgarbage("count")
+    for i = 0, 9999 do
+        dec s = "temp_" .. tostring(i)
+    end
+    collectgarbage("collect")
+    dec after_kb = collectgarbage("count")
+    check("gc reclaimed strings", true)  -- just verifying no crash
+
+    for i = 0, 4999 do
+        dec t = {x = i, y = i * 2}
+    end
+    collectgarbage("collect")
+    check("gc reclaimed tables", true)
+
+    print("  Section 14 complete.")
+end
+section_gc()
+
+-- ============================================================
+-- SECTION 15: PREPROCESSOR
+--
+-- Nova's preprocessor runs before compilation. Directives:
+--   #import <module>       — import a standard module
+--   #define NAME           — define a flag (no value)
+--   #ifdef NAME ... #else ... #endif — conditional compilation
+--   #ifndef NAME ... #endif
+--   #include "file"        — textual inclusion
+--
+-- Note: #define NAME value (with value) works in .n files but
+-- has known issues in .m macro files with the current PP.
+-- ============================================================
+dec function section_preprocessor()
+    print("\n=== SECTION 15: PREPROCESSOR ===")
+
+    -- #define and #ifdef (flag-only macros)
+#define SYNTAX_GUIDE
+#ifdef SYNTAX_GUIDE
+    check("ifdef true", true)
+#else
+    check("ifdef true", false)
+#endif
+
+    -- #ifndef
+#ifndef NONEXISTENT_FLAG
+    check("ifndef true", true)
+#else
+    check("ifndef true", false)
+#endif
+
+    -- The #import data directive was used at the top of this file,
+    -- which set NOVA_HAS_JSON, NOVA_HAS_DATA, etc.
+    -- These were already tested in Section 13.
+
+    print("  Section 15 complete.")
+end
+section_preprocessor()
+
+-- ============================================================
+-- SECTION 16: OS LIBRARY
+--
+-- os.clock()  — CPU time in seconds (high-resolution timer)
+-- os.exit(n)  — exit the process with code n
+-- os.time()   — current time as integer (epoch seconds)
+-- ============================================================
+dec function section_os()
+    print("\n=== SECTION 16: OS LIBRARY ===")
+
+    -- os.clock returns a number
+    dec t = os.clock()
+    check("os.clock type", type(t) == "number")
+    check("os.clock >= 0", t >= 0)
+
+    -- os.time returns an integer
+    dec now = os.time()
+    check("os.time type", type(now) == "integer")
+    check("os.time > 0", now > 0)
+
+    print("  Section 16 complete.")
+end
+section_os()
+
+-- ============================================================
+-- SECTION 17: IO LIBRARY
+--
+-- print(...)        — print values separated by tab, newline
+-- printf(fmt, ...)  — C-style formatted output to stdout
+-- sprintf(fmt, ...) — C-style formatted output to string
+-- fprintf(f, fmt, ...) — formatted output to file handle
+-- io.write(str)     — write string (no newline)
+-- ============================================================
+dec function section_io()
+    print("\n=== SECTION 17: IO LIBRARY ===")
+
+    -- print with multiple args (tab-separated)
+    -- (just verifying it doesn't crash)
+    print("  multi-arg print:", 1, true, "hello", nil)
+    check("print ok", true)
+
+    -- printf
+    printf("  printf test: %d + %d = %d\n", 1, 2, 3)
+    check("printf ok", true)
+
+    -- sprintf returns a string
+    dec s = sprintf("%05d", 42)
+    check("sprintf pad", s == "00042")
+
+    -- io.write (no newline)
+    io.write("  io.write test\n")
+    check("io.write ok", true)
+
+    -- echo is a global alias for print
+    echo("  echo test:", 42, "hello")
+    check("echo exists", echo != nil)
+    check("echo is print", echo == print)
+
+    print("  Section 17 complete.")
+end
+section_io()
+
+-- ============================================================
+-- ============================================================
+--
+--  PERFORMANCE BENCHMARKS
+--
+--  The following sections benchmark various VM operations.
+--  Each benchmark is wrapped in a do...end block for scoping
+--  and uses os.clock() for timing.
+--
+-- ============================================================
+-- ============================================================
+print("\n")
+print("============================================================")
+print("  NOVA PERFORMANCE BENCHMARKS")
+print("============================================================")
+
+-- ============================================================
+-- BENCH 1: Function Call Overhead
+--
+-- Measures the cost of calling an empty function N times.
+-- Tests the VM's call/return dispatch speed.
+-- ============================================================
+echo("\n--- FUNCTION CALLS ---")
+do
+    dec function noop() end
+
+    dec s = os.clock()
+    for i = 0, 999999 do noop() end
+    dec e = os.clock() - s
+    dec rate = 1.0 / e
+    printf("  1M calls:                          %8.4f sec  (%.1fM/sec)\n", e, rate)
+end
+
+do
+    dec function noop() end
+
+    dec s = os.clock()
+    for i = 0, 4999999 do noop() end
+    dec e = os.clock() - s
+    dec rate = 5.0 / e
+    printf("  5M calls:                          %8.4f sec  (%.1fM/sec)\n", e, rate)
+end
+
+-- ============================================================
+-- BENCH 2: Loop Throughput
+--
+-- Measures raw for-loop iteration speed (empty body).
+-- Tests the VM's loop dispatch and integer increment.
+-- ============================================================
+echo("\n--- LOOP THROUGHPUT ---")
+do
+    dec s = os.clock()
+    dec sum = 0
+    for i = 0, 999999 do sum = sum + 1 end
+    dec e = os.clock() - s
+    dec rate = 1.0 / e
+    printf("  1M for-loop:                       %8.4f sec  (%.1fM iter/sec)\n", e, rate)
+end
+
+-- ============================================================
+-- BENCH 3: Table Operations
+--
+-- Measures insert and lookup throughput on DAGGER hash tables.
+-- ============================================================
+echo("\n--- TABLE OPERATIONS ---")
+do
+    dec t = {}
+    dec N = 100000
+
+    -- Insert benchmark
+    dec s = os.clock()
+    for i = 0, N - 1 do t[i] = i end
+    dec e = os.clock() - s
+    dec rate = (N / 1000.0) / (e * 1000.0)
+    printf("  100K inserts:                      %8.4f sec  (%.1fM/sec)\n", e, rate)
+
+    -- Lookup benchmark
+    dec dummy = 0
+    s = os.clock()
+    for i = 0, N - 1 do dummy = dummy + t[i] end
+    e = os.clock() - s
+    rate = (N / 1000.0) / (e * 1000.0)
+    printf("  100K lookups:                      %8.4f sec  (%.1fM/sec)\n", e, rate)
+end
+
+-- ============================================================
+-- BENCH 4: String Operations
+--
+-- Measures string concatenation, interpolation, and pattern
+-- matching performance.
+-- ============================================================
+echo("\n--- STRING OPERATIONS ---")
+do
+    -- Concatenation
+    dec s = os.clock()
+    dec result = ""
+    for i = 0, 999 do
+        result = result .. "x"
+    end
+    dec e = os.clock() - s
+    printf("  1K string concat:                  %8.4f sec  (len=%d)\n", e, #result)
+end
+
+do
+    -- Interpolation
+    dec s = os.clock()
+    for i = 0, 9999 do
+        dec msg = `item ${i}`
+    end
+    dec e = os.clock() - s
+    printf("  10K interpolations:                %8.4f sec\n", e)
+end
+
+do
+    -- Pattern matching
+    dec text = "The quick brown fox jumps over 42 lazy dogs in 3.14 seconds"
+    dec s = os.clock()
+    for i = 0, 9999 do
+        string.find(text, "%d+%.%d+")
+    end
+    dec e = os.clock() - s
+    printf("  10K pattern finds:                 %8.4f sec\n", e)
+end
+
+-- ============================================================
+-- BENCH 5: Recursive Fibonacci
+--
+-- The classic naive recursive fib. Exercises deep call stacks
+-- and function call overhead. fib(35) makes ~29M calls.
+-- ============================================================
+echo("\n--- RECURSION ---")
+do
+    dec function fib(n)
+        if n < 2 then return n end
+        return fib(n - 1) + fib(n - 2)
+    end
+
+    dec s = os.clock()
+    dec r = fib(35)
+    dec e = os.clock() - s
+    printf("  fib(35) naive recursive:           %8.4f sec  (result=%d)\n", e, r)
+end
+
+-- ============================================================
+-- BENCH 6: GC Pressure
+--
+-- Allocates many short-lived tables to stress the incremental
+-- mark-and-sweep garbage collector.
+-- ============================================================
+echo("\n--- GC PRESSURE ---")
+do
+    dec s = os.clock()
+    for i = 0, 99999 do
+        dec a = i + 1
+        dec b = i + 2
+        dec t = {i, a, b}
+    end
+    dec e = os.clock() - s
+    printf("  100K temp tables (GC churn):       %8.4f sec  (%.1fK/sec)\n", e, 100.0 / e)
+end
+
+do
+    -- String allocation stress
+    dec s = os.clock()
+    for i = 0, 49999 do
+        dec str = "key_" .. tostring(i)
+    end
+    dec e = os.clock() - s
+    printf("  50K temp strings:                  %8.4f sec\n", e)
+end
+
+-- ============================================================
+-- BENCH 7: Matrix Multiplication
+--
+-- Classic O(n^3) matrix multiply. Exercises nested table
+-- access and arithmetic in tight loops.
+-- ============================================================
+echo("\n--- MATRIX MULTIPLY ---")
+do
+    dec N = 50
+    dec A = {}
+    dec B = {}
+    for i = 0, N - 1 do
+        A[i] = {}
+        B[i] = {}
+        for j = 0, N - 1 do
+            A[i][j] = (i + j) % 7
+            B[i][j] = (i * j + 1) % 5
+        end
+    end
+    dec s = os.clock()
+    dec C = {}
+    for i = 0, N - 1 do
+        C[i] = {}
+        for j = 0, N - 1 do
+            dec sum = 0
+            for k = 0, N - 1 do
+                sum = sum + A[i][k] * B[k][j]
+            end
+            C[i][j] = sum
+        end
+    end
+    dec e = os.clock() - s
+    printf("  50x50 matmul:                      %8.4f sec\n", e)
+end
+
+do
+    dec N = 100
+    dec A = {}
+    dec B = {}
+    for i = 0, N - 1 do
+        A[i] = {}
+        B[i] = {}
+        for j = 0, N - 1 do
+            A[i][j] = (i + j) % 7
+            B[i][j] = (i * j + 1) % 5
+        end
+    end
+    dec s = os.clock()
+    dec C = {}
+    for i = 0, N - 1 do
+        C[i] = {}
+        for j = 0, N - 1 do
+            dec sum = 0
+            for k = 0, N - 1 do
+                sum = sum + A[i][k] * B[k][j]
+            end
+            C[i][j] = sum
+        end
+    end
+    dec e = os.clock() - s
+    printf("  100x100 matmul:                    %8.4f sec\n", e)
+end
+
+-- ============================================================
+-- BENCH 8: Sieve of Eratosthenes
+--
+-- Classic prime sieve. Exercises boolean table operations
+-- and conditional branching.
+-- ============================================================
+echo("\n--- PRIMES (SIEVE) ---")
+do
+    dec s = os.clock()
+    dec SIZE = 100000
+    dec sieve = {}
+    for i = 0, SIZE do sieve[i] = true end
+    sieve[0] = false
+    sieve[1] = false
+    dec i = 2
+    while i * i <= SIZE do
+        if sieve[i] then
+            dec j = i * i
+            while j <= SIZE do
+                sieve[j] = false
+                j = j + i
+            end
+        end
+        i = i + 1
+    end
+    dec count = 0
+    for k = 0, SIZE do
+        if sieve[k] then count = count + 1 end
+    end
+    dec e = os.clock() - s
+    printf("  Sieve to 100K:                     %8.4f sec  (primes=%d)\n", e, count)
+end
+
+-- ============================================================
+-- BENCH 9: Closure Capture Stress
+--
+-- Creates many closures that capture upvalues, testing the
+-- upvalue migration path (stack → heap).
+-- ============================================================
+echo("\n--- CLOSURE STRESS ---")
+do
+    dec s = os.clock()
+    dec closures = {}
+    for i = 0, 9999 do
+        dec val = i
+        closures[i] = function() return val end
+    end
+    -- Verify a sample
+    dec ok = closures[0]() == 0 and closures[9999]() == 9999
+    dec e = os.clock() - s
+    printf("  10K closures (capture + call):     %8.4f sec  (ok=%s)\n", e, tostring(ok))
+end
+
+-- ============================================================
+-- BENCH 10: Metatable Dispatch
+--
+-- Measures the overhead of metamethod dispatch (__index,
+-- __add) compared to direct field access.
+-- ============================================================
+print("\n--- METATABLE DISPATCH ---")
+do
+    dec Proto = {x = 0}
+    Proto.__index = Proto
+    Proto.__add = function(a, b)
+        dec r = {x = a.x + b.x}
+        setmetatable(r, Proto)
+        return r
+    end
+
+    dec a = {x = 1}
+    setmetatable(a, Proto)
+    dec b = {x = 2}
+    setmetatable(b, Proto)
+
+    dec s = os.clock()
+    dec acc = a
+    for i = 0, 9999 do
+        acc = acc + b
+    end
+    dec e = os.clock() - s
+    printf("  10K __add dispatches:              %8.4f sec  (acc.x=%d)\n", e, acc.x)
+end
+
+do
+    -- __index lookup stress
+    dec base = {val = 42}
+    dec child = {}
+    setmetatable(child, {__index = base})
+
+    dec s = os.clock()
+    dec sum = 0
+    for i = 0, 99999 do
+        sum = sum + child.val
+    end
+    dec e = os.clock() - s
+    printf("  100K __index lookups:              %8.4f sec  (sum=%d)\n", e, sum)
+end
+
+-- ============================================================
+-- BENCH 11: Coroutine Resume/Yield
+--
+-- Measures the cost of coroutine context switches.
+-- ============================================================
+print("\n--- COROUTINE SWITCHING ---")
+do
+    dec function ping(n)
+        for i = 1, n do
+            coroutine.yield(i)
+        end
+    end
+
+    dec co = coroutine.create(ping)
+    dec s = os.clock()
+    dec count = 0
+    while true do
+        dec ok, val = coroutine.resume(co, 10000)
+        if not ok or val == nil then break end
+        count = count + 1
+    end
+    dec e = os.clock() - s
+    printf("  10K resume/yield:                  %8.4f sec  (switches=%d)\n", e, count)
+end
+
+-- ============================================================
+-- BENCH 12: NDP JSON Codec
+--
+-- Measures JSON encode/decode throughput.
+-- ============================================================
+print("\n--- JSON CODEC ---")
+do
+    dec obj = {name = "Nova", version = 1, active = true}
+    dec s = os.clock()
+    for i = 0, 9999 do
+        dec encoded = json.encode(obj)
+        dec decoded = json.decode(encoded)
+    end
+    dec e = os.clock() - s
+    printf("  10K JSON encode/decode:            %8.4f sec\n", e)
+end
+
+-- ============================================================
+-- BENCH 13: Pattern Matching Gauntlet
+--
+-- Multiple pattern types to stress the string library.
+-- ============================================================
+print("\n--- PATTERN GAUNTLET ---")
+do
+    dec s = os.clock()
+    dec text = "Hello World 2026-02-15 test@email.com $99.99 #tag"
+    for i = 0, 4999 do
+        string.find(text, "%d%d%d%d%-%d%d%-%d%d")
+        string.match(text, "(%a+)@(%a+)%.(%a+)")
+        string.gsub(text, "%$(%d+%.%d+)", "PRICE")
+    end
+    dec e = os.clock() - s
+    printf("  5K x 3 pattern ops:                %8.4f sec\n", e)
+end
+
+-- ============================================================
+-- SECTION 18: FILE I/O WITH REAL DATA FILES
+--
+-- Nova's io library:
+--   io.open(path, mode) — open a file ("r", "w", "a")
+--   io.read(fh, mode)   — read: "*a" (all), "*l" (line), N (bytes)
+--   io.write(fh, data)  — write string to file handle
+--   io.close(fh)        — close file handle
+--   io.type(fh)         — "file", "closed file", or "false"
+--
+-- File handles in Nova are integer slots (not table objects).
+--
+-- This section reads real .json, .csv, .ini, and .toml files
+-- from data/ (relative to this script's directory).
+-- ============================================================
+dec function section_file_io()
+    print("\n=== SECTION 18: FILE I/O WITH REAL DATA ===\n")
+
+    -- ----------------------------------------------------------
+    -- 18a: Read and parse a real JSON file
+    -- ----------------------------------------------------------
+    print("  -- JSON file --")
+    do
+        dec fh = io.open("data/sample.json", "r")
+        check("json file opened", fh != nil)
+        if fh then
+            dec content = io.read(fh, "*a")
+            io.close(fh)
+            check("json file read", content != nil and #content > 0)
+
+            dec obj = json.decode(content)
+            check("json file parsed", type(obj) == "table")
+            check("json file .project", obj.project == "Nova")
+            check("json file .version", obj.version == "0.9.0")
+            check("json file .author", obj.author == "Anthony Taliento")
+            check("json file .organization", obj.organization == "Zorya Corporation")
+
+            -- Nested object
+            check("json file .stats.tests", obj.stats.tests == 788)
+            check("json file .stats.suites", obj.stats.suites == 20)
+            check("json file .stats.passing", obj.stats.passing == true)
+
+            -- Array
+            check("json file features[0]", obj.features[0] == "vm")
+            check("json file features[4]", obj.features[4] == "async")
+            check("json file features #", #obj.features == 5)
+
+            check("json file .license", obj.license == "proprietary")
+
+            printf("    Parsed %d bytes of JSON\n", #content)
+        end
+    end
+
+    -- ----------------------------------------------------------
+    -- 18b: Read and parse a real CSV file
+    -- ----------------------------------------------------------
+    print("  -- CSV file --")
+    do
+        dec fh = io.open("data/sample.csv", "r")
+        check("csv file opened", fh != nil)
+        if fh then
+            dec content = io.read(fh, "*a")
+            io.close(fh)
+            check("csv file read", content != nil and #content > 0)
+
+            dec rows = csv.decode(content)
+            check("csv file parsed", type(rows) == "table")
+            check("csv file row count", #rows == 6)
+
+            -- Verify first row (Alice)
+            dec r0 = rows[0]
+            check("csv row 0 name", r0.name == "Alice")
+            check("csv row 0 role", r0.role == "Engineer")
+            check("csv row 0 dept", r0.department == "R&D")
+            check("csv row 0 salary", r0.salary == 95000)
+            check("csv row 0 active", r0.active == true)
+
+            -- Verify last row (Frank)
+            dec r5 = rows[5]
+            check("csv row 5 name", r5.name == "Frank")
+            check("csv row 5 salary", r5.salary == 87000)
+
+            -- Verify a middle row (Diana — inactive)
+            dec r3 = rows[3]
+            check("csv row 3 active", r3.active == false)
+
+            printf("    Parsed %d bytes of CSV (%d rows)\n", #content, #rows)
+        end
+    end
+
+    -- ----------------------------------------------------------
+    -- 18c: Read and parse a real INI file
+    -- ----------------------------------------------------------
+    print("  -- INI file --")
+    do
+        dec fh = io.open("data/sample.ini", "r")
+        check("ini file opened", fh != nil)
+        if fh then
+            dec content = io.read(fh, "*a")
+            io.close(fh)
+            check("ini file read", content != nil and #content > 0)
+
+            dec cfg = ini.decode(content)
+            check("ini file parsed", type(cfg) == "table")
+
+            -- [vm] section
+            check("ini vm.max_registers", cfg.vm.max_registers == 125)
+            check("ini vm.max_locals", cfg.vm.max_locals == 120)
+            check("ini vm.gc_pause", cfg.vm.gc_pause == 200)
+
+            -- [compiler] section
+            check("ini compiler.optimization", cfg.compiler.optimization == true)
+            check("ini compiler.debug_symbols", cfg.compiler.debug_symbols == false)
+            check("ini compiler.warnings", cfg.compiler.warnings == "strict")
+
+            -- [paths] section
+            check("ini paths.modules", cfg.paths.modules == "./lib")
+
+            printf("    Parsed %d bytes of INI\n", #content)
+        end
+    end
+
+    -- ----------------------------------------------------------
+    -- 18d: Read and parse a real TOML file
+    -- ----------------------------------------------------------
+    print("  -- TOML file --")
+    do
+        dec fh = io.open("data/sample.toml", "r")
+        check("toml file opened", fh != nil)
+        if fh then
+            dec content = io.read(fh, "*a")
+            io.close(fh)
+            check("toml file read", content != nil and #content > 0)
+
+            dec cfg = toml.decode(content)
+            check("toml file parsed", type(cfg) == "table")
+
+            -- Top-level keys
+            check("toml title", cfg.title == "Nova Configuration")
+            check("toml version", cfg.version == "0.9.0")
+
+            -- [server] section
+            check("toml server.host", cfg.server.host == "127.0.0.1")
+            check("toml server.port", cfg.server.port == 8080)
+            check("toml server.workers", cfg.server.workers == 4)
+            check("toml server.debug", cfg.server.debug == false)
+
+            -- [database] section
+            check("toml db.engine", cfg.database.engine == "sqlite")
+            check("toml db.pool_size", cfg.database.pool_size == 10)
+
+            printf("    Parsed %d bytes of TOML\n", #content)
+        end
+    end
+
+    -- ----------------------------------------------------------
+    -- 18e: Write and read-back round-trip
+    -- ----------------------------------------------------------
+    print("  -- Write/Read round-trip --")
+    do
+        dec tmppath = os.tmpname()
+
+        -- Write JSON to a temp file
+        dec obj = {language = "Nova", fast = true, year = 2026}
+        dec encoded = json.encode(obj)
+        dec wh = io.open(tmppath, "w")
+        check("tmp write opened", wh != nil)
+        if wh then
+            io.write(wh, encoded)
+            io.close(wh)
+
+            -- Read it back and decode
+            dec rh = io.open(tmppath, "r")
+            check("tmp read opened", rh != nil)
+            if rh then
+                dec data = io.read(rh, "*a")
+                io.close(rh)
+
+                dec decoded = json.decode(data)
+                check("roundtrip .language", decoded.language == "Nova")
+                check("roundtrip .fast", decoded.fast == true)
+                check("roundtrip .year", decoded.year == 2026)
+            end
+        end
+
+        -- Clean up
+        os.remove(tmppath)
+    end
+
+    -- ----------------------------------------------------------
+    -- 18f: File I/O benchmark — read + parse cycle
+    -- ----------------------------------------------------------
+    print("  -- File I/O benchmarks --")
+    do
+        dec s = os.clock()
+        for i = 0, 999 do
+            dec fh = io.open("data/sample.json", "r")
+            if fh then
+                dec c = io.read(fh, "*a")
+                dec obj = json.decode(c)
+                io.close(fh)
+            end
+        end
+        dec e = os.clock() - s
+        printf("    1K JSON file read+parse:         %8.4f sec\n", e)
+    end
+
+    do
+        dec s = os.clock()
+        for i = 0, 999 do
+            dec fh = io.open("data/sample.csv", "r")
+            if fh then
+                dec c = io.read(fh, "*a")
+                dec rows = csv.decode(c)
+                io.close(fh)
+            end
+        end
+        dec e = os.clock() - s
+        printf("    1K CSV file read+parse:          %8.4f sec\n", e)
+    end
+
+    print("  Section 18 complete.")
+end
+section_file_io()
+
+-- ============================================================
+-- FINAL RESULTS
+-- ============================================================
+dec __total_time = os.clock() - __start_time
+
+echo("\n")
+echo("============================================================")
+echo("  SYNTAX GUIDE RESULTS")
+echo("============================================================")
+printf("  Passed: %d\n", pass)
+printf("  Failed: %d\n", fail)
+printf("  Total:  %d\n", pass + fail)
+printf("  Time:   %.4f sec\n", __total_time)
+echo("============================================================")
+
+if fail > 0 then
+    echo("  *** SOME CHECKS FAILED ***")
+    os.exit(1)
+end
+echo("  ALL CHECKS PASSED")
+echo("============================================================")
+echo("")
+echo("  Nova VM — Zorya Corporation")
+echo("  Engineering Excellence, Democratized.")
+echo("")

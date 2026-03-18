@@ -14,7 +14,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-06
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -98,6 +98,27 @@ static int novai_match(NovaParser *P, NovaTokenType type) {
     return 0;
 }
 
+/**
+ * @brief Infer the best error code from a parser error message.
+ *
+ * Maps common parser error message prefixes to specific
+ * NovaErrorCode values for richer diagnostic output.
+ */
+static NovaErrorCode novai_infer_parse_code(const char *msg) {
+    if (msg == NULL) { return NOVA_E1001; }
+    if (strncmp(msg, "expected", 8) == 0)               return NOVA_E1014;
+    if (strncmp(msg, "unexpected", 10) == 0)             return NOVA_E1001;
+    if (strncmp(msg, "out of memory", 13) == 0)          return NOVA_E1017;
+    if (strncmp(msg, "too many arguments", 18) == 0)     return NOVA_E1011;
+    if (strncmp(msg, "too many table", 14) == 0)         return NOVA_E1012;
+    if (strncmp(msg, "too many parameters", 19) == 0)    return NOVA_E1021;
+    if (strncmp(msg, "too many parts", 14) == 0)         return NOVA_E1015;
+    if (strncmp(msg, "too many names", 14) == 0)         return NOVA_E1003;
+    if (strncmp(msg, "too many expressions", 20) == 0)   return NOVA_E1013;
+    if (strncmp(msg, "too many if", 11) == 0)            return NOVA_E1005;
+    return NOVA_E1001;  /* Default: unexpected token */
+}
+
 static void novai_error(NovaParser *P, const char *fmt, ...) {
     if (P->panic_mode) {
         return;
@@ -120,8 +141,8 @@ static void novai_error(NovaParser *P, const char *fmt, ...) {
                    loc->filename ? loc->filename : "<input>",
                    loc->line, loc->column, msg);
 
-    /* Emit colored diagnostic */
-    nova_diag_report(NOVA_DIAG_ERROR, NOVA_E0000,
+    /* Emit colored diagnostic with inferred error code */
+    nova_diag_report(NOVA_DIAG_ERROR, novai_infer_parse_code(msg),
                      loc->filename ? loc->filename : "<input>",
                      loc->line, loc->column,
                      "%s", msg);
@@ -289,20 +310,15 @@ static int novai_parse_args(NovaParser *P, NovaExtraIdx *out_start,
     NovaExprIdx temp[NOVAI_TEMP_MAX];
     int n = 0;
 
-    /* Lua-style call: f "string" */
+    /* Lua-style call: f "string"
+     *
+     * Parse as a full expression so concatenation and other
+     * operators work naturally:
+     *   echo "hello " .. name   -> echo("hello " .. name)
+     */
     if (P->current.type == NOVA_TOKEN_STRING ||
         P->current.type == NOVA_TOKEN_LONG_STRING) {
-        NovaExprIdx si = nova_ast_add_expr(T, NOVA_EXPR_STRING,
-                                           P->current.loc);
-        if (si != NOVA_IDX_NONE) {
-            nova_get_expr(T, si)->as.string.data =
-                novai_dup_string(P, P->current.value.string.data,
-                                 P->current.value.string.len);
-            nova_get_expr(T, si)->as.string.len =
-                P->current.value.string.len;
-        }
-        novai_advance(P);
-        temp[0] = si;
+        temp[0] = novai_parse_expr(P, PREC_NONE);
         n = 1;
         goto finish;
     }
@@ -977,18 +993,18 @@ static int novai_parse_exprlist(NovaParser *P, NovaExtraIdx *out_start,
 static NovaStmtIdx novai_parse_local(NovaParser *P) {
     NovaSourceLoc loc = P->previous.loc;
 
-    /* local [async] function name(...) ... end */
+    /* dec [async] function name(...) ... end */
     int local_is_async = 0;
     if (novai_match(P, NOVA_TOKEN_ASYNC)) {
         local_is_async = 1;
         if (!novai_check(P, NOVA_TOKEN_FUNCTION)) {
-            novai_error(P, "expected 'function' after 'local async'");
+            novai_error(P, "expected 'function' after 'dec async'");
             return NOVA_IDX_NONE;
         }
     }
     if (novai_match(P, NOVA_TOKEN_FUNCTION)) {
         if (!novai_check(P, NOVA_TOKEN_NAME)) {
-            novai_error(P, "expected function name after 'local function'");
+            novai_error(P, "expected function name after 'dec function'");
             return NOVA_IDX_NONE;
         }
         NovaExprIdx name = nova_ast_add_expr(T, NOVA_EXPR_NAME,
@@ -1023,17 +1039,17 @@ static NovaStmtIdx novai_parse_local(NovaParser *P) {
         return si;
     }
 
-    /* local name [, name ...] */
+    /* dec name [, name ...] */
     NovaRowNameRef temp_names[NOVAI_TEMP_MAX];
     int name_count = 0;
 
     do {
         if (!novai_check(P, NOVA_TOKEN_NAME)) {
-            novai_error(P, "expected name in local declaration");
+            novai_error(P, "expected name in dec declaration");
             return NOVA_IDX_NONE;
         }
         if (name_count >= NOVAI_TEMP_MAX) {
-            novai_error(P, "too many names in local");
+            novai_error(P, "too many names in dec declaration");
             return NOVA_IDX_NONE;
         }
         temp_names[name_count].data = novai_dup_string(P,
@@ -1512,6 +1528,439 @@ static NovaStmtIdx novai_parse_const(NovaParser *P) {
 }
 
 /**
+ * @brief Parse: enum Name MEMBER [= expr] ... end
+ *
+ * Syntax:
+ *   enum Color
+ *       RED
+ *       GREEN
+ *       BLUE
+ *   end
+ *
+ *   enum HttpStatus
+ *       OK = 200
+ *       NOT_FOUND = 404
+ *   end
+ *
+ * Each member is a NAME, optionally followed by '=' and an expression.
+ * Members separated by newlines (no commas needed, but commas and
+ * semicolons are tolerated as separators).
+ */
+static NovaStmtIdx novai_parse_enum(NovaParser *P) {
+    NovaSourceLoc loc = P->previous.loc;
+
+    if (!novai_check(P, NOVA_TOKEN_NAME)) {
+        novai_error(P, "expected name after 'enum'");
+        return NOVA_IDX_NONE;
+    }
+
+    const char *name = novai_dup_string(P,
+        P->current.value.string.data,
+        P->current.value.string.len);
+    size_t name_len = P->current.value.string.len;
+    novai_advance(P);
+
+    /* Collect enum members */
+    NovaRowNameRef temp_names[NOVAI_TEMP_MAX];
+    NovaExprIdx    temp_values[NOVAI_TEMP_MAX];
+    int member_count = 0;
+    int has_values = 0;
+
+    while (!novai_check(P, NOVA_TOKEN_END) &&
+           !novai_check(P, NOVA_TOKEN_EOF)) {
+
+        /* Skip optional separators */
+        while (novai_match(P, (NovaTokenType)',') ||
+               novai_match(P, (NovaTokenType)';')) {
+            /* skip */
+        }
+
+        if (novai_check(P, NOVA_TOKEN_END)) break;
+
+        if (!novai_check(P, NOVA_TOKEN_NAME)) {
+            novai_error(P, "expected member name in enum");
+            return NOVA_IDX_NONE;
+        }
+
+        if (member_count >= NOVAI_TEMP_MAX) {
+            novai_error(P, "too many members in enum");
+            return NOVA_IDX_NONE;
+        }
+
+        temp_names[member_count].data = novai_dup_string(P,
+            P->current.value.string.data,
+            P->current.value.string.len);
+        temp_names[member_count].len = P->current.value.string.len;
+        novai_advance(P);
+
+        /* Optional explicit value */
+        if (novai_match(P, (NovaTokenType)'=')) {
+            temp_values[member_count] = novai_parse_expr(P, PREC_NONE);
+            has_values = 1;
+        } else {
+            temp_values[member_count] = NOVA_IDX_NONE;
+        }
+
+        member_count++;
+    }
+
+    (void)novai_expect(P, NOVA_TOKEN_END, "to close 'enum'");
+
+    /* Commit names to pool */
+    NovaNameIdx ns = nova_ast_add_names(T, member_count);
+    for (int i = 0; i < member_count; i++) {
+        T->names[ns + (uint32_t)i] = temp_names[i];
+    }
+
+    /* Commit values to expr_extra pool */
+    NovaExtraIdx vs = nova_ast_add_expr_list(T, member_count);
+    for (int i = 0; i < member_count; i++) {
+        nova_set_extra_expr(T, vs, i, temp_values[i]);
+    }
+
+    NovaStmtIdx si = nova_ast_add_stmt(T, NOVA_STMT_ENUM, loc);
+    if (si != NOVA_IDX_NONE) {
+        NovaRowStmt *s = nova_get_stmt(T, si);
+        s->as.enum_stmt.name = name;
+        s->as.enum_stmt.name_len = name_len;
+        s->as.enum_stmt.members_start = ns;
+        s->as.enum_stmt.member_count = member_count;
+        s->as.enum_stmt.values_start = vs;
+        s->as.enum_stmt.has_values = has_values;
+        s->as.enum_stmt.typed = 0;
+    }
+    return si;
+}
+
+/**
+ * @brief Parse: struct Name field [= default] ... end
+ *
+ * Syntax:
+ *   struct Point
+ *       x = 0
+ *       y = 0
+ *   end
+ *
+ *   struct Config
+ *       host = "localhost"
+ *       port = 8080
+ *       debug = false
+ *   end
+ *
+ * Each field is a NAME, optionally followed by '=' and a default value.
+ * Fields without defaults get nil. The result is a constructor function
+ * that accepts positional arguments to fill fields in declaration order.
+ */
+static NovaStmtIdx novai_parse_struct(NovaParser *P) {
+    NovaSourceLoc loc = P->previous.loc;
+
+    if (!novai_check(P, NOVA_TOKEN_NAME)) {
+        novai_error(P, "expected name after 'struct'");
+        return NOVA_IDX_NONE;
+    }
+
+    const char *name = novai_dup_string(P,
+        P->current.value.string.data,
+        P->current.value.string.len);
+    size_t name_len = P->current.value.string.len;
+    novai_advance(P);
+
+    /* Collect struct fields */
+    NovaRowNameRef temp_names[NOVAI_TEMP_MAX];
+    NovaExprIdx    temp_defaults[NOVAI_TEMP_MAX];
+    int field_count = 0;
+
+    while (!novai_check(P, NOVA_TOKEN_END) &&
+           !novai_check(P, NOVA_TOKEN_EOF)) {
+
+        /* Skip optional separators */
+        while (novai_match(P, (NovaTokenType)',') ||
+               novai_match(P, (NovaTokenType)';')) {
+            /* skip */
+        }
+
+        if (novai_check(P, NOVA_TOKEN_END)) break;
+
+        if (!novai_check(P, NOVA_TOKEN_NAME)) {
+            novai_error(P, "expected field name in struct");
+            return NOVA_IDX_NONE;
+        }
+
+        if (field_count >= NOVAI_TEMP_MAX) {
+            novai_error(P, "too many fields in struct");
+            return NOVA_IDX_NONE;
+        }
+
+        temp_names[field_count].data = novai_dup_string(P,
+            P->current.value.string.data,
+            P->current.value.string.len);
+        temp_names[field_count].len = P->current.value.string.len;
+        novai_advance(P);
+
+        /* Optional default value */
+        if (novai_match(P, (NovaTokenType)'=')) {
+            temp_defaults[field_count] = novai_parse_expr(P, PREC_NONE);
+        } else {
+            temp_defaults[field_count] = NOVA_IDX_NONE;
+        }
+
+        field_count++;
+    }
+
+    (void)novai_expect(P, NOVA_TOKEN_END, "to close 'struct'");
+
+    /* Commit names to pool */
+    NovaNameIdx ns = nova_ast_add_names(T, field_count);
+    for (int i = 0; i < field_count; i++) {
+        T->names[ns + (uint32_t)i] = temp_names[i];
+    }
+
+    /* Commit defaults to expr_extra pool */
+    NovaExtraIdx ds = nova_ast_add_expr_list(T, field_count);
+    for (int i = 0; i < field_count; i++) {
+        nova_set_extra_expr(T, ds, i, temp_defaults[i]);
+    }
+
+    NovaStmtIdx si = nova_ast_add_stmt(T, NOVA_STMT_STRUCT, loc);
+    if (si != NOVA_IDX_NONE) {
+        NovaRowStmt *s = nova_get_stmt(T, si);
+        s->as.struct_stmt.name = name;
+        s->as.struct_stmt.name_len = name_len;
+        s->as.struct_stmt.fields_start = ns;
+        s->as.struct_stmt.field_count = field_count;
+        s->as.struct_stmt.defaults_start = ds;
+        s->as.struct_stmt.typed = 0;
+    }
+    return si;
+}
+
+/**
+ * @brief Parse: typedec Name = basetype
+ *
+ * Syntax:
+ *   typedec UserId = integer
+ *   typedec Email  = string
+ *
+ * Creates a named type tag. At runtime, calling TypeName(value)
+ * wraps the value in a tagged table { __type = "TypeName", value = v }
+ * for nominal typing / domain tagging.
+ */
+static NovaStmtIdx novai_parse_typedec(NovaParser *P) {
+    NovaSourceLoc loc = P->previous.loc;
+
+    if (!novai_check(P, NOVA_TOKEN_NAME)) {
+        novai_error(P, "expected name after 'typedec'");
+        return NOVA_IDX_NONE;
+    }
+
+    const char *name = novai_dup_string(P,
+        P->current.value.string.data,
+        P->current.value.string.len);
+    size_t name_len = P->current.value.string.len;
+    novai_advance(P);
+
+    (void)novai_expect(P, (NovaTokenType)'=', "in typedec declaration");
+
+    if (!novai_check(P, NOVA_TOKEN_NAME)) {
+        novai_error(P, "expected type name in typedec");
+        return NOVA_IDX_NONE;
+    }
+
+    const char *base_type = novai_dup_string(P,
+        P->current.value.string.data,
+        P->current.value.string.len);
+    size_t base_type_len = P->current.value.string.len;
+    novai_advance(P);
+
+    NovaStmtIdx si = nova_ast_add_stmt(T, NOVA_STMT_TYPEDEC, loc);
+    if (si != NOVA_IDX_NONE) {
+        NovaRowStmt *s = nova_get_stmt(T, si);
+        s->as.typedec_stmt.name = name;
+        s->as.typedec_stmt.name_len = name_len;
+        s->as.typedec_stmt.base_type = base_type;
+        s->as.typedec_stmt.base_type_len = base_type_len;
+    }
+    return si;
+}
+
+/**
+ * @brief Parse: typedec enum Name { member [= value], ... }
+ *
+ * Creates a typed enum table with __type and __base metadata.
+ * Uses curly-brace syntax with comma separators.
+ */
+static NovaStmtIdx novai_parse_typedec_enum(NovaParser *P) {
+    NovaSourceLoc loc = P->previous.loc;
+
+    /* 'enum' already consumed by caller; now expect Name { ... } */
+    if (!novai_check(P, NOVA_TOKEN_NAME)) {
+        novai_error(P, "expected name after 'typedec enum'");
+        return NOVA_IDX_NONE;
+    }
+
+    const char *name = novai_dup_string(P,
+        P->current.value.string.data,
+        P->current.value.string.len);
+    size_t name_len = P->current.value.string.len;
+    novai_advance(P);
+
+    (void)novai_expect(P, (NovaTokenType)'{', "to open typedec enum");
+
+    /* Collect enum members */
+    NovaRowNameRef temp_names[NOVAI_TEMP_MAX];
+    NovaExprIdx    temp_values[NOVAI_TEMP_MAX];
+    int member_count = 0;
+    int has_values = 0;
+
+    while (!novai_check(P, (NovaTokenType)'}') &&
+           !novai_check(P, NOVA_TOKEN_EOF)) {
+
+        while (novai_match(P, (NovaTokenType)',') ||
+               novai_match(P, (NovaTokenType)';')) {
+            /* skip */
+        }
+
+        if (novai_check(P, (NovaTokenType)'}')) break;
+
+        if (!novai_check(P, NOVA_TOKEN_NAME)) {
+            novai_error(P, "expected member name in typedec enum");
+            return NOVA_IDX_NONE;
+        }
+
+        if (member_count >= NOVAI_TEMP_MAX) {
+            novai_error(P, "too many members in typedec enum");
+            return NOVA_IDX_NONE;
+        }
+
+        temp_names[member_count].data = novai_dup_string(P,
+            P->current.value.string.data,
+            P->current.value.string.len);
+        temp_names[member_count].len = P->current.value.string.len;
+        novai_advance(P);
+
+        if (novai_match(P, (NovaTokenType)'=')) {
+            temp_values[member_count] = novai_parse_expr(P, PREC_NONE);
+            has_values = 1;
+        } else {
+            temp_values[member_count] = NOVA_IDX_NONE;
+        }
+
+        member_count++;
+    }
+
+    (void)novai_expect(P, (NovaTokenType)'}', "to close typedec enum");
+
+    NovaNameIdx ns = nova_ast_add_names(T, member_count);
+    for (int i = 0; i < member_count; i++) {
+        T->names[ns + (uint32_t)i] = temp_names[i];
+    }
+
+    NovaExtraIdx vs = nova_ast_add_expr_list(T, member_count);
+    for (int i = 0; i < member_count; i++) {
+        nova_set_extra_expr(T, vs, i, temp_values[i]);
+    }
+
+    NovaStmtIdx si = nova_ast_add_stmt(T, NOVA_STMT_ENUM, loc);
+    if (si != NOVA_IDX_NONE) {
+        NovaRowStmt *s = nova_get_stmt(T, si);
+        s->as.enum_stmt.name = name;
+        s->as.enum_stmt.name_len = name_len;
+        s->as.enum_stmt.members_start = ns;
+        s->as.enum_stmt.member_count = member_count;
+        s->as.enum_stmt.values_start = vs;
+        s->as.enum_stmt.has_values = has_values;
+        s->as.enum_stmt.typed = 1;
+    }
+    return si;
+}
+
+/**
+ * @brief Parse: typedec struct Name { field [= default], ... }
+ *
+ * Creates a typed struct constructor using curly-brace syntax.
+ * Instances include __base = "struct" metadata.
+ */
+static NovaStmtIdx novai_parse_typedec_struct(NovaParser *P) {
+    NovaSourceLoc loc = P->previous.loc;
+
+    if (!novai_check(P, NOVA_TOKEN_NAME)) {
+        novai_error(P, "expected name after 'typedec struct'");
+        return NOVA_IDX_NONE;
+    }
+
+    const char *name = novai_dup_string(P,
+        P->current.value.string.data,
+        P->current.value.string.len);
+    size_t name_len = P->current.value.string.len;
+    novai_advance(P);
+
+    (void)novai_expect(P, (NovaTokenType)'{', "to open typedec struct");
+
+    NovaRowNameRef temp_names[NOVAI_TEMP_MAX];
+    NovaExprIdx    temp_defaults[NOVAI_TEMP_MAX];
+    int field_count = 0;
+
+    while (!novai_check(P, (NovaTokenType)'}') &&
+           !novai_check(P, NOVA_TOKEN_EOF)) {
+
+        while (novai_match(P, (NovaTokenType)',') ||
+               novai_match(P, (NovaTokenType)';')) {
+            /* skip */
+        }
+
+        if (novai_check(P, (NovaTokenType)'}')) break;
+
+        if (!novai_check(P, NOVA_TOKEN_NAME)) {
+            novai_error(P, "expected field name in typedec struct");
+            return NOVA_IDX_NONE;
+        }
+
+        if (field_count >= NOVAI_TEMP_MAX) {
+            novai_error(P, "too many fields in typedec struct");
+            return NOVA_IDX_NONE;
+        }
+
+        temp_names[field_count].data = novai_dup_string(P,
+            P->current.value.string.data,
+            P->current.value.string.len);
+        temp_names[field_count].len = P->current.value.string.len;
+        novai_advance(P);
+
+        if (novai_match(P, (NovaTokenType)'=')) {
+            temp_defaults[field_count] = novai_parse_expr(P, PREC_NONE);
+        } else {
+            temp_defaults[field_count] = NOVA_IDX_NONE;
+        }
+
+        field_count++;
+    }
+
+    (void)novai_expect(P, (NovaTokenType)'}', "to close typedec struct");
+
+    NovaNameIdx ns = nova_ast_add_names(T, field_count);
+    for (int i = 0; i < field_count; i++) {
+        T->names[ns + (uint32_t)i] = temp_names[i];
+    }
+
+    NovaExtraIdx ds = nova_ast_add_expr_list(T, field_count);
+    for (int i = 0; i < field_count; i++) {
+        nova_set_extra_expr(T, ds, i, temp_defaults[i]);
+    }
+
+    NovaStmtIdx si = nova_ast_add_stmt(T, NOVA_STMT_STRUCT, loc);
+    if (si != NOVA_IDX_NONE) {
+        NovaRowStmt *s = nova_get_stmt(T, si);
+        s->as.struct_stmt.name = name;
+        s->as.struct_stmt.name_len = name_len;
+        s->as.struct_stmt.fields_start = ns;
+        s->as.struct_stmt.field_count = field_count;
+        s->as.struct_stmt.defaults_start = ds;
+        s->as.struct_stmt.typed = 1;
+    }
+    return si;
+}
+
+/**
  * @brief Parse an expression statement or assignment
  */
 static NovaStmtIdx novai_parse_expr_or_assign(NovaParser *P) {
@@ -1653,6 +2102,24 @@ static NovaStmtIdx novai_parse_stmt(NovaParser *P) {
     case NOVA_TOKEN_CONST:
         novai_advance(P);
         return novai_parse_const(P);
+
+    case NOVA_TOKEN_ENUM:
+        novai_advance(P);
+        return novai_parse_enum(P);
+
+    case NOVA_TOKEN_STRUCT:
+        novai_advance(P);
+        return novai_parse_struct(P);
+
+    case NOVA_TOKEN_TYPEDEC:
+        novai_advance(P);
+        if (novai_match(P, NOVA_TOKEN_ENUM)) {
+            return novai_parse_typedec_enum(P);
+        }
+        if (novai_match(P, NOVA_TOKEN_STRUCT)) {
+            return novai_parse_typedec_struct(P);
+        }
+        return novai_parse_typedec(P);
 
     case (NovaTokenType)';':
         novai_advance(P);

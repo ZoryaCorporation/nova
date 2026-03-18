@@ -1,0 +1,82 @@
+-- ============================================================
+-- variables.n — Types, Locals, Globals, and Scope
+--
+-- Nova has five primitive types: nil, boolean, integer,
+-- number, and string. Tables and functions are reference types.
+--
+-- Run:  ./bin/nova nova_syntax/01_basics/variables.n
+-- ============================================================
+
+echo "=== Variables & Types ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Primitive Types
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec nothing  = nil          -- nil: the absence of a value
+dec alive    = true         -- boolean
+dec count    = 42           -- integer (64-bit)
+dec ratio    = 3.14159      -- number (64-bit double)
+dec greeting = "hello"      -- string (immutable, interned)
+
+echo "Types:"
+printf("  %-12s -> %s\n", "nil",     type(nothing))
+printf("  %-12s -> %s\n", "true",    type(alive))
+printf("  %-12s -> %s\n", "42",      type(count))
+printf("  %-12s -> %s\n", "3.14159", type(ratio))
+printf("  %-12s -> %s\n", '"hello"', type(greeting))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Conversions
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\nConversions:"
+
+dec n = tonumber("123")       -- string -> number
+dec s = tostring(42)          -- number -> string
+dec i = tointeger(3.99)       -- truncates: 3
+
+printf("  tonumber('123')  = %d\n", n)
+printf("  tostring(42)     = '%s'\n", s)
+printf("  tointeger(3.99)  = %d\n", i)
+printf("  tonumber('abc')  = %s\n", tostring(tonumber("abc")))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Scope: dec vs global
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\nScope:"
+
+dec outer = "I'm dec to this file"
+
+do
+    dec inner = "I only exist in this block"
+    echo `  Inside block: ${inner}`
+end
+
+-- Trying to use 'inner' here would give nil:
+echo `  Outside block: inner = ${tostring(inner)}`
+
+-- Globals (avoid these! but they work)
+global_var = "I'm a global"
+echo `  Global: ${global_var}`
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Truthiness
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\nTruthiness:"
+echo "  Only nil and false are falsy. Everything else is truthy."
+
+dec function truthy(val)
+    if val then return "truthy" else return "falsy" end
+end
+
+printf("  %-12s is %s\n", "nil",   truthy(nil))
+printf("  %-12s is %s\n", "false", truthy(false))
+printf("  %-12s is %s\n", "0",     truthy(0))
+printf("  %-12s is %s\n", '""',    truthy(""))
+printf("  %-12s is %s\n", "true",  truthy(true))
+printf("  %-12s is %s\n", "42",    truthy(42))
+
+echo "\nDone!"

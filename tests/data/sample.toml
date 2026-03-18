@@ -1,0 +1,13 @@
+title = "Nova Configuration"
+version = "0.9.0"
+
+[server]
+host = "127.0.0.1"
+port = 8080
+workers = 4
+debug = false
+
+[database]
+engine = "sqlite"
+path = "/var/lib/nova/data.db"
+pool_size = 10

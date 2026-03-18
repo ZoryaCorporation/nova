@@ -1,0 +1,162 @@
+{
+    "Nova Doc Header": {
+        "prefix": "nd",
+        "body": [
+            "@nova-doc 1",
+            "@type = ${1:analysis}",
+            "@target = ${2:target}",
+            "@created = ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+            "",
+            "${0}"
+        ],
+        "description": "Nova Doc file header with frontmatter"
+    },
+    "Typed Section": {
+        "prefix": "sec",
+        "body": [
+            "[${1|file,function,memory,finding,tree,metric,log,tracker|}:${2:name}]",
+            "${3:key} = ${4:value}",
+            "${0}"
+        ],
+        "description": "Nova Doc typed section"
+    },
+    "File Section": {
+        "prefix": "file",
+        "body": [
+            "[file:${1:path}]",
+            "lines = ${2:0}",
+            "size = ${3:0}",
+            "language = ${4:c}",
+            "${0}"
+        ],
+        "description": "Nova Doc file analysis section"
+    },
+    "Function Section": {
+        "prefix": "func",
+        "body": [
+            "[function:${1:name}]",
+            "line = ${2:0}",
+            "file = ${3:path}",
+            "scope = ${4|public,static|}",
+            "returns = ${5:void}",
+            "${0}"
+        ],
+        "description": "Nova Doc function analysis section"
+    },
+    "Memory Section": {
+        "prefix": "mem",
+        "body": [
+            "[memory:${1:key}]",
+            "category = ${2|context,convention,decision,finding,task|}",
+            "created = ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+            "source = ${3|ai,user,analysis,codebase|}",
+            "",
+            "value = <<",
+            "${4:Memory content}",
+            ">>",
+            "${0}"
+        ],
+        "description": "Nova Doc memory record"
+    },
+    "Finding Section": {
+        "prefix": "find",
+        "body": [
+            "[finding:${1:id}]",
+            "severity = ${2|critical,high,medium,low,info|}",
+            "file = ${3:path}",
+            "line = ${4:0}",
+            "",
+            "description = <<",
+            "${5:Finding description}",
+            ">>",
+            "${0}"
+        ],
+        "description": "Nova Doc code finding"
+    },
+    "Tracker Section": {
+        "prefix": "tracker",
+        "body": [
+            "[tracker:${1:name}]",
+            "created = ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+            "",
+            "[x] ${2:Completed task}",
+            "[ ] ${3:Pending task}",
+            "${0}"
+        ],
+        "description": "Nova Doc tracker with checklist"
+    },
+    "Tree Section": {
+        "prefix": "tree",
+        "body": [
+            "[tree:${1:path}]",
+            "type = ${2|file,directory|}",
+            "size = ${3:0}",
+            "${0}"
+        ],
+        "description": "Nova Doc tree entry"
+    },
+    "Text Block": {
+        "prefix": "block",
+        "body": [
+            "${1:key} = <<",
+            "${2:content}",
+            ">>",
+            "${0}"
+        ],
+        "description": "Nova Doc text block << >>"
+    },
+    "Checklist Complete": {
+        "prefix": "[x]",
+        "body": "[x] ${1:task}",
+        "description": "Completed checklist item"
+    },
+    "Checklist Pending": {
+        "prefix": "[ ]",
+        "body": "[ ] ${1:task}",
+        "description": "Pending checklist item"
+    },
+    "Checklist Failed": {
+        "prefix": "[-]",
+        "body": "[-] ${1:task}",
+        "description": "Failed/blocked checklist item"
+    },
+    "Tag": {
+        "prefix": "+",
+        "body": "+${1:tag}",
+        "description": "Nova Doc tag marker"
+    },
+    "Cross Reference": {
+        "prefix": "ref",
+        "body": "@ref(${1:target})",
+        "description": "Nova Doc cross-reference"
+    },
+    "Include": {
+        "prefix": "include",
+        "body": "@include ${1:file.nd}",
+        "description": "Include another Nova Doc file"
+    },
+    "Analysis Template": {
+        "prefix": "analysis",
+        "body": [
+            "@nova-doc 1",
+            "@type = analysis",
+            "@source = ${1:manual}",
+            "@target = ${2:target}",
+            "@created = ${CURRENT_YEAR}-${CURRENT_MONTH}-${CURRENT_DATE}",
+            "",
+            "[file:${2:target}]",
+            "lines = ${3:0}",
+            "language = ${4:c}",
+            "",
+            "[finding:${5:F001}]",
+            "severity = ${6|info,low,medium,high,critical|}",
+            "",
+            "description = <<",
+            "${7:Analysis finding}",
+            ">>",
+            "",
+            "${0}"
+        ],
+        "description": "Nova Doc full analysis template"
+    }
+}

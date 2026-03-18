@@ -1,0 +1,762 @@
+-- ============================================================
+-- c_audit.n — C Source File Auditor
+--
+-- Reads a C source file and scans for common issues:
+--   - Missing NULL checks after malloc/calloc/realloc
+--   - Unchecked fopen calls
+--   - Missing default: in switch statements
+--   - Stale markers (TODO, FIXME, HACK, XXX, TEMP)
+--   - Missing doc tags (@brief, @param, @return)
+--   - Functions exceeding line threshold
+--   - Tab characters (ZORYA-C requires 4-space indent)
+--   - Potential switch fallthrough (case without break)
+--   - Empty catch blocks / error swallowing
+--
+-- Entry: audit(args) where args.path is the C file path
+--
+-- Zorya Corporation — Nova Toolbox
+-- ============================================================
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Helpers
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function starts_with(s, prefix)
+    if type(s) != "string" then return false end
+    if #s < #prefix then return false end
+    return string.sub(s, 0, #prefix - 1) == prefix
+end
+
+dec function contains(s, needle)
+    if type(s) != "string" then return false end
+    return string.find(s, needle, 0, true) != nil
+end
+
+dec function trim(s)
+    if s == nil then return "" end
+    if type(s) != "string" then return tostring(s) end
+    dec start = 0
+    while start < #s do
+        dec ch = string.sub(s, start, start)
+        if ch != " " and ch != "\t" and ch != "\n" and ch != "\r" then
+            break
+        end
+        start = start + 1
+    end
+    dec stop = #s - 1
+    while stop >= start do
+        dec ch = string.sub(s, stop, stop)
+        if ch != " " and ch != "\t" and ch != "\n" and ch != "\r" then
+            break
+        end
+        stop = stop - 1
+    end
+    return string.sub(s, start, stop)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Issue Collector
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec issues = {}
+dec issue_count = 0
+dec stats = {
+    total_lines = 0,
+    blank_lines = 0,
+    comment_lines = 0,
+    code_lines = 0,
+    functions = 0,
+    switches = 0,
+    allocs = 0,
+    includes = 0,
+    todos = 0,
+    errors = 0,
+    warnings = 0,
+    info = 0
+}
+
+dec function add_issue(severity, line_num, category, message)
+    issues[issue_count] = {
+        severity = severity,
+        line = line_num,
+        category = category,
+        message = message
+    }
+    issue_count = issue_count + 1
+    if severity == "ERROR" then
+        stats.errors = stats.errors + 1
+    elseif severity == "WARN" then
+        stats.warnings = stats.warnings + 1
+    else
+        stats.info = stats.info + 1
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Checkers
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function check_alloc_null(lines, line_count)
+    for i = 0, line_count - 1 do
+        dec line = lines[i]
+        dec trimmed = trim(line)
+
+        -- Skip comments
+        if starts_with(trimmed, "//") or starts_with(trimmed, "/*") or
+           starts_with(trimmed, "*") then
+            goto next_alloc
+        end
+
+        -- Check for malloc/calloc/realloc
+        if contains(trimmed, "malloc(") or contains(trimmed, "calloc(") or
+           contains(trimmed, "realloc(") then
+            stats.allocs = stats.allocs + 1
+
+            -- For multi-line allocs, find the line with the closing ;
+            dec search_from = i
+            if not contains(trimmed, ";") then
+                -- Alloc spans multiple lines — find the closing line
+                for s = i + 1, math.min(i + 3, line_count - 1) do
+                    if contains(lines[s], ";") then
+                        search_from = s
+                        break
+                    end
+                end
+            end
+
+            -- Look at lines after the alloc for NULL check
+            dec found_check = false
+            for j = search_from + 1, math.min(search_from + 4, line_count - 1) do
+                dec next_line = trim(lines[j])
+                if contains(next_line, "== NULL") or
+                   contains(next_line, "!= NULL") or
+                   contains(next_line, "if (") or
+                   contains(next_line, "if(") then
+                    found_check = true
+                    break
+                end
+                -- If we hit a blank line or unrelated statement, stop
+                if #next_line == 0 then
+                    break
+                end
+            end
+
+            if not found_check then
+                add_issue("ERROR", i + 1, "null-check",
+                    "Allocation without NULL check — ZORYA-C requires checking every malloc/calloc/realloc")
+            end
+        end
+
+        ::next_alloc::
+    end
+end
+
+dec function check_fopen(lines, line_count)
+    for i = 0, line_count - 1 do
+        dec line = lines[i]
+        dec trimmed = trim(line)
+
+        if starts_with(trimmed, "//") or starts_with(trimmed, "/*") then
+            goto next_fopen
+        end
+
+        if contains(trimmed, "fopen(") then
+            dec found_check = false
+            for j = i + 1, math.min(i + 3, line_count - 1) do
+                dec next_line = trim(lines[j])
+                if contains(next_line, "== NULL") or
+                   contains(next_line, "!= NULL") or
+                   contains(next_line, "if (") or
+                   contains(next_line, "if(") then
+                    found_check = true
+                    break
+                end
+            end
+            if not found_check then
+                add_issue("WARN", i + 1, "unchecked-io",
+                    "fopen() without NULL check")
+            end
+        end
+
+        ::next_fopen::
+    end
+end
+
+dec function check_switch_default(lines, line_count)
+    dec in_switch = false
+    dec switch_line = 0
+    dec switch_depth = 0
+    dec has_default = false
+
+    for i = 0, line_count - 1 do
+        dec trimmed = trim(lines[i])
+
+        -- Skip comments
+        if starts_with(trimmed, "//") or starts_with(trimmed, "/*") or
+           starts_with(trimmed, "*") or starts_with(trimmed, "**") then
+            goto next_switch
+        end
+
+        if contains(trimmed, "switch") and contains(trimmed, "(") then
+            stats.switches = stats.switches + 1
+            in_switch = true
+            switch_line = i + 1
+            switch_depth = 0
+            has_default = false
+        end
+
+        if in_switch then
+            -- Track braces
+            for ci = 0, #trimmed - 1 do
+                dec ch = string.sub(trimmed, ci, ci)
+                if ch == "{" then switch_depth = switch_depth + 1 end
+                if ch == "}" then
+                    switch_depth = switch_depth - 1
+                    if switch_depth <= 0 then
+                        if not has_default then
+                            add_issue("ERROR", switch_line, "switch-default",
+                                "switch statement missing default: case — ZORYA-C requires it")
+                        end
+                        in_switch = false
+                    end
+                end
+            end
+
+            if contains(trimmed, "default:") or contains(trimmed, "default :") then
+                has_default = true
+            end
+        end
+
+        ::next_switch::
+    end
+end
+
+dec function check_stale_markers(lines, line_count)
+    dec markers = {"TODO", "FIXME", "HACK", "XXX", "TEMP", "KLUDGE", "WORKAROUND"}
+
+    for i = 0, line_count - 1 do
+        dec line = lines[i]
+        for mi = 0, #markers - 1 do
+            if contains(line, markers[mi]) then
+                stats.todos = stats.todos + 1
+                dec trimmed = trim(line)
+                -- Truncate long lines
+                if #trimmed > 80 then
+                    trimmed = string.sub(trimmed, 0, 79) .. "..."
+                end
+                add_issue("INFO", i + 1, "stale-marker",
+                    sprintf("%s marker: %s", markers[mi], trimmed))
+                break  -- only report once per line
+            end
+        end
+    end
+end
+
+-- Detect if a line is a function definition (not a call)
+-- A function def has: return_type [qualifiers] name(params) [{]
+-- A function call does NOT have a return type before the name
+-- Key: function defs don't end with ; and have { on same/next line
+dec function is_function_def(lines, line_count, idx)
+    dec trimmed = trim(lines[idx])
+
+    -- Must not end with ; (that's a call or declaration)
+    if string.sub(trimmed, #trimmed - 1, #trimmed - 1) == ";" then
+        return false
+    end
+
+    -- Skip control flow / preprocessor / braces
+    if starts_with(trimmed, "if") or starts_with(trimmed, "for") or
+       starts_with(trimmed, "while") or starts_with(trimmed, "switch") or
+       starts_with(trimmed, "return") or starts_with(trimmed, "case") or
+       starts_with(trimmed, "{") or starts_with(trimmed, "}") or
+       starts_with(trimmed, "#") or starts_with(trimmed, "//") or
+       starts_with(trimmed, "/*") or starts_with(trimmed, "*") or
+       starts_with(trimmed, "__attribute__") or
+       contains(trimmed, "=") then
+        return false
+    end
+
+    -- Must contain (
+    if not contains(trimmed, "(") then return false end
+
+    -- Must NOT be a continuation line of a conditional/call
+    -- (e.g. lines like: novai_string_equal(...)) { )
+    -- Real function defs have the return type + name + ( on the same line
+    -- If the line contains )) it's a nested expression, not a function def
+    if contains(trimmed, "))") then return false end
+
+    -- Must start with a return type keyword
+    dec type_prefixes = {
+        "static", "void", "int", "char", "size_t", "bool", "const",
+        "unsigned", "float", "double", "long", "short", "ssize_t",
+        "NovaVM", "NovaValue", "NovaTable", "NovaGCHeader", "NovaClosure",
+        "NovaString", "NovaProto", "NovaUpvalue", "NovaCoroutine",
+        "nova_", "novai_", "zorya_",
+        "Weave", "Dagger", "Tablet", "Cord", "Nj", "McpBuf"
+    }
+    dec has_type = false
+    for ti = 0, #type_prefixes - 1 do
+        if starts_with(trimmed, type_prefixes[ti]) then
+            has_type = true
+            break
+        end
+    end
+    if not has_type then return false end
+
+    -- Must have { on this line or the next line
+    dec has_brace = contains(trimmed, "{")
+    if not has_brace and idx + 1 < line_count then
+        dec next_line = trim(lines[idx + 1])
+        has_brace = starts_with(next_line, "{")
+    end
+    -- Also accept ) alone (multi-line params — { comes later)
+    if not has_brace and idx + 1 < line_count then
+        dec next_line = trim(lines[idx + 1])
+        if contains(next_line, ")") then
+            if idx + 2 < line_count then
+                dec next2 = trim(lines[idx + 2])
+                has_brace = starts_with(next2, "{")
+            end
+        end
+    end
+
+    return has_brace
+end
+
+dec function check_doc_tags(lines, line_count)
+    for i = 0, line_count - 1 do
+        dec trimmed = trim(lines[i])
+        if #trimmed == 0 then goto next_doc end
+
+        if is_function_def(lines, line_count, i) then
+            stats.functions = stats.functions + 1
+
+            -- Look backward for /** ... */ doc block
+            dec has_doc = false
+            for j = i - 1, math.max(0, i - 8), -1 do
+                dec prev = trim(lines[j])
+                if contains(prev, "*/") then
+                    has_doc = true
+                    break
+                end
+                if starts_with(prev, "/**") then
+                    has_doc = true
+                    break
+                end
+                -- If we hit code (not comment/blank/__attribute__), stop
+                if #prev > 0 and not starts_with(prev, "*") and
+                   not starts_with(prev, "//") and not starts_with(prev, "/**") and
+                   not starts_with(prev, "__attribute__") then
+                    break
+                end
+            end
+
+            if not has_doc then
+                dec msg = string.sub(trimmed, 0, math.min(#trimmed - 1, 69))
+                add_issue("WARN", i + 1, "missing-doc",
+                    sprintf("Function without doc comment: %s", msg))
+            end
+        end
+
+        ::next_doc::
+    end
+end
+
+dec function check_long_functions(lines, line_count)
+    dec threshold = 100  -- lines
+    dec func_start = -1
+    dec func_name = ""
+    dec brace_depth = 0
+    dec in_func = false
+
+    for i = 0, line_count - 1 do
+        dec trimmed = trim(lines[i])
+
+        -- Detect function start using shared heuristic
+        if not in_func and is_function_def(lines, line_count, i) then
+            -- Find the opening brace
+            if contains(trimmed, "{") then
+                in_func = true
+                func_start = i
+                func_name = string.sub(trimmed, 0, math.min(#trimmed - 1, 49))
+                brace_depth = 0
+            elseif i + 1 < line_count then
+                dec next_line = trim(lines[i + 1])
+                if starts_with(next_line, "{") then
+                    in_func = true
+                    func_start = i
+                    func_name = string.sub(trimmed, 0, math.min(#trimmed - 1, 49))
+                    brace_depth = 0
+                end
+            end
+        end
+
+        if in_func then
+            for ci = 0, #trimmed - 1 do
+                dec ch = string.sub(trimmed, ci, ci)
+                if ch == "{" then brace_depth = brace_depth + 1 end
+                if ch == "}" then
+                    brace_depth = brace_depth - 1
+                    if brace_depth <= 0 then
+                        dec length = i - func_start + 1
+                        if length > threshold then
+                            add_issue("WARN", func_start + 1, "long-function",
+                                sprintf("Function is %d lines (threshold %d): %s",
+                                        length, threshold, func_name))
+                        end
+                        in_func = false
+                    end
+                end
+            end
+        end
+    end
+end
+
+dec function check_tabs(lines, line_count)
+    dec tab_lines = 0
+    dec first_tab = -1
+    for i = 0, line_count - 1 do
+        if contains(lines[i], "\t") then
+            tab_lines = tab_lines + 1
+            if first_tab < 0 then first_tab = i + 1 end
+        end
+    end
+    if tab_lines > 0 then
+        add_issue("WARN", first_tab, "tabs",
+            sprintf("File contains %d lines with tab characters (ZORYA-C uses 4-space indent)", tab_lines))
+    end
+end
+
+dec function count_line_types(lines, line_count)
+    dec in_block_comment = false
+    for i = 0, line_count - 1 do
+        dec trimmed = trim(lines[i])
+
+        if #trimmed == 0 then
+            stats.blank_lines = stats.blank_lines + 1
+            goto next_count
+        end
+
+        if in_block_comment then
+            stats.comment_lines = stats.comment_lines + 1
+            if contains(trimmed, "*/") then
+                in_block_comment = false
+            end
+            goto next_count
+        end
+
+        if starts_with(trimmed, "/*") then
+            stats.comment_lines = stats.comment_lines + 1
+            if not contains(trimmed, "*/") then
+                in_block_comment = false -- wait, should be true
+                in_block_comment = true
+            end
+            goto next_count
+        end
+
+        if starts_with(trimmed, "//") then
+            stats.comment_lines = stats.comment_lines + 1
+            goto next_count
+        end
+
+        if starts_with(trimmed, "#include") or starts_with(trimmed, "#import") then
+            stats.includes = stats.includes + 1
+        end
+
+        stats.code_lines = stats.code_lines + 1
+
+        ::next_count::
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Main Audit Entry Point
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+function audit(args)
+    dec path = nil
+
+    -- args can be a table with .path or a string
+    if type(args) == "table" then
+        path = args.path
+    elseif type(args) == "string" then
+        path = args
+    end
+
+    if path == nil or path == "" then
+        return "error: 'path' argument required — provide a C source file path"
+    end
+
+    -- Read the file
+    if not fs.exists(path) then
+        return sprintf("error: file not found: %s", path)
+    end
+
+    dec content = fs.read(path)
+    if content == nil then
+        return sprintf("error: could not read file: %s", path)
+    end
+
+    -- Split into lines
+    dec lines = {}
+    dec line_count = 0
+    dec current = ""
+    for i = 0, #content - 1 do
+        dec ch = string.sub(content, i, i)
+        if ch == "\n" then
+            lines[line_count] = current
+            line_count = line_count + 1
+            current = ""
+        else
+            current = current .. ch
+        end
+    end
+    if #current > 0 then
+        lines[line_count] = current
+        line_count = line_count + 1
+    end
+
+    stats.total_lines = line_count
+
+    -- Run all checks
+    count_line_types(lines, line_count)
+    check_alloc_null(lines, line_count)
+    check_fopen(lines, line_count)
+    check_switch_default(lines, line_count)
+    check_stale_markers(lines, line_count)
+    check_doc_tags(lines, line_count)
+    check_long_functions(lines, line_count)
+    check_tabs(lines, line_count)
+
+    -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    -- Build .nd Nova Doc checklist
+    -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    dec nd = "@nova-doc 1\n"
+    nd = nd .. sprintf("@type = audit\n")
+    nd = nd .. sprintf("@source = nova-toolbox/c_audit\n")
+    nd = nd .. sprintf("@target = %s\n", path)
+    nd = nd .. sprintf("@created = %s\n", os.date())
+    nd = nd .. sprintf("@tags = [c, audit, zorya-c]\n")
+
+    -- Determine overall priority based on error count
+    if stats.errors > 5 then
+        nd = nd .. "@priority = critical\n"
+    elseif stats.errors > 0 then
+        nd = nd .. "@priority = high\n"
+    elseif stats.warnings > 10 then
+        nd = nd .. "@priority = normal\n"
+    else
+        nd = nd .. "@priority = low\n"
+    end
+    nd = nd .. "\n"
+
+    -- File statistics section
+    nd = nd .. sprintf("[file:%s]\n", path)
+    nd = nd .. sprintf("total_lines = %d\n", stats.total_lines)
+    nd = nd .. sprintf("code_lines = %d\n", stats.code_lines)
+    nd = nd .. sprintf("comment_lines = %d\n", stats.comment_lines)
+    nd = nd .. sprintf("blank_lines = %d\n", stats.blank_lines)
+    nd = nd .. sprintf("functions = %d\n", stats.functions)
+    nd = nd .. sprintf("includes = %d\n", stats.includes)
+    nd = nd .. sprintf("switches = %d\n", stats.switches)
+    nd = nd .. sprintf("allocations = %d\n", stats.allocs)
+    nd = nd .. "\n"
+
+    -- Tracker section with checklist items
+    -- Filename without path for the tracker name
+    dec fname = path
+    if contains(path, "/") then
+        -- Extract filename after last /
+        dec last_slash = 0
+        for fi = 0, #path - 1 do
+            if string.sub(path, fi, fi) == "/" then
+                last_slash = fi
+            end
+        end
+        fname = string.sub(path, last_slash + 1, #path - 1)
+    end
+
+    nd = nd .. sprintf("[tracker:%s]\n", fname)
+    nd = nd .. sprintf("@status = %d/%d\n", issue_count - stats.errors - stats.warnings, issue_count)
+    if issue_count > 0 then
+        dec pct = math.floor(((issue_count - stats.errors - stats.warnings) / issue_count) * 100)
+        nd = nd .. sprintf("@progress = %d\n", pct)
+    else
+        nd = nd .. "@progress = 100\n"
+    end
+    nd = nd .. "+audit +zorya-c\n"
+    nd = nd .. "\n"
+
+    -- Group issues into checklist items by category
+    -- ERRORS first — these are [ ] (must fix)
+    dec has_errors = false
+    for i = 0, issue_count - 1 do
+        dec iss = issues[i]
+        if iss.severity == "ERROR" then
+            if not has_errors then
+                nd = nd .. "# === ERRORS (must fix) ===\n"
+                has_errors = true
+            end
+            -- Sanitize the key: L<line>_<category>
+            dec key = sprintf("L%d_%s", iss.line, iss.category)
+            -- Replace dashes with underscores for valid NINI keys
+            dec clean_key = ""
+            for ki = 0, #key - 1 do
+                dec ch = string.sub(key, ki, ki)
+                if ch == "-" then
+                    clean_key = clean_key .. "_"
+                else
+                    clean_key = clean_key .. ch
+                end
+            end
+            nd = nd .. sprintf("%s = L%d: %s [ ]\n", clean_key, iss.line, iss.message)
+        end
+    end
+    if has_errors then nd = nd .. "\n" end
+
+    -- WARNINGS next — these are [ ] (should fix)
+    dec has_warnings = false
+    for i = 0, issue_count - 1 do
+        dec iss = issues[i]
+        if iss.severity == "WARN" then
+            if not has_warnings then
+                nd = nd .. "# === WARNINGS (should fix) ===\n"
+                has_warnings = true
+            end
+            dec key = sprintf("L%d_%s", iss.line, iss.category)
+            dec clean_key = ""
+            for ki = 0, #key - 1 do
+                dec ch = string.sub(key, ki, ki)
+                if ch == "-" then
+                    clean_key = clean_key .. "_"
+                else
+                    clean_key = clean_key .. ch
+                end
+            end
+            nd = nd .. sprintf("%s = L%d: %s [ ]\n", clean_key, iss.line, iss.message)
+        end
+    end
+    if has_warnings then nd = nd .. "\n" end
+
+    -- INFO — these are [-] (acknowledged, not actionable)
+    dec has_info = false
+    for i = 0, issue_count - 1 do
+        dec iss = issues[i]
+        if iss.severity == "INFO" then
+            if not has_info then
+                nd = nd .. "# === INFO (review) ===\n"
+                has_info = true
+            end
+            dec key = sprintf("L%d_%s", iss.line, iss.category)
+            dec clean_key = ""
+            for ki = 0, #key - 1 do
+                dec ch = string.sub(key, ki, ki)
+                if ch == "-" then
+                    clean_key = clean_key .. "_"
+                else
+                    clean_key = clean_key .. ch
+                end
+            end
+            nd = nd .. sprintf("%s = L%d: %s [-]\n", clean_key, iss.line, iss.message)
+        end
+    end
+
+    -- Write the .nd file
+    -- Output path: .nova/audits/<filename>.audit.nd
+    dec nd_path = ".nova/audits/"
+
+    -- Extract just the filename from the path
+    dec fname_for_path = path
+    if contains(path, "/") then
+        dec last_slash = 0
+        for fi = 0, #path - 1 do
+            if string.sub(path, fi, fi) == "/" then
+                last_slash = fi
+            end
+        end
+        fname_for_path = string.sub(path, last_slash + 1, #path - 1)
+    end
+
+    -- Strip .c or .h extension
+    if string.sub(fname_for_path, #fname_for_path - 2, #fname_for_path - 1) == ".c" then
+        fname_for_path = string.sub(fname_for_path, 0, #fname_for_path - 3)
+    elseif string.sub(fname_for_path, #fname_for_path - 2, #fname_for_path - 1) == ".h" then
+        fname_for_path = string.sub(fname_for_path, 0, #fname_for_path - 3)
+    end
+
+    nd_path = nd_path .. fname_for_path .. ".audit.nd"
+
+    -- Ensure .nova/audits/ directory exists
+    if not fs.isdir(".nova/audits") then
+        fs.mkdir(".nova/audits")
+    end
+
+    fs.write(nd_path, nd)
+
+    -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    -- Build plain text report (original)
+    -- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    dec report = sprintf("=== C AUDIT: %s ===\n\n", path)
+
+    -- Stats summary
+    report = report .. "--- Statistics ---\n"
+    report = report .. sprintf("  Total lines:   %d\n", stats.total_lines)
+    report = report .. sprintf("  Code lines:    %d\n", stats.code_lines)
+    report = report .. sprintf("  Comment lines: %d\n", stats.comment_lines)
+    report = report .. sprintf("  Blank lines:   %d\n", stats.blank_lines)
+    report = report .. sprintf("  Functions:     %d\n", stats.functions)
+    report = report .. sprintf("  Includes:      %d\n", stats.includes)
+    report = report .. sprintf("  Switches:      %d\n", stats.switches)
+    report = report .. sprintf("  Allocations:   %d\n", stats.allocs)
+    report = report .. "\n"
+
+    -- Issue summary
+    report = report .. sprintf("--- Issues: %d errors, %d warnings, %d info ---\n\n",
+        stats.errors, stats.warnings, stats.info)
+
+    -- Group by severity
+    dec severity_order = {"ERROR", "WARN", "INFO"}
+    for si = 0, #severity_order - 1 do
+        dec sev = severity_order[si]
+        dec printed_header = false
+        for i = 0, issue_count - 1 do
+            dec iss = issues[i]
+            if iss.severity == sev then
+                if not printed_header then
+                    if sev == "ERROR" then
+                        report = report .. "[ERRORS]\n"
+                    elseif sev == "WARN" then
+                        report = report .. "[WARNINGS]\n"
+                    else
+                        report = report .. "[INFO]\n"
+                    end
+                    printed_header = true
+                end
+                report = report .. sprintf("  L%-5d [%s] %s\n",
+                    iss.line, iss.category, iss.message)
+            end
+        end
+        if printed_header then
+            report = report .. "\n"
+        end
+    end
+
+    if issue_count == 0 then
+        report = report .. "  No issues found. Clean!\n"
+    end
+
+    report = report .. "=== END AUDIT ===\n"
+    report = report .. sprintf("\nChecklist written to: %s", nd_path)
+
+    return report
+end
+
+-- CLI entry point: nova c_audit.n <file.c>
+if arg and arg[1] then
+    dec result = audit(arg[1])
+    if result then
+        echo(result)
+    end
+end

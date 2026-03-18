@@ -1,0 +1,607 @@
+{
+    "name": "nova-sdk",
+    "displayName": "Nova SDK",
+    "description": "Complete development kit for the Nova programming language — syntax highlighting, file icons, color themes, task integration, Nova terminal, and tooling by Zorya Corporation",
+    "version": "0.2.0",
+    "publisher": "zorya-corporation",
+    "author": "Anthony Taliento (https://github.com/zorya-corporation)",
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.106.0"
+    },
+    "categories": [
+        "Programming Languages",
+        "Themes",
+        "Snippets",
+        "Formatters",
+        "Other"
+    ],
+    "keywords": [
+        "nova",
+        "zorya",
+        "scripting",
+        "bytecode",
+        "vm",
+        "nini",
+        "taskrunner",
+        "data-processing",
+        "lua-like",
+        "0-indexed"
+    ],
+    "icon": "icons/nova-icon.png",
+    "galleryBanner": {
+        "color": "#1a1a1a",
+        "theme": "dark"
+    },
+    "activationEvents": [
+        "workspaceContains:**/taskfile.nini",
+        "workspaceContains:**/*.n"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "nova",
+                "aliases": [
+                    "Nova",
+                    "nova"
+                ],
+                "extensions": [
+                    ".n"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/nova-n-light.svg",
+                    "dark": "./icons/nova-n-dark.svg"
+                }
+            },
+            {
+                "id": "nova-header",
+                "aliases": [
+                    "Nova Header",
+                    "nova-header"
+                ],
+                "extensions": [
+                    ".m"
+                ],
+                "configuration": "./language-configuration.json",
+                "icon": {
+                    "light": "./icons/nova-m-light.svg",
+                    "dark": "./icons/nova-m-dark.svg"
+                }
+            },
+            {
+                "id": "nova-object",
+                "aliases": [
+                    "Nova Object",
+                    "nova-object"
+                ],
+                "extensions": [
+                    ".no"
+                ],
+                "icon": {
+                    "light": "./icons/nova-no-light.svg",
+                    "dark": "./icons/nova-no-dark.svg"
+                }
+            },
+            {
+                "id": "nini",
+                "aliases": [
+                    "NINI",
+                    "nini",
+                    "Nova INI"
+                ],
+                "extensions": [
+                    ".nini",
+                    ".ni"
+                ],
+                "filenames": [
+                    "taskfile.nini",
+                    "Taskfile.nini"
+                ],
+                "configuration": "./nini-language-configuration.json",
+                "icon": {
+                    "light": "./icons/nova-nini-light.svg",
+                    "dark": "./icons/nova-nini-dark.svg"
+                }
+            },
+            {
+                "id": "nini-taskfile",
+                "aliases": [
+                    "Taskfile"
+                ],
+                "filenames": [
+                    "taskfile.nini",
+                    "Taskfile.nini",
+                    "taskfile.ni",
+                    "Taskfile.ni"
+                ],
+                "configuration": "./nini-language-configuration.json",
+                "icon": {
+                    "light": "./icons/nova-t-light.svg",
+                    "dark": "./icons/nova-t-dark.svg"
+                }
+            },
+            {
+                "id": "nova-doc",
+                "aliases": [
+                    "Nova Doc",
+                    "nova-doc",
+                    "nd"
+                ],
+                "extensions": [
+                    ".nd"
+                ],
+                "configuration": "./nova-doc-language-configuration.json",
+                "icon": {
+                    "light": "./icons/nova-nd-light.svg",
+                    "dark": "./icons/nova-nd-dark.svg"
+                }
+            }
+        ],
+        "grammars": [
+            {
+                "language": "nova",
+                "scopeName": "source.nova",
+                "path": "./syntaxes/nova.tmLanguage.json"
+            },
+            {
+                "language": "nova-header",
+                "scopeName": "source.nova",
+                "path": "./syntaxes/nova.tmLanguage.json"
+            },
+            {
+                "language": "nini",
+                "scopeName": "source.nini",
+                "path": "./syntaxes/nini.tmLanguage.json"
+            },
+            {
+                "language": "nini-taskfile",
+                "scopeName": "source.nini",
+                "path": "./syntaxes/nini.tmLanguage.json"
+            },
+            {
+                "language": "nova-doc",
+                "scopeName": "source.nova-doc",
+                "path": "./syntaxes/nova-doc.tmLanguage.json"
+            }
+        ],
+        "themes": [
+            {
+                "label": "Nova Phosphor",
+                "uiTheme": "vs-dark",
+                "path": "./themes/nova-phosphor-color-theme.json"
+            },
+            {
+                "label": "Nova Phosphor (High Contrast)",
+                "uiTheme": "hc-black",
+                "path": "./themes/nova-phosphor-hc-color-theme.json"
+            }
+        ],
+        "iconThemes": [
+            {
+                "id": "nova-icons",
+                "label": "Nova File Icons",
+                "path": "./icons/nova-icon-theme.json"
+            }
+        ],
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "nova-explorer",
+                    "title": "Nova",
+                    "icon": "./icons/nova-activity-bar.svg"
+                }
+            ]
+        },
+        "views": {
+            "nova-explorer": [
+                {
+                    "type": "webview",
+                    "id": "nova.dashboardView",
+                    "name": "Dashboard"
+                }
+            ],
+            "explorer": [
+                {
+                    "id": "nova.toolboxView",
+                    "name": "Nova Toolbox"
+                }
+            ]
+        },
+        "commands": [
+            {
+                "command": "nova.runFile",
+                "title": "Nova: Run Current File",
+                "icon": "$(play)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.compileFile",
+                "title": "Nova: Compile Current File",
+                "icon": "$(gear)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.runTask",
+                "title": "Nova: Run Task",
+                "icon": "$(tasklist)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.openTerminal",
+                "title": "Nova: Open Terminal",
+                "icon": "$(terminal)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.disassemble",
+                "title": "Nova: Disassemble Current File",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.showAST",
+                "title": "Nova: Show AST",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.explainError",
+                "title": "Nova: Explain Error Code",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.showVersion",
+                "title": "Nova: Show Version",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.openSettings",
+                "title": "Nova: Settings",
+                "icon": "$(gear)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.customizeTheme",
+                "title": "Nova: Customize Theme & Syntax Colors",
+                "icon": "$(symbol-color)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.customizeIcons",
+                "title": "Nova: Custom File Icons",
+                "icon": "$(file-media)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.runNamedTask",
+                "title": "Nova: Run Named Task",
+                "icon": "$(play)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.runBuiltinTool",
+                "title": "Nova: Run Built-in Tool",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.runUserScript",
+                "title": "Nova: Run User Script",
+                "icon": "$(play)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.addUserScript",
+                "title": "Nova: Add User Script",
+                "icon": "$(add)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.refreshToolbox",
+                "title": "Nova: Refresh Toolbox",
+                "icon": "$(refresh)",
+                "category": "Nova"
+            },
+            {
+                "command": "nova.cdToFolder",
+                "title": "Nova: cd to Folder",
+                "icon": "$(folder-opened)",
+                "category": "Nova"
+            }
+        ],
+        "menus": {
+            "editor/title/run": [
+                {
+                    "command": "nova.runFile",
+                    "when": "resourceLangId == nova || resourceLangId == nova-header",
+                    "group": "navigation"
+                }
+            ],
+            "editor/context": [
+                {
+                    "command": "nova.runFile",
+                    "when": "resourceLangId == nova || resourceLangId == nova-header",
+                    "group": "nova@1"
+                },
+                {
+                    "command": "nova.compileFile",
+                    "when": "resourceLangId == nova || resourceLangId == nova-header",
+                    "group": "nova@2"
+                },
+                {
+                    "command": "nova.disassemble",
+                    "when": "resourceLangId == nova || resourceLangId == nova-header",
+                    "group": "nova@3"
+                }
+            ],
+            "view/title": [
+                {
+                    "command": "nova.refreshToolbox",
+                    "when": "view == nova.toolboxView",
+                    "group": "navigation"
+                }
+            ],
+            "view/item/context": [
+                {
+                    "command": "nova.runUserScript",
+                    "when": "view == nova.toolboxView && viewItem == script",
+                    "group": "inline"
+                }
+            ],
+            "explorer/context": [
+                {
+                    "command": "nova.cdToFolder",
+                    "group": "navigation@99"
+                }
+            ]
+        },
+        "keybindings": [
+            {
+                "command": "nova.runFile",
+                "key": "ctrl+shift+n",
+                "mac": "cmd+shift+n",
+                "when": "resourceLangId == nova || resourceLangId == nova-header"
+            },
+            {
+                "command": "nova.cdToFolder",
+                "key": "ctrl+alt+d",
+                "mac": "cmd+alt+d",
+                "when": "filesExplorerFocus"
+            }
+        ],
+        "terminal": {
+            "profiles": [
+                {
+                    "id": "nova.terminal",
+                    "title": "Nova",
+                    "icon": "$(terminal)"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Nova SDK",
+            "properties": {
+                "nova.executablePath": {
+                    "type": "string",
+                    "default": "nova",
+                    "description": "Path to the Nova executable. If on PATH, just 'nova' works.",
+                    "scope": "machine-overridable"
+                },
+                "nova.runArgs": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [],
+                    "description": "Additional arguments passed to 'nova' when running scripts.",
+                    "scope": "resource"
+                },
+                "nova.optimizationLevel": {
+                    "type": "string",
+                    "enum": [
+                        "-O0",
+                        "-O1"
+                    ],
+                    "default": "-O1",
+                    "description": "Optimization level for compilation.",
+                    "scope": "resource"
+                },
+                "nova.stripDebugInfo": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Strip debug info when compiling (-s flag).",
+                    "scope": "resource"
+                },
+                "nova.taskfile.autoDetect": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Auto-detect taskfile.nini in workspace and register tasks.",
+                    "scope": "resource"
+                },
+                "nova.taskfile.path": {
+                    "type": "string",
+                    "default": "taskfile.nini",
+                    "description": "Path to the NINI taskfile relative to workspace root.",
+                    "scope": "resource"
+                },
+                "nova.trace.enabled": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Enable runtime tracing (--trace).",
+                    "scope": "resource"
+                },
+                "nova.trace.channels": {
+                    "type": "string",
+                    "enum": [
+                        "all",
+                        "vm",
+                        "call",
+                        "stack",
+                        "gc",
+                        "module"
+                    ],
+                    "default": "all",
+                    "description": "Trace channels to enable when tracing is on.",
+                    "scope": "resource"
+                },
+                "nova.terminal.shellIntegration": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Launch Nova interactive tool shell as the terminal profile.",
+                    "scope": "machine"
+                },
+                "nova.sdkServerPath": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to the nova-sdk-server binary. Leave empty for auto-detection (checks adjacent to nova executable, /usr/local/bin, bundled, and PATH).",
+                    "scope": "machine-overridable"
+                },
+                "nova.lsp.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable the Nova Language Server for diagnostics, completion, and hover.",
+                    "scope": "machine-overridable"
+                },
+                "nova.lsp.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "(Legacy) Path to a standalone nova-lsp binary. Prefer nova.sdkServerPath instead.",
+                    "scope": "machine-overridable",
+                    "deprecationMessage": "Use nova.sdkServerPath instead. The unified nova-sdk-server binary replaces separate nova-lsp/nova-mcp binaries."
+                },
+                "nova.lsp.trace": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Trace communication between VS Code and the Nova Language Server.",
+                    "scope": "window"
+                },
+                "nova.mcp.enabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable the Nova MCP Server for AI tool integration.",
+                    "scope": "machine-overridable"
+                },
+                "nova.mcp.path": {
+                    "type": "string",
+                    "default": "",
+                    "description": "(Legacy) Path to a standalone nova-mcp binary. Prefer nova.sdkServerPath instead.",
+                    "scope": "machine-overridable",
+                    "deprecationMessage": "Use nova.sdkServerPath instead. The unified nova-sdk-server binary replaces separate nova-lsp/nova-mcp binaries."
+                },
+                "nova.mcp.sandbox": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable sandbox mode for MCP tool execution (recommended).",
+                    "scope": "machine-overridable"
+                },
+                "nova.customSyntaxProfiles": {
+                    "type": "array",
+                    "default": [],
+                    "description": "Saved custom syntax color profiles for the Theme Customizer.",
+                    "scope": "application"
+                }
+            }
+        },
+        "taskDefinitions": [
+            {
+                "type": "nova",
+                "required": [
+                    "task"
+                ],
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "The Nova task name from taskfile.nini"
+                    },
+                    "file": {
+                        "type": "string",
+                        "description": "Path to taskfile.nini"
+                    }
+                }
+            }
+        ],
+        "problemMatchers": [
+            {
+                "name": "nova",
+                "owner": "nova",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}"
+                ],
+                "pattern": {
+                    "regexp": "^(.+):(\\d+):(\\d+): (error|warning): (.+)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            {
+                "name": "nova-runtime",
+                "owner": "nova",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}"
+                ],
+                "pattern": {
+                    "regexp": "^\\[(.+):(\\d+)\\] (.+)$",
+                    "file": 1,
+                    "line": 2,
+                    "message": 3
+                }
+            }
+        ],
+        "snippets": [
+            {
+                "language": "nova",
+                "path": "./snippets/nova.json"
+            },
+            {
+                "language": "nova-header",
+                "path": "./snippets/nova.json"
+            },
+            {
+                "language": "nini",
+                "path": "./snippets/nini.json"
+            },
+            {
+                "language": "nini-taskfile",
+                "path": "./snippets/nini.json"
+            },
+            {
+                "language": "nova-doc",
+                "path": "./snippets/nova-doc.json"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "lint": "eslint src --ext ts",
+        "package": "vsce package",
+        "publish": "vsce publish"
+    },
+    "devDependencies": {
+        "@types/node": "^20.19.35",
+        "@types/vscode": "^1.106.0",
+        "@vscode/vsce": "^2.32.0",
+        "typescript": "^5.9.3"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zorya-corporation/nova.git"
+    },
+    "bugs": {
+        "url": "https://github.com/zorya-corporation/nova/issues"
+    },
+    "homepage": "https://github.com/zorya-corporation/nova#readme"
+}

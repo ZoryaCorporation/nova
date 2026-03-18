@@ -21,7 +21,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-07
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -255,7 +255,6 @@ typedef struct NovaValue {
  * Heap-allocated, immutable after creation.
  * Hash computed once at creation via NXH64.
  * Flexible array member for inline data storage.
- * Weave integration is planned for Phase 9.
  * ============================================================ */
 
 struct NovaString {
@@ -491,6 +490,7 @@ struct NovaVM {
 
     /* == Error state ========================================== */
     int            status;          /* NOVA_VM_* status code        */
+    int            diag_code;       /* NovaErrorCode for diagnostics*/
     char          *error_msg;       /* Heap-allocated error string  */
     NovaErrorJmp  *error_jmp;       /* Protected call chain (pcall) */
 
@@ -508,6 +508,9 @@ struct NovaVM {
     NovaGCHeader **gc_sweep_pos;    /* Ptr-to-ptr into all_objects   */
     size_t         gc_estimate;     /* Estimate of live bytes       */
     size_t         gc_debt;         /* Accumulated alloc debt       */
+
+    /* == Per-type metatables (GC-rooted) ===================== */
+    NovaTable     *string_mt;       /* Shared string metatable      */
 
     /* == String interning (DAGGER-backed) ===================== */
     void          *string_pool;     /* DaggerTable* — intern table  */
@@ -711,6 +714,22 @@ const char *nova_vm_error(const NovaVM *vm);
  * @param ...  Format arguments
  */
 void nova_vm_raise_error(NovaVM *vm, const char *fmt, ...);
+
+/**
+ * @brief Raise a runtime error with a specific diagnostic code.
+ *
+ * Like nova_vm_raise_error() but stores a fine-grained NovaErrorCode
+ * in vm->diag_code for rich diagnostic rendering. The coarse VM
+ * status is set to the given vm_err code.
+ *
+ * @param vm       VM instance
+ * @param vm_err   Coarse error code (NOVA_VM_ERR_*)
+ * @param diag     Fine-grained diagnostic code (NOVA_E2xxx etc.)
+ * @param fmt      printf-style format string
+ * @param ...      Format arguments
+ */
+void nova_vm_raise_error_ex(NovaVM *vm, int vm_err, int diag,
+                            const char *fmt, ...);
 
 /**
  * @brief Build a stack traceback string.
@@ -1130,6 +1149,31 @@ static inline nova_number_t nova_as_number_nanbox(NovaValue v) {
 /** NXH64 seed for string hashing — single source of truth */
 #define NOVA_STRING_SEED 0x4E6F7661ULL  /* "Nova" */
 
+/* -- Table struct accessor macros (Phase 10.5d-g) ----------- */
+
+/** Number of occupied array slots (logical length) */
+#define nova_table_array_len(t)   ((t)->array_used)
+
+/** Allocated array capacity */
+#define nova_table_array_cap(t)   ((t)->array_size)
+
+/** Number of occupied hash slots */
+#define nova_table_hash_count(t)  ((t)->hash_used)
+
+/** Allocated hash capacity */
+#define nova_table_hash_cap(t)    ((t)->hash_size)
+
+/** Get metatable pointer (may be NULL) */
+#define nova_table_get_metatable(t)    ((t)->metatable)
+
+/** Set metatable pointer (NULL to clear) */
+#define nova_table_set_metatable(t, mt) ((t)->metatable = (mt))
+
+/** Raw array pointer for bulk operations (sort, shift, etc.) */
+#define nova_table_array_ptr(t)   ((t)->array)
+
+/* -- Table function declarations ----------------------------- */
+
 /** Create a new empty table */
 NovaTable *nova_table_new(NovaVM *vm);
 
@@ -1152,6 +1196,21 @@ int nova_table_set_int(NovaVM *vm, NovaTable *t,
 
 /** Grow table array to hold at least `needed` slots */
 int nova_table_grow_array(NovaVM *vm, NovaTable *t, uint32_t needed);
+
+/**
+ * @brief Lookup a table value by C string key.
+ *
+ * Hashes the raw C string and probes the hash table directly,
+ * comparing by hash + length + bytes. Does NOT require the key
+ * to be an interned NovaString. Used by metamethod lookups, etc.
+ *
+ * @param t        Table to search
+ * @param key      C string key (NUL-terminated)
+ * @param key_len  Byte length of key (excluding NUL)
+ * @return Value associated with key, or nil if not found
+ */
+NovaValue nova_table_get_cstr(NovaTable *t, const char *key,
+                              uint32_t key_len);
 
 /** Create/intern a string (GC-managed, NUL-terminated) */
 NovaString *nova_string_new(NovaVM *vm, const char *s, size_t len);
@@ -1177,6 +1236,20 @@ int nova_string_equal(const NovaString *a, const NovaString *b);
  */
 int nova_table_next(NovaTable *t, uint32_t *iter_idx,
                     NovaValue *out_key, NovaValue *out_val);
+
+/**
+ * @brief Find the iterator cursor for a given key.
+ *
+ * Locates `key` in the table and returns the iter_idx such that
+ * calling nova_table_next() with it yields the entry AFTER `key`.
+ * Returns 0 if key is nil (start from the beginning).
+ * Returns (uint32_t)-1 if key is not found.
+ *
+ * @param t    Table to search
+ * @param key  Key to locate
+ * @return Iterator cursor, or (uint32_t)-1 on not found
+ */
+uint32_t nova_table_find_iter_idx(NovaTable *t, NovaValue key);
 
 /* ============================================================
  * GARBAGE COLLECTOR API

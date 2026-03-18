@@ -36,28 +36,53 @@
 #include <stddef.h>
 
 /* ============================================================
- * ANSI COLOR CODES (16-color, universal compatibility)
+ * ANSI COLOR PALETTE
+ *
+ * Extended 256-color palette with Nova brand colors.
+ * Terminals without 256-color support gracefully fall back
+ * to the nearest 16-color equivalent.
  *
  * These are used internally by the renderer. External code
  * should not use these directly; call nova_diag_emit() instead.
  * ============================================================ */
 
+/* ---- Reset & modifiers ---- */
 #define NOVA_COLOR_RESET     "\033[0m"
 #define NOVA_COLOR_BOLD      "\033[1m"
 #define NOVA_COLOR_DIM       "\033[2m"
+#define NOVA_COLOR_ITALIC    "\033[3m"
+#define NOVA_COLOR_UNDERLINE "\033[4m"
 
-/* Severity colors */
-#define NOVA_COLOR_ERROR     "\033[1;31m"   /* Bold red    */
-#define NOVA_COLOR_WARNING   "\033[1;33m"   /* Bold yellow */
-#define NOVA_COLOR_NOTE      "\033[1;36m"   /* Bold cyan   */
-#define NOVA_COLOR_HELP      "\033[1;32m"   /* Bold green  */
+/* ---- Brand colors (256-color) ---- */
+#define NOVA_COLOR_HUNTER    "\033[38;5;22m"  /* Hunter green (brand) */
+#define NOVA_COLOR_HUNTERB   "\033[1;38;5;22m" /* Hunter green bold   */
+#define NOVA_COLOR_NOVA      "\033[1;38;5;40m" /* Nova green (success) */
+#define NOVA_COLOR_EMERALD   "\033[38;5;35m"  /* Emerald (accents)    */
+#define NOVA_COLOR_FOREST    "\033[38;5;28m"  /* Forest green (dim)   */
+#define NOVA_COLOR_LIME      "\033[38;5;118m" /* Lime highlight       */
 
-/* Structural colors */
-#define NOVA_COLOR_PATH      "\033[1;37m"   /* Bold white  */
-#define NOVA_COLOR_LINENUM   "\033[1;36m"   /* Bold cyan   */
-#define NOVA_COLOR_GUTTER    "\033[2;37m"   /* Dim gray    */
-#define NOVA_COLOR_CARET     "\033[1;32m"   /* Bold green  */
-#define NOVA_COLOR_SOURCE    "\033[0m"      /* Default     */
+/* ---- Severity colors ---- */
+#define NOVA_COLOR_ERROR     "\033[1;38;5;196m" /* Bright red bold    */
+#define NOVA_COLOR_WARNING   "\033[1;38;5;214m" /* Amber/gold bold    */
+#define NOVA_COLOR_NOTE      "\033[1;38;5;75m"  /* Sky blue bold      */
+#define NOVA_COLOR_HELP      "\033[1;38;5;40m"  /* Nova green bold    */
+
+/* ---- Structural colors ---- */
+#define NOVA_COLOR_PATH      "\033[1;38;5;255m" /* Bright white bold  */
+#define NOVA_COLOR_LINENUM   "\033[38;5;75m"    /* Sky blue           */
+#define NOVA_COLOR_GUTTER    "\033[38;5;240m"   /* Medium gray        */
+#define NOVA_COLOR_CARET     "\033[1;38;5;196m" /* Bright red         */
+#define NOVA_COLOR_SOURCE    "\033[38;5;252m"   /* Light gray source  */
+#define NOVA_COLOR_ERRCODE   "\033[1;38;5;40m"  /* Nova green (code)  */
+#define NOVA_COLOR_ARROW     "\033[38;5;75m"    /* Sky blue           */
+#define NOVA_COLOR_LNCOL     "\033[38;5;248m"   /* Silver (Ln/Col)    */
+#define NOVA_COLOR_PIPE      "\033[38;5;40m"    /* Nova green pipes   */
+#define NOVA_COLOR_BANNER    "\033[1;38;5;40m"  /* Nova green banner  */
+#define NOVA_COLOR_ACCENT    "\033[38;5;35m"    /* Emerald accents    */
+#define NOVA_COLOR_MUTED     "\033[38;5;245m"   /* Muted text         */
+#define NOVA_COLOR_CTXLINE   "\033[38;5;242m"   /* Dimmed context     */
+#define NOVA_COLOR_EXPECTED  "\033[1;38;5;40m"  /* Nova green (good)  */
+#define NOVA_COLOR_GOT       "\033[1;38;5;196m" /* Bright red (bad)   */
 
 /* ============================================================
  * DIAGNOSTIC SEVERITY
@@ -110,7 +135,7 @@ typedef enum {
     NOVA_E1021 = 1021,     /**< Too many parameters               */
 
     /* ---- Runtime errors (2xxx) ---- */
-    NOVA_E2001 = 2001,     /**< Type error                        */
+    NOVA_E2001 = 2001,     /**< Type error (generic)              */
     NOVA_E2002 = 2002,     /**< Stack overflow                    */
     NOVA_E2003 = 2003,     /**< Out of memory (runtime)           */
     NOVA_E2004 = 2004,     /**< Nil dereference                   */
@@ -122,12 +147,29 @@ typedef enum {
     NOVA_E2010 = 2010,     /**< Coroutine error                   */
     NOVA_E2011 = 2011,     /**< Metamethod error                  */
     NOVA_E2012 = 2012,     /**< General runtime error             */
+    NOVA_E2013 = 2013,     /**< Arithmetic type error             */
+    NOVA_E2014 = 2014,     /**< Comparison type error             */
+    NOVA_E2015 = 2015,     /**< Concatenation type error          */
+    NOVA_E2016 = 2016,     /**< Length type error                  */
+    NOVA_E2017 = 2017,     /**< Negation type error               */
+    NOVA_E2018 = 2018,     /**< Index on non-table                */
+    NOVA_E2019 = 2019,     /**< Invalid key type                  */
+    NOVA_E2020 = 2020,     /**< For loop type error               */
+    NOVA_E2021 = 2021,     /**< Argument type error               */
+    NOVA_E2022 = 2022,     /**< Argument count error              */
+    NOVA_E2023 = 2023,     /**< Module not found                  */
+    NOVA_E2024 = 2024,     /**< Metamethod chain too deep         */
+    NOVA_E2025 = 2025,     /**< Bitwise on non-integer            */
 
     /* ---- I/O / system errors (3xxx) ---- */
     NOVA_E3001 = 3001,     /**< File not found                    */
     NOVA_E3002 = 3002,     /**< File read error                   */
     NOVA_E3003 = 3003,     /**< Preprocessor error                */
     NOVA_E3004 = 3004,     /**< Parser initialization failed      */
+    NOVA_E3005 = 3005,     /**< Network error                     */
+    NOVA_E3006 = 3006,     /**< Database error                    */
+    NOVA_E3007 = 3007,     /**< Permission denied                 */
+    NOVA_E3008 = 3008,     /**< Format/parse error                */
 
     /* ---- Warnings (W1xxx) ---- */
     NOVA_W1001 = 10001,    /**< Unused variable                   */

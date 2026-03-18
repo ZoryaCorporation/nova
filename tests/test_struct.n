@@ -1,0 +1,163 @@
+-- ============================================================
+-- Nova Struct Test Suite
+-- Tests: defaults, overrides, partial args, no-defaults,
+--        mixed, single field, independence, constructor type,
+--        comma separators
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== STRUCT TESTS ===")
+
+-- ============================================================
+-- All defaults
+-- ============================================================
+print("\n-- all defaults --")
+
+struct Point
+    x = 0
+    y = 0
+end
+
+dec p1 = Point()
+check("default x", p1.x, 0)
+check("default y", p1.y, 0)
+check("__type",    p1.__type, "Point")
+
+-- ============================================================
+-- Override defaults
+-- ============================================================
+print("\n-- override defaults --")
+
+dec p2 = Point(10, 20)
+check("override x", p2.x, 10)
+check("override y", p2.y, 20)
+
+-- ============================================================
+-- Partial args
+-- ============================================================
+print("\n-- partial args --")
+
+dec p3 = Point(5)
+check("partial x", p3.x, 5)
+check("partial y (default)", p3.y, 0)
+
+-- ============================================================
+-- No defaults (all fields required)
+-- ============================================================
+print("\n-- no defaults --")
+
+dec function test_nodefault()
+    struct Vec3
+        x
+        y
+        z
+    end
+
+    dec v = Vec3(1, 2, 3)
+    check("nodefault x", v.x, 1)
+    check("nodefault y", v.y, 2)
+    check("nodefault z", v.z, 3)
+    check("nodefault __type", v.__type, "Vec3")
+end
+test_nodefault()
+
+-- ============================================================
+-- Mixed defaults and no-defaults
+-- ============================================================
+print("\n-- mixed defaults --")
+
+dec function test_mixed()
+    struct Config
+        host = "localhost"
+        port = 8080
+        debug
+    end
+
+    dec c1 = Config("example.com", 9090, true)
+    check("mixed host", c1.host, "example.com")
+    check("mixed port", c1.port, 9090)
+    check("mixed debug", c1.debug, true)
+
+    dec c2 = Config()
+    check("mixed default host", c2.host, "localhost")
+    check("mixed default port", c2.port, 8080)
+end
+test_mixed()
+
+-- ============================================================
+-- Single field
+-- ============================================================
+print("\n-- single field --")
+
+dec function test_single()
+    struct Wrapper
+        value = nil
+    end
+
+    dec w = Wrapper(42)
+    check("single field", w.value, 42)
+    check("single __type", w.__type, "Wrapper")
+end
+test_single()
+
+-- ============================================================
+-- Multiple instances are independent
+-- ============================================================
+print("\n-- independence --")
+
+dec a = Point(1, 2)
+dec b = Point(3, 4)
+check("instance a.x", a.x, 1)
+check("instance b.x", b.x, 3)
+check("instance a.y", a.y, 2)
+check("instance b.y", b.y, 4)
+
+-- ============================================================
+-- Constructor is a function
+-- ============================================================
+print("\n-- constructor type --")
+
+check("constructor type", type(Point), "function")
+
+-- ============================================================
+-- Comma separators
+-- ============================================================
+print("\n-- comma separators --")
+
+dec function test_commas()
+    struct Rect
+        x = 0,
+        y = 0,
+        w = 100,
+        h = 100
+    end
+
+    dec r = Rect(10, 20, 200, 150)
+    check("comma x", r.x, 10)
+    check("comma y", r.y, 20)
+    check("comma w", r.w, 200)
+    check("comma h", r.h, 150)
+end
+test_commas()
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  STRUCT TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("STRUCT: " .. fail .. " test(s) FAILED")
+end

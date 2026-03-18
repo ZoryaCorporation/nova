@@ -26,12 +26,12 @@
  *   +----------+----------+----------+----------+
  *   | Opcode   |    A     |       sBx (signed)  |  AsBx
  *   +----------+----------+----------+----------+
- *   | Opcode   |          Ax (24-bit)            |  Ax
+ *   | Opcode   |          Ax (24-bit)           |  Ax
  *   +----------+----------+----------+----------+
  *
  * @author Anthony Taliento
  * @date 2026-02-06
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -280,7 +280,7 @@ typedef uint32_t NovaInstruction;
  *
  * STABLE CONTRACT: Numeric values are permanent.
  * Never reorder, never reuse a retired number.
- * New opcodes go at the end, before NOVA_OP_TOTAL.
+ * New opcodes go at the end, before NOVA_OP_SENTINEL.
  *
  * The explicit numeric assignments serve as:
  *   1. Binary format compatibility (same .no runs on any version)
@@ -398,7 +398,7 @@ typedef enum {
     NOVA_OP_EXTRAARG   = 0xFE,  /* Ax     extra argument for previous opcode     */
 
     /* ---- Sentinel (not a real opcode) ---- */
-    NOVA_OP_TOTAL      = 0xFF   /* Total marker -- not a valid opcode            */
+    NOVA_OP_SENTINEL   = 0xFF   /* End-of-enum sentinel -- NEVER encode this     */
 
 } NovaOpcode;
 

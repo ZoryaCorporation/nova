@@ -15,7 +15,7 @@
  *
  * @author Anthony Taliento
  * @date 2025-06-15
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2025 Zorya Corporation
  * @license MIT

@@ -22,30 +22,30 @@ function circle_circumference(radius)
 end
 
 function polar_to_cartesian(r, theta_deg)
-    local theta = DEG2RAD(theta_deg)
-    local x = r * math.cos(theta)
-    local y = r * math.sin(theta)
+    dec theta = DEG2RAD(theta_deg)
+    dec x = r * math.cos(theta)
+    dec y = r * math.sin(theta)
     return x, y
 end
 
 -- Main
-local r = 5.0
+dec r = 5.0
 LOG("Computing circle with radius " .. tostring(r))
 
-local area = circle_area(r)
-local circ = circle_circumference(r)
+dec area = circle_area(r)
+dec circ = circle_circumference(r)
 
 printf("Circle (r=%.1f):\n", r)
 printf("  Area:          %.6f\n", area)
 printf("  Circumference: %.6f\n", circ)
 
 -- Polar conversion
-local x, y = polar_to_cartesian(10, 45)
+dec x, y = polar_to_cartesian(10, 45)
 printf("Polar(10, 45deg) -> Cartesian(%.4f, %.4f)\n", x, y)
 
 -- Test approximate equality
-local a = 0.1 + 0.2
-local b = 0.3
+dec a = 0.1 + 0.2
+dec b = 0.3
 if APPROX_EQ(a, b) then
     print("0.1 + 0.2 == 0.3 (within epsilon)")
 else

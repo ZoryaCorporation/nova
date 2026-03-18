@@ -18,7 +18,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-08
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -67,27 +67,18 @@ static int nova_table_insert(NovaVM *vm) {
     if (nargs == 2) {
         /* table.insert(t, value) - append */
         NovaValue val = nova_vm_get(vm, 1);
-        uint32_t pos = t->array_used;
+        uint32_t pos = nova_table_array_len(t);
 
         /* Grow array if needed */
-        if (pos >= t->array_size) {
-            uint32_t new_size = (t->array_size == 0) ? 8 : t->array_size * 2;
-            NovaValue *new_arr = (NovaValue *)realloc(t->array,
-                                     new_size * sizeof(NovaValue));
-            if (new_arr == NULL) {
-                nova_vm_raise_error(vm, "memory allocation failed in 'insert'");
-                return -1;
-            }
-            /* Initialize new slots to nil */
-            for (uint32_t i = t->array_size; i < new_size; i++) {
-                new_arr[i] = nova_value_nil();
-            }
-            t->array = new_arr;
-            t->array_size = new_size;
+        if (nova_table_grow_array(vm, t, pos + 1) != 0) {
+            nova_vm_raise_error(vm, "memory allocation failed in 'insert'");
+            return -1;
         }
 
-        t->array[pos] = val;
-        t->array_used = pos + 1;
+        /* PERF: direct array write for append — set_int would work
+         * but grow_array already guaranteed slot exists */
+        nova_table_array_ptr(t)[pos] = val;
+        nova_table_array_len(t) = pos + 1;
     } else {
         /* table.insert(t, pos, value) */
         nova_int_t pos = 0;
@@ -96,34 +87,27 @@ static int nova_table_insert(NovaVM *vm) {
         }
         NovaValue val = nova_vm_get(vm, 2);
 
-        if (pos < 0 || pos > (nova_int_t)t->array_used) {
+        if (pos < 0 || pos > (nova_int_t)nova_table_array_len(t)) {
             nova_vm_raise_error(vm, "bad argument #2 to 'insert' (position out of bounds)");
             return -1;
         }
 
         /* Grow array if needed */
-        if (t->array_used >= t->array_size) {
-            uint32_t new_size = (t->array_size == 0) ? 8 : t->array_size * 2;
-            NovaValue *new_arr = (NovaValue *)realloc(t->array,
-                                     new_size * sizeof(NovaValue));
-            if (new_arr == NULL) {
-                nova_vm_raise_error(vm, "memory allocation failed in 'insert'");
-                return -1;
-            }
-            for (uint32_t i = t->array_size; i < new_size; i++) {
-                new_arr[i] = nova_value_nil();
-            }
-            t->array = new_arr;
-            t->array_size = new_size;
+        if (nova_table_grow_array(vm, t, nova_table_array_len(t) + 1) != 0) {
+            nova_vm_raise_error(vm, "memory allocation failed in 'insert'");
+            return -1;
         }
 
-        /* Shift elements up */
+        /* PERF: direct array shift — bulk memmove semantics require
+         * raw pointer access for performance */
+        NovaValue *arr = nova_table_array_ptr(t);
         uint32_t idx = (uint32_t)pos;
-        for (uint32_t i = t->array_used; i > idx; i--) {
-            t->array[i] = t->array[i - 1];
+        uint32_t used = nova_table_array_len(t);
+        for (uint32_t i = used; i > idx; i--) {
+            arr[i] = arr[i - 1];
         }
-        t->array[idx] = val;
-        t->array_used++;
+        arr[idx] = val;
+        nova_table_array_len(t)++;
     }
 
     return 0;  /* No results */
@@ -152,13 +136,13 @@ static int nova_table_remove(NovaVM *vm) {
 
     NovaTable *t = nova_as_table(tv);
 
-    if (t->array_used == 0) {
+    if (nova_table_array_len(t) == 0) {
         nova_vm_push_nil(vm);
         return 1;
     }
 
     int nargs = nova_vm_get_top(vm);
-    nova_int_t pos = (nova_int_t)(t->array_used - 1);  /* Default: last (0-based) */
+    nova_int_t pos = (nova_int_t)(nova_table_array_len(t) - 1);  /* Default: last (0-based) */
 
     if (nargs >= 2) {
         if (!nova_lib_check_integer(vm, 1, &pos)) {
@@ -166,20 +150,23 @@ static int nova_table_remove(NovaVM *vm) {
         }
     }
 
-    if (pos < 0 || pos >= (nova_int_t)t->array_used) {
+    if (pos < 0 || pos >= (nova_int_t)nova_table_array_len(t)) {
         nova_vm_raise_error(vm, "bad argument #2 to 'remove' (position out of bounds)");
         return -1;
     }
 
     uint32_t idx = (uint32_t)pos;
-    NovaValue removed = t->array[idx];
+    NovaValue removed = nova_table_get_int(t, pos);
 
-    /* Shift elements down */
-    for (uint32_t i = idx; i < t->array_used - 1; i++) {
-        t->array[i] = t->array[i + 1];
+    /* PERF: direct array shift — bulk memmove semantics require
+     * raw pointer access for performance */
+    NovaValue *arr = nova_table_array_ptr(t);
+    uint32_t used = nova_table_array_len(t);
+    for (uint32_t i = idx; i < used - 1; i++) {
+        arr[i] = arr[i + 1];
     }
-    t->array[t->array_used - 1] = nova_value_nil();
-    t->array_used--;
+    arr[used - 1] = nova_value_nil();
+    nova_table_array_len(t)--;
 
     /* Push removed value */
     switch (nova_typeof(removed)) {
@@ -223,7 +210,7 @@ static int nova_table_concat(NovaVM *vm) {
     const char *sep = "";
     size_t sep_len = 0;
     nova_int_t i = 0;
-    nova_int_t j = (nova_int_t)t->array_used - 1;
+    nova_int_t j = (nova_int_t)nova_table_array_len(t) - 1;
 
     if (nargs >= 2) {
         NovaValue sv = nova_vm_get(vm, 1);
@@ -253,10 +240,10 @@ static int nova_table_concat(NovaVM *vm) {
     /* Calculate total length */
     size_t total = 0;
     for (nova_int_t k = i; k <= j; k++) {
-        if (k < 0 || (uint32_t)k >= t->array_used) {
+        if (k < 0 || (uint32_t)k >= nova_table_array_len(t)) {
             continue;
         }
-        NovaValue elem = t->array[(uint32_t)k];
+        NovaValue elem = nova_table_get_int(t, k);
         if (nova_is_string(elem)) {
             total += nova_str_len(nova_as_string(elem));
         } else if (nova_is_integer(elem)) {
@@ -285,10 +272,10 @@ static int nova_table_concat(NovaVM *vm) {
             memcpy(p, sep, sep_len);
             p += sep_len;
         }
-        if (k < 0 || (uint32_t)k >= t->array_used) {
+        if (k < 0 || (uint32_t)k >= nova_table_array_len(t)) {
             continue;
         }
-        NovaValue elem = t->array[(uint32_t)k];
+        NovaValue elem = nova_table_get_int(t, (uint32_t)k);
         if (nova_is_string(elem)) {
             memcpy(p, nova_str_data(nova_as_string(elem)), nova_str_len(nova_as_string(elem)));
             p += nova_str_len(nova_as_string(elem));
@@ -425,15 +412,17 @@ static int nova_table_sort(NovaVM *vm) {
     }
 
     NovaTable *t = nova_as_table(tv);
-    uint32_t n = t->array_used;
+    uint32_t n = nova_table_array_len(t);
+    /* PERF: direct array access intentional for sort inner loop */
+    NovaValue *arr = nova_table_array_ptr(t);
 
     /* Insertion sort (stable) */
     for (uint32_t i = 1; i < n; i++) {
-        NovaValue key = t->array[i];
+        NovaValue key = arr[i];
         uint32_t j = i;
 
         while (j > 0) {
-            NovaValue prev = t->array[j - 1];
+            NovaValue prev = arr[j - 1];
             int should_swap = 0;
 
             if (has_comp) {
@@ -446,10 +435,10 @@ static int nova_table_sort(NovaVM *vm) {
                 break;
             }
 
-            t->array[j] = t->array[j - 1];
+            arr[j] = arr[j - 1];
             j--;
         }
-        t->array[j] = key;
+        arr[j] = key;
     }
 
     return 0;  /* No results (sorts in-place) */
@@ -523,8 +512,8 @@ static int nova_table_move(NovaVM *vm) {
             nova_int_t si = f + i;
             nova_int_t di = dest + i;
             NovaValue val = nova_value_nil();
-            if (si >= 0 && (uint32_t)si < src->array_used) {
-                val = src->array[(uint32_t)si];
+            if (si >= 0 && (uint32_t)si < nova_table_array_len(src)) {
+                val = nova_table_get_int(src, (uint32_t)si);
             }
             nova_table_raw_set_int(vm, dst, di, val);
         }
@@ -534,8 +523,8 @@ static int nova_table_move(NovaVM *vm) {
             nova_int_t si = f + i;
             nova_int_t di = dest + i;
             NovaValue val = nova_value_nil();
-            if (si >= 0 && (uint32_t)si < src->array_used) {
-                val = src->array[(uint32_t)si];
+            if (si >= 0 && (uint32_t)si < nova_table_array_len(src)) {
+                val = nova_table_get_int(src, (uint32_t)si);
             }
             nova_table_raw_set_int(vm, dst, di, val);
         }
@@ -573,15 +562,13 @@ static int nova_table_pack(NovaVM *vm) {
     if (nargs > 0) {
         uint32_t new_size = (uint32_t)nargs;
         if (new_size < 8) new_size = 8;
-        t->array = (NovaValue *)realloc(t->array, new_size * sizeof(NovaValue));
-        if (t->array == NULL) {
-            return 1;
-        }
-        t->array_size = new_size;
+        nova_table_grow_array(vm, t, new_size);
+        /* PERF: direct array access intentional for bulk fill */
+        NovaValue *arr = nova_table_array_ptr(t);
         for (int i = 0; i < nargs; i++) {
-            t->array[i] = nova_vm_get(vm, i);
+            arr[i] = nova_vm_get(vm, i);
         }
-        t->array_used = (uint32_t)nargs;
+        nova_table_array_len(t) = (uint32_t)nargs;
     }
 
     /* The table is already on top of stack */

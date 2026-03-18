@@ -1,0 +1,144 @@
+-- ============================================================
+-- todo_list.n — A Task Manager in Nova
+--
+-- A complete, working TODO list that demonstrates tables,
+-- functions, closures, and the idiomatic echo/printf pattern.
+--
+-- Run:  ./bin/nova nova_syntax/04_real_programs/todo_list.n
+-- ============================================================
+
+echo "=== Nova TODO List Manager ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Data Model
+-- A task is: {text, done, priority, created}
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec tasks = {}
+
+dec function new_task(text, priority)
+    echo `  + Adding: "${text}"`
+    priority = priority or "normal"
+    dec task = {
+        text     = text,
+        done     = false,
+        priority = priority,
+        created  = os.clock(),
+    }
+    table.insert(tasks, task)
+    return task
+end
+
+dec function complete_task(index)
+    if index < 0 or index >= #tasks then
+        echo "  ! Invalid task index."
+        return false
+    end
+    tasks[index].done = true
+    echo `  ✓ Completed: "${tasks[index].text}"`
+    return true
+end
+
+dec function remove_task(index)
+    if index < 0 or index >= #tasks then
+        echo "  ! Invalid task index."
+        return false
+    end
+    dec removed = tasks[index]
+    table.remove(tasks, index)
+    echo `  - Removed: "${removed.text}"`
+    return true
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Display
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function priority_symbol(p)
+    if p == "high" then return "!!!" end
+    if p == "low" then return " . " end
+    return " * "
+end
+
+dec function show_tasks(filter)
+    echo ""
+    dec header = "ALL TASKS"
+    if filter == "done" then header = "COMPLETED" end
+    if filter == "pending" then header = "PENDING" end
+
+    printf("  %-4s %-3s %-30s %s\n", "#", "Pri", "Task", "Status")
+    printf("  %-4s %-3s %-30s %s\n", "---", "---", string.rep("-", 30), "------")
+
+    dec shown = 0
+    for i = 0, #tasks - 1 do
+        dec t = tasks[i]
+        dec show = true
+        if filter == "done" and not t.done then show = false end
+        if filter == "pending" and t.done then show = false end
+
+        if show then
+            dec status = t.done and "[DONE]" or "[    ]"
+            printf("  %-4d %s %-30s %s\n",
+                   i, priority_symbol(t.priority), t.text, status)
+            shown = shown + 1
+        end
+    end
+
+    if shown == 0 then
+        echo "  (no tasks)"
+    end
+    printf("\n  Total: %d | Shown: %d\n", #tasks, shown)
+end
+
+dec function stats()
+    echo "\n  --- Stats ---"
+    dec done = 0
+    dec high = 0
+    for i = 0, #tasks - 1 do
+        if tasks[i].done then done = done + 1 end
+        if tasks[i].priority == "high" then high = high + 1 end
+    end
+    dec pending = #tasks - done
+
+    printf("  Total tasks:    %d\n", #tasks)
+    printf("  Completed:      %d\n", done)
+    printf("  Pending:        %d\n", pending)
+    printf("  High priority:  %d\n", high)
+    if #tasks > 0 then
+        printf("  Completion:     %.0f%%\n", (done / #tasks) * 100)
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Let's Use It!
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Adding Tasks ---"
+
+new_task("Write Nova documentation", "high")
+new_task("Fix compiler warnings", "high")
+new_task("Add unit tests for NLP", "normal")
+new_task("Update README", "normal")
+new_task("Refactor hash table", "low")
+new_task("Coffee break", "low")
+
+show_tasks()
+
+echo "\n--- Completing Some Tasks ---"
+
+complete_task(0)
+complete_task(2)
+complete_task(5)
+
+echo "\n--- Pending Tasks ---"
+show_tasks("pending")
+
+echo "\n--- Completed Tasks ---"
+show_tasks("done")
+
+echo "\n--- Removing a Task ---"
+remove_task(4)
+
+stats()
+
+echo "\nDone!"

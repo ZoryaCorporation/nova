@@ -1,0 +1,960 @@
+-- ==========================================================
+-- bench_algorithms.n - Real-World Algorithm Performance
+--
+-- Measures Nova's performance on practical computational
+-- workloads — sorting, searching, data structures, numerical
+-- methods, and string processing pipelines. Each algorithm
+-- runs at multiple scales to reveal O(n) scaling behavior.
+--
+--   1. Fibonacci (recursive vs iterative vs memoized)
+--   2. Sieve of Eratosthenes (10K → 1M)
+--   3. Sorting implementations (bubble/insertion/merge/quick)
+--   4. Binary search
+--   5. Matrix operations
+--   6. Linked list simulation
+--   7. Tree building and traversal
+--   8. Stack/Queue via tables
+--   9. String processing pipelines
+--   10. Numerical integration
+--   11. Hash map (table-based)
+--   12. Graph algorithms
+--   13. Dynamic programming
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec TOTAL_START = os.clock()
+
+echo("================================================================")
+echo("  NOVA REAL-WORLD ALGORITHM PERFORMANCE SUITE")
+echo("  " .. os.date())
+echo("================================================================")
+
+-- ── Helpers ──────────────────────────────────────────────
+
+dec function header(name)
+    printf("\n── %s ─────────────────────────────────────\n", name)
+end
+
+dec function row(label, elapsed, ops)
+    dec rate = ops / elapsed
+    if rate >= 1e6 then
+        printf("  %-42s %8.4f sec  %7.2f Mops/sec\n", label, elapsed, rate / 1e6)
+    elseif rate >= 1e3 then
+        printf("  %-42s %8.4f sec  %7.2f Kops/sec\n", label, elapsed, rate / 1e3)
+    else
+        printf("  %-42s %8.4f sec  %7.2f  ops/sec\n", label, elapsed, rate)
+    end
+end
+
+dec function row_time(label, elapsed)
+    printf("  %-42s %8.4f sec\n", label, elapsed)
+end
+
+dec function sep()
+    echo("")
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("1. FIBONACCI")
+-- ═══════════════════════════════════════════════════════════
+
+-- Recursive (exponential — measures call overhead under recursion)
+do
+    dec function fib(n)
+        if n < 2 then return n end
+        return fib(n - 1) + fib(n - 2)
+    end
+
+    for _, n in ipairs({10, 15, 20, 25, 30, 35}) do
+        dec s = os.clock()
+        dec result = fib(n)
+        dec e = os.clock() - s
+        printf("  %-42s %8.4f sec  fib(%d) = %d\n", sprintf("fib recursive (%d)", n), e, n, result)
+    end
+end
+
+sep()
+
+-- Iterative (linear — measures loop + variable overhead)
+do
+    dec function fib_iter(n)
+        if n < 2 then return n end
+        dec a, b = 0, 1
+        for i = 2, n do
+            a, b = b, a + b
+        end
+        return b
+    end
+
+    for _, n in ipairs({100, 1000, 10000, 100000, 1000000}) do
+        dec s = os.clock()
+        dec result = fib_iter(n)
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or (n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n))
+        row(sprintf("fib iterative (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- Memoized (measures table lookup cost under recursion)
+do
+    dec function fib_memo(n, cache)
+        if cache[n] then return cache[n] end
+        if n < 2 then return n end
+        cache[n] = fib_memo(n - 1, cache) + fib_memo(n - 2, cache)
+        return cache[n]
+    end
+
+    for _, n in ipairs({20, 50, 100}) do
+        dec cache = {}
+        dec s = os.clock()
+        dec result = fib_memo(n, cache)
+        dec e = os.clock() - s
+        printf("  %-42s %8.6f sec  cache_size=%d\n", sprintf("fib memoized (%d)", n), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("2. SIEVE OF ERATOSTHENES")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec function sieve(limit)
+        dec is_prime = {}
+        for i = 0, limit do is_prime[i] = true end
+        is_prime[0] = false
+        is_prime[1] = false
+
+        dec i = 2
+        while i * i <= limit do
+            if is_prime[i] then
+                dec j = i * i
+                while j <= limit do
+                    is_prime[j] = false
+                    j = j + i
+                end
+            end
+            i = i + 1
+        end
+
+        dec count = 0
+        for i = 2, limit do
+            if is_prime[i] then count = count + 1 end
+        end
+        return count
+    end
+
+    for _, n in ipairs({10000, 50000, 100000, 500000, 1000000}) do
+        dec s = os.clock()
+        dec count = sieve(n)
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        printf("  %-42s %8.4f sec  primes=%d\n", sprintf("sieve(%s)", label), e, count)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("3. SORTING IMPLEMENTATIONS")
+-- ═══════════════════════════════════════════════════════════
+
+-- Bubble sort (O(n^2) — stress test for comparisons + swaps)
+do
+    dec function bubble_sort(arr, n)
+        for i = 0, n - 2 do
+            for j = 0, n - i - 2 do
+                if arr[j] > arr[j + 1] then
+                    arr[j], arr[j + 1] = arr[j + 1], arr[j]
+                end
+            end
+        end
+    end
+
+    for _, n in ipairs({500, 1000, 2000, 5000}) do
+        math.randomseed(12345)
+        dec arr = {}
+        for i = 0, n - 1 do arr[i] = math.random(1, 100000) end
+
+        dec s = os.clock()
+        bubble_sort(arr, n)
+        dec e = os.clock() - s
+        printf("  %-42s %8.4f sec  (%d comparisons)\n",
+               sprintf("bubble sort (%d)", n), e, n * (n-1) / 2)
+    end
+end
+
+sep()
+
+-- Insertion sort (O(n^2) best case O(n))
+do
+    dec function insertion_sort(arr, n)
+        for i = 1, n - 1 do
+            dec key = arr[i]
+            dec j = i - 1
+            while j >= 0 and arr[j] > key do
+                arr[j + 1] = arr[j]
+                j = j - 1
+            end
+            arr[j + 1] = key
+        end
+    end
+
+    for _, n in ipairs({1000, 5000, 10000}) do
+        math.randomseed(12345)
+        dec arr = {}
+        for i = 0, n - 1 do arr[i] = math.random(1, 100000) end
+
+        dec s = os.clock()
+        insertion_sort(arr, n)
+        dec e = os.clock() - s
+        printf("  %-42s %8.4f sec\n", sprintf("insertion sort (%d)", n), e)
+    end
+end
+
+sep()
+
+-- Native table.sort comparison at same sizes
+do
+    for _, n in ipairs({1000, 5000, 10000, 50000, 100000}) do
+        math.randomseed(12345)
+        dec arr = {}
+        for i = 0, n - 1 do arr[i] = math.random(1, 100000) end
+
+        dec s = os.clock()
+        table.sort(arr)
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        printf("  %-42s %8.4f sec\n", sprintf("table.sort (%s)", label), e)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("4. BINARY SEARCH")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec function binary_search(arr, n, target)
+        dec lo, hi = 0, n - 1
+        while lo <= hi do
+            dec mid = math.floor((lo + hi) / 2)
+            if arr[mid] == target then return mid
+            elseif arr[mid] < target then lo = mid + 1
+            else hi = mid - 1
+            end
+        end
+        return -1
+    end
+
+    for _, n in ipairs({10000, 100000, 1000000}) do
+        -- Build sorted array
+        dec arr = {}
+        for i = 0, n - 1 do arr[i] = i * 2 end
+
+        -- Search for all elements
+        dec SEARCHES = 100000
+        dec found = 0
+        dec s = os.clock()
+        for i = 0, SEARCHES - 1 do
+            dec target = (i * 7) % (n * 2)  -- mix of hits and misses
+            if binary_search(arr, n, target) >= 0 then
+                found = found + 1
+            end
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        printf("  %-42s %8.4f sec  %d/%d found\n",
+               sprintf("100K searches in %s array", label), e, found, SEARCHES)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("5. MATRIX OPERATIONS")
+-- ═══════════════════════════════════════════════════════════
+
+-- Matrix creation
+do
+    dec function create_matrix(rows, cols, fill)
+        dec m = {}
+        for i = 0, rows - 1 do
+            m[i] = {}
+            for j = 0, cols - 1 do
+                if fill then
+                    m[i][j] = fill(i, j)
+                else
+                    m[i][j] = 0
+                end
+            end
+        end
+        return m
+    end
+
+    for _, n in ipairs({32, 64, 128, 256}) do
+        dec s = os.clock()
+        dec m = create_matrix(n, n, function(i, j) return i + j end)
+        dec e = os.clock() - s
+        row_time(sprintf("create %dx%d matrix", n, n), e)
+    end
+end
+
+sep()
+
+-- Matrix multiply
+do
+    dec function mat_mul(a, b, n)
+        dec c = {}
+        for i = 0, n - 1 do
+            c[i] = {}
+            for j = 0, n - 1 do
+                dec sum = 0
+                for k = 0, n - 1 do
+                    sum = sum + a[i][k] * b[k][j]
+                end
+                c[i][j] = sum
+            end
+        end
+        return c
+    end
+
+    for _, n in ipairs({16, 32, 64, 128}) do
+        -- Create two matrices
+        dec a, b = {}, {}
+        for i = 0, n - 1 do
+            a[i] = {}
+            b[i] = {}
+            for j = 0, n - 1 do
+                a[i][j] = (i + j) % 10
+                b[i][j] = (i * j + 1) % 10
+            end
+        end
+
+        dec s = os.clock()
+        dec c = mat_mul(a, b, n)
+        dec e = os.clock() - s
+        dec ops = n * n * n * 2  -- multiply + add per inner step
+        printf("  %-42s %8.4f sec  (%d FLOPs)\n",
+               sprintf("matmul %dx%d", n, n), e, ops)
+    end
+end
+
+sep()
+
+-- Matrix transpose
+do
+    for _, n in ipairs({64, 128, 256, 512}) do
+        dec m = {}
+        for i = 0, n - 1 do
+            m[i] = {}
+            for j = 0, n - 1 do m[i][j] = i * n + j end
+        end
+
+        dec s = os.clock()
+        dec t = {}
+        for i = 0, n - 1 do
+            t[i] = {}
+            for j = 0, n - 1 do t[i][j] = m[j][i] end
+        end
+        dec e = os.clock() - s
+        row_time(sprintf("transpose %dx%d", n, n), e)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("6. LINKED LIST SIMULATION")
+-- ═══════════════════════════════════════════════════════════
+
+-- Build linked list
+do
+    for _, n in ipairs({10000, 50000, 100000}) do
+        dec s = os.clock()
+        dec head = nil
+        for i = 0, n - 1 do
+            head = { val = i, next = head }
+        end
+        dec t_build = os.clock() - s
+
+        -- Traverse
+        dec s2 = os.clock()
+        dec sum = 0
+        dec node = head
+        while node do
+            sum = sum + node.val
+            node = node.next
+        end
+        dec t_traverse = os.clock() - s2
+
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("build linked list (%s)", label), t_build, n)
+        row(sprintf("traverse linked list (%s)", label), t_traverse, n)
+    end
+end
+
+sep()
+
+-- Search in linked list (worst case — not found)
+do
+    dec N = 10000
+    dec head = nil
+    for i = 0, N - 1 do head = { val = i, next = head } end
+
+    dec SEARCHES = 1000
+    dec s = os.clock()
+    for i = 0, SEARCHES - 1 do
+        dec node = head
+        while node do
+            if node.val == -1 then break end  -- never found
+            node = node.next
+        end
+    end
+    dec e = os.clock() - s
+    printf("  %-42s %8.4f sec  (%d traversals x %d nodes)\n",
+           "linked list search miss", e, SEARCHES, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("7. TREE BUILDING & TRAVERSAL")
+-- ═══════════════════════════════════════════════════════════
+
+-- Binary search tree
+do
+    dec function bst_insert(root, val)
+        if not root then
+            return { val = val, left = nil, right = nil }
+        end
+        if val < root.val then
+            root.left = bst_insert(root.left, val)
+        else
+            root.right = bst_insert(root.right, val)
+        end
+        return root
+    end
+
+    dec function bst_inorder(node, result, idx)
+        if not node then return idx end
+        idx = bst_inorder(node.left, result, idx)
+        result[idx] = node.val
+        idx = idx + 1
+        idx = bst_inorder(node.right, result, idx)
+        return idx
+    end
+
+    dec function bst_search(node, val)
+        if not node then return false end
+        if val == node.val then return true end
+        if val < node.val then return bst_search(node.left, val) end
+        return bst_search(node.right, val)
+    end
+
+    for _, n in ipairs({1000, 5000, 10000, 50000}) do
+        -- Build BST with random data
+        math.randomseed(42)
+        dec root = nil
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            root = bst_insert(root, math.random(1, n * 10))
+        end
+        dec t_build = os.clock() - s
+
+        -- In-order traversal
+        dec result = {}
+        dec s2 = os.clock()
+        bst_inorder(root, result, 0)
+        dec t_traverse = os.clock() - s2
+
+        -- Search (1K lookups)
+        dec found = 0
+        dec s3 = os.clock()
+        for i = 0, 999 do
+            if bst_search(root, math.random(1, n * 10)) then
+                found = found + 1
+            end
+        end
+        dec t_search = os.clock() - s3
+
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("BST insert (%s nodes)", label), t_build, n)
+        row_time(sprintf("BST in-order (%s nodes)", label), t_traverse)
+        printf("  %-42s %8.4f sec  %d/1000 found\n",
+               sprintf("BST search (%s, 1K queries)", label), t_search, found)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("8. STACK / QUEUE VIA TABLES")
+-- ═══════════════════════════════════════════════════════════
+
+-- Stack (push/pop at end)
+do
+    for _, n in ipairs({50000, 100000, 500000}) do
+        dec stack = {}
+        dec top = -1
+
+        dec s = os.clock()
+        -- Push N items
+        for i = 0, n - 1 do
+            top = top + 1
+            stack[top] = i
+        end
+        -- Pop N items
+        dec sum = 0
+        for i = 0, n - 1 do
+            sum = sum + stack[top]
+            stack[top] = nil
+            top = top - 1
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("stack push+pop (%s)", label), e, n * 2)
+    end
+end
+
+sep()
+
+-- Queue via table.insert/table.remove (O(n) dequeue)
+do
+    for _, n in ipairs({5000, 10000, 50000}) do
+        dec queue = {}
+
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            table.insert(queue, i)
+        end
+        dec sum = 0
+        for i = 0, n - 1 do
+            sum = sum + table.remove(queue, 0)
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("queue enq+deq (%s)", label), e, n * 2)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("9. STRING PROCESSING PIPELINES")
+-- ═══════════════════════════════════════════════════════════
+
+-- Tokenizer (split on whitespace — gmatch returns table in Nova)
+do
+    dec function tokenize(text)
+        return string.gmatch(text, "%S+")
+    end
+
+    dec text = "The quick brown fox jumps over the lazy dog and then goes home to sleep"
+    dec N = 100000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec tokens = tokenize(text)
+    end
+    dec e = os.clock() - s
+    row("tokenize sentence (100K)", e, N)
+end
+
+-- Word frequency counter
+do
+    dec function word_freq(text)
+        dec freq = {}
+        dec words = string.gmatch(text, "%w+")
+        for i = 0, #words - 1 do
+            dec w = words[i]:lower()
+            freq[w] = (freq[w] or 0) + 1
+        end
+        return freq
+    end
+
+    -- Build a longer text
+    dec parts = {}
+    for i = 0, 99 do
+        parts[i] = "the quick brown fox jumps over lazy dog"
+    end
+    dec long_text = table.concat(parts, " ")
+
+    dec N = 1000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec freq = word_freq(long_text)
+    end
+    dec e = os.clock() - s
+    row("word freq (800 words x 1K)", e, N)
+end
+
+sep()
+
+-- CSV parsing (manual)
+do
+    dec function parse_csv_line(line)
+        return string.gmatch(line, "[^,]+")
+    end
+
+    dec lines = {}
+    for i = 0, 999 do
+        lines[i] = sprintf("%d,John Doe,%d,%.2f,active", i, 20 + (i % 50), i * 10.5)
+    end
+
+    dec N = 100
+    dec s = os.clock()
+    for iter = 0, N - 1 do
+        for i = 0, 999 do
+            dec fields, count = parse_csv_line(lines[i])
+        end
+    end
+    dec e = os.clock() - s
+    printf("  %-42s %8.4f sec  (%d lines x %d iters)\n",
+           "CSV line parse", e, 1000, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("10. NUMERICAL INTEGRATION")
+-- ═══════════════════════════════════════════════════════════
+
+-- Trapezoidal rule for sin(x) from 0 to pi
+do
+    for _, n in ipairs({1000, 10000, 100000, 1000000}) do
+        dec a, b = 0, math.pi
+        dec h = (b - a) / n
+
+        dec s = os.clock()
+        dec sum = (math.sin(a) + math.sin(b)) / 2
+        for i = 1, n - 1 do
+            sum = sum + math.sin(a + i * h)
+        end
+        dec result = sum * h
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        printf("  %-42s %8.4f sec  result=%.10f\n",
+               sprintf("trapezoid sin(x) (%s steps)", label), e, result)
+    end
+end
+
+sep()
+
+-- Monte Carlo pi estimation
+do
+    for _, n in ipairs({10000, 100000, 1000000, 5000000}) do
+        math.randomseed(42)
+        dec inside = 0
+
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec x = math.random()
+            dec y = math.random()
+            if x * x + y * y <= 1.0 then
+                inside = inside + 1
+            end
+        end
+        dec pi_est = 4.0 * inside / n
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        printf("  %-42s %8.4f sec  pi≈%.6f (err=%.2e)\n",
+               sprintf("Monte Carlo pi (%s samples)", label), e, pi_est, math.abs(pi_est - math.pi))
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("11. HASH MAP (TABLE-BASED)")
+-- ═══════════════════════════════════════════════════════════
+
+-- Build a frequency map from integer data
+do
+    for _, n in ipairs({10000, 100000, 500000}) do
+        math.randomseed(12345)
+
+        dec s = os.clock()
+        dec freq = {}
+        for i = 0, n - 1 do
+            dec key = math.random(1, n / 10)
+            freq[key] = (freq[key] or 0) + 1
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("int freq map build (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- String-keyed map (url-like keys)
+do
+    dec N = 10000
+    dec map = {}
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec key = sprintf("/api/v%d/resource/%d", i % 3, i)
+        map[key] = { status = 200, body = "ok" }
+    end
+    dec e = os.clock() - s
+    row("string map build (10K urls)", e, N)
+
+    -- Lookup all keys
+    dec found = 0
+    dec s2 = os.clock()
+    for i = 0, N - 1 do
+        dec key = sprintf("/api/v%d/resource/%d", i % 3, i)
+        if map[key] then found = found + 1 end
+    end
+    dec t_lookup = os.clock() - s2
+    row("string map lookup (10K urls)", t_lookup, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("12. GRAPH ALGORITHMS")
+-- ═══════════════════════════════════════════════════════════
+
+-- BFS on adjacency-list graph
+-- NOTE: BFS works correctly in isolation but may hit "invalid table key type"
+-- after heavy GC pressure from prior sections (GC corruption bug).
+do
+    dec ok, err = pcall(function()
+        dec function build_graph(n, edges_per_node)
+            dec graph = {}
+            math.randomseed(42)
+            for i = 0, n - 1 do
+                graph[i] = {}
+            for j = 0, edges_per_node - 1 do
+                graph[i][j] = math.random(0, n - 1)
+            end
+        end
+        return graph
+    end
+
+    dec function bfs(graph, n, start, edges_per_node)
+        dec visited = {}
+        dec queue = {}
+        dec front, back = 0, 0
+        queue[0] = start
+        visited[start] = true
+        dec count = 0
+
+        while front <= back do
+            dec node = queue[front]
+            front = front + 1
+            count = count + 1
+
+            dec neighbors = graph[node]
+            if neighbors then
+                for i = 0, edges_per_node - 1 do
+                    dec neighbor = neighbors[i]
+                    if neighbor and not visited[neighbor] then
+                        visited[neighbor] = true
+                        back = back + 1
+                        queue[back] = neighbor
+                    end
+                end
+            end
+        end
+        return count
+    end
+
+    for _, n in ipairs({500, 1000, 5000}) do
+        dec graph = build_graph(n, 4)
+
+        dec s = os.clock()
+        dec reached = bfs(graph, n, 0, 4)
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        printf("  %-42s %8.4f sec  reached=%d/%d\n",
+               sprintf("BFS (%s nodes, 4 edges/node)", label), e, reached, n)
+    end
+    end)
+    if not ok then
+        printf("  *** BFS skipped due to GC corruption: %s\n", tostring(err))
+    end
+end
+
+sep()
+
+-- DFS (recursive)
+do
+    dec ok, err = pcall(function()
+    dec function build_tree(depth, branching)
+        if depth == 0 then return { val = 1 } end
+        dec node = { val = depth, children = {} }
+        for i = 0, branching - 1 do
+            node.children[i] = build_tree(depth - 1, branching)
+        end
+        return node
+    end
+
+    dec function dfs_count(node)
+        if not node then return 0 end
+        dec count = 1
+        if node.children then
+            for i = 0, #node.children - 1 do
+                if node.children[i] then
+                    count = count + dfs_count(node.children[i])
+                end
+            end
+        end
+        return count
+    end
+
+    for _, spec in ipairs({{8, 2}, {6, 3}, {5, 4}, {4, 5}}) do
+        dec depth, branch = spec[0], spec[1]
+
+        dec s1 = os.clock()
+        dec root = build_tree(depth, branch)
+        dec t_build = os.clock() - s1
+
+        dec s2 = os.clock()
+        dec count = dfs_count(root)
+        dec t_traverse = os.clock() - s2
+
+        printf("  %-42s %8.4f sec  nodes=%d\n",
+               sprintf("build tree (d=%d, b=%d)", depth, branch), t_build, count)
+        printf("  %-42s %8.4f sec\n",
+               sprintf("DFS traverse (d=%d, b=%d)", depth, branch), t_traverse)
+    end
+    end)
+    if not ok then
+        printf("  *** DFS skipped due to GC corruption: %s\n", tostring(err))
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("13. DYNAMIC PROGRAMMING")
+-- ═══════════════════════════════════════════════════════════
+
+-- Longest Common Subsequence, Knapsack, Edit Distance
+-- Wrapped in pcall due to potential GC corruption from prior sections
+do
+    dec ok, err = pcall(function()
+
+    -- LCS
+    dec function lcs(a, b)
+        dec m, n = #a, #b
+        dec dp = {}
+        for i = 0, m do
+            dp[i] = {}
+            for j = 0, n do dp[i][j] = 0 end
+        end
+        for i = 1, m do
+            for j = 1, n do
+                if string.byte(a, i) == string.byte(b, j) then
+                    dp[i][j] = dp[i-1][j-1] + 1
+                else
+                    dp[i][j] = math.max(dp[i-1][j], dp[i][j-1])
+                end
+            end
+        end
+        return dp[m][n]
+    end
+
+    for _, len in ipairs({50, 100, 200, 500}) do
+        dec chars = "abcdefghij"
+        dec function rand_str(n)
+            dec parts = {}
+            math.randomseed(42)
+            for i = 0, n - 1 do
+                dec idx = math.random(0, 9)
+                parts[i] = string.char(97 + idx)
+            end
+            return table.concat(parts)
+        end
+        dec a = rand_str(len)
+        dec b = rand_str(len)
+
+        dec s = os.clock()
+        dec result = lcs(a, b)
+        dec e = os.clock() - s
+        printf("  %-42s %8.4f sec  LCS=%d (cells=%d)\n",
+               sprintf("LCS (%d x %d)", len, len), e, result, len * len)
+    end
+
+    sep()
+
+    -- 0/1 Knapsack
+    dec function knapsack(weights, values, n, capacity)
+        dec dp = {}
+        for i = 0, n do
+            dp[i] = {}
+            for w = 0, capacity do dp[i][w] = 0 end
+        end
+        for i = 1, n do
+            for w = 0, capacity do
+                if weights[i] <= w then
+                    dec incl = dp[i-1][w - weights[i]] + values[i]
+                    dec excl = dp[i-1][w]
+                    dp[i][w] = math.max(incl, excl)
+                else
+                    dp[i][w] = dp[i-1][w]
+                end
+            end
+        end
+        return dp[n][capacity]
+    end
+
+    for _, spec in ipairs({{100, 500}, {200, 1000}, {500, 2000}}) do
+        dec n, cap = spec[0], spec[1]
+        dec weights, values = {}, {}
+        math.randomseed(42)
+        for i = 1, n do
+            weights[i] = math.random(1, 50)
+            values[i] = math.random(1, 100)
+        end
+
+        dec s = os.clock()
+        dec result = knapsack(weights, values, n, cap)
+        dec e = os.clock() - s
+        printf("  %-42s %8.4f sec  max_val=%d (cells=%d)\n",
+               sprintf("knapsack (%d items, cap=%d)", n, cap), e, result, n * cap)
+    end
+
+    sep()
+
+    -- Edit distance (Levenshtein)
+    dec function edit_dist(a, b)
+        dec m, n = #a, #b
+        dec dp = {}
+        for i = 0, m do
+            dp[i] = {}
+            dp[i][0] = i
+        end
+        for j = 0, n do dp[0][j] = j end
+
+        for i = 1, m do
+            for j = 1, n do
+                dec cost = 0
+                if string.byte(a, i) != string.byte(b, j) then cost = 1 end
+                dp[i][j] = math.min(
+                    dp[i-1][j] + 1,
+                    dp[i][j-1] + 1,
+                    dp[i-1][j-1] + cost
+                )
+            end
+        end
+        return dp[m][n]
+    end
+
+    for _, len in ipairs({50, 100, 200, 500}) do
+        dec function make_str(n)
+            dec parts = {}
+            math.randomseed(99)
+            for i = 0, n - 1 do parts[i] = string.char(97 + math.random(0, 25)) end
+            return table.concat(parts)
+        end
+        dec a = make_str(len)
+        dec b = make_str(len)
+
+        dec s = os.clock()
+        dec dist = edit_dist(a, b)
+        dec e = os.clock() - s
+        printf("  %-42s %8.4f sec  dist=%d (cells=%d)\n",
+               sprintf("edit distance (%d x %d)", len, len), e, dist, len * len)
+    end
+
+    end)
+    if not ok then
+        printf("  *** DP section skipped due to GC corruption: %s\n", tostring(err))
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("SUMMARY")
+-- ═══════════════════════════════════════════════════════════
+
+dec TOTAL_ELAPSED = os.clock() - TOTAL_START
+printf("\n  Total benchmark time: %.4f sec\n", TOTAL_ELAPSED)
+echo("================================================================")
+echo("  Real-World Algorithm Performance Suite COMPLETE")
+echo("================================================================")

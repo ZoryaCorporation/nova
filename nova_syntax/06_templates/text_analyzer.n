@@ -1,0 +1,191 @@
+-- ============================================================
+-- text_analyzer.n — Text Analysis Template
+--
+-- A reusable template for analyzing prose or documents using
+-- Nova's NLP standard library. Shows tokenization, frequency,
+-- sentiment, readability, and entity extraction.
+--
+-- Run:  ./bin/nova nova_syntax/06_templates/text_analyzer.n
+-- ============================================================
+
+echo "=== Text Analyzer Template ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- The Sample Text
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec text = [[
+The Renaissance was a fervent period of European cultural, artistic,
+political, and economic rebirth following the Middle Ages. Generally
+described as taking place from the 14th to the 17th century, the
+Renaissance promoted the rediscovery of classical philosophy, literature,
+and art. Some of the greatest thinkers, authors, statesmen, scientists,
+and artists in human history thrived during this era, while global
+exploration opened up new lands and cultures to European commerce.
+The Renaissance is credited with bridging the gap between the Middle
+Ages and modern civilization.
+]]
+
+echo "\n  Analyzing a passage about the Renaissance..."
+printf("  Text length: %d characters\n", #text)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 1. Tokenization
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 1. Tokenization ---"
+
+dec tokens = nlp.tokenize(text)
+printf("  Total tokens: %d\n", #tokens)
+
+echo "  First 10 tokens:"
+dec limit = 10
+if #tokens < limit then limit = #tokens end
+for i = 0, limit - 1 do
+    printf("    [%2d] \"%s\"\n", i, tokens[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 2. Word Frequency
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 2. Word Frequency ---"
+
+dec freq = nlp.freq(text)
+
+-- Find top words (sort by count)
+dec words = {}
+for word, count in pairs(freq) do
+    table.insert(words, {word = word, count = count})
+end
+
+-- Simple bubble sort by count descending
+for i = 0, #words - 2 do
+    for j = 0, #words - 2 - i do
+        if words[j].count < words[j + 1].count then
+            words[j], words[j + 1] = words[j + 1], words[j]
+        end
+    end
+end
+
+echo "  Top 10 words:"
+dec top = 10
+if #words < top then top = #words end
+for i = 0, top - 1 do
+    printf("    %-15s  %d\n", words[i].word, words[i].count)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 3. Sentence Splitting
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 3. Sentences ---"
+
+dec sentences = nlp.sentences(text)
+printf("  Found %d sentences:\n", #sentences)
+for i = 0, #sentences - 1 do
+    dec s = sentences[i]
+    -- Truncate long sentences for display
+    if #s > 60 then
+        s = string.sub(s, 0, 59) .. "..."
+    end
+    printf("    [%d] %s\n", i, s)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 4. Word Count
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 4. Word Count ---"
+
+dec wc = nlp.wordcount(text)
+printf("  Total words: %d\n", wc)
+printf("  Avg word length: %.1f chars\n", #text / wc)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 5. Unique Words
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 5. Unique Words ---"
+
+dec unique = nlp.unique(text)
+printf("  Unique words: %d\n", #unique)
+printf("  Vocabulary richness: %.1f%%\n", (#unique / wc) * 100)
+
+echo "  Sample unique words:"
+dec ulimit = 10
+if #unique < ulimit then ulimit = #unique end
+for i = 0, ulimit - 1 do
+    printf("    %s\n", unique[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 6. N-gram Analysis
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 6. Bigrams ---"
+
+dec bigrams = nlp.ngrams(text, 2)
+printf("  Found %d bigrams\n", #bigrams)
+
+echo "  First 8 bigrams:"
+dec bg_limit = 8
+if #bigrams < bg_limit then bg_limit = #bigrams end
+for i = 0, bg_limit - 1 do
+    printf("    [%d] \"%s\"\n", i, bigrams[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 7. Text Summary
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 7. Summary ---"
+
+dec summary = nlp.summarize(text, 2)
+printf("  Top %d sentences:\n", #summary)
+for i = 0, #summary - 1 do
+    dec s = summary[i]
+    if #s > 70 then
+        s = string.sub(s, 0, 69) .. "..."
+    end
+    printf("    %d. %s\n", i + 1, s)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 8. Fuzzy Search
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- 8. Fuzzy Search ---"
+
+dec targets = {"Rennaissance", "civilzation", "filosophy"}
+for i = 0, #targets - 1 do
+    dec query = targets[i]
+    dec matches = nlp.fuzzy(text, query, 0.65)
+    if #matches > 0 then
+        -- Find best match
+        dec best = matches[0]
+        for j = 1, #matches - 1 do
+            if matches[j].score > best.score then
+                best = matches[j]
+            end
+        end
+        printf("    \"%s\" -> \"%s\" (score: %.2f)\n",
+            query, best.match, best.score)
+    else
+        printf("    \"%s\" -> no match found\n", query)
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 9. Summary Report
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Summary Report ---"
+printf("  %-20s %d\n", "Characters:", #text)
+printf("  %-20s %d\n", "Tokens:", #tokens)
+printf("  %-20s %d\n", "Words:", wc)
+printf("  %-20s %d\n", "Sentences:", #sentences)
+printf("  %-20s %d\n", "Unique words:", #unique)
+printf("  %-20s %d\n", "Bigrams:", #bigrams)
+
+echo "\nDone!"

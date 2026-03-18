@@ -2,22 +2,22 @@
 -- Tests basic language features
 
 #define GREETING "Hello from Nova!"
-#define VERSION  "0.1.0"
+#define VERSION  "0.2.0"
 
 print(GREETING)
 printf("Nova v%s -- ready.\n", VERSION)
 
 -- Variables
-local x = 42
-local name = "Nova"
-local pi = 3.14159
+dec x = 42
+dec name = "Nova"
+dec pi = 3.14159
 
 -- Arithmetic
-local result = (x * 2) + 10
+dec result = (x * 2) + 10
 printf("The answer is: %d\n", result)
 
 -- Tables (0-indexed!)
-local colors = { "red", "green", "blue" }
+dec colors = { "red", "green", "blue" }
 printf("First color: %s\n", colors[0])
 
 -- Functions
@@ -36,7 +36,7 @@ for i = 0, 4 do
 end
 
 -- Table constructor
-local player = {
+dec player = {
     name = "Zorya",
     hp = 100,
     level = 1,

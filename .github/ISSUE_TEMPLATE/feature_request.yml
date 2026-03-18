@@ -1,0 +1,68 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for Nova
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping make Nova better! Please describe your idea as clearly as possible.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Which area does this feature request relate to?
+      options:
+        - Language / Syntax
+        - Standard Library
+        - VM / Performance
+        - Compiler / Optimizer
+        - Tooling (CLI, task runner, NINI)
+        - NDP / Data Processing
+        - Coroutines / Async
+        - GC / Memory
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: |
+        What problem are you trying to solve? Is this related to something
+        that is currently difficult or impossible to do in Nova?
+      placeholder: "I'm trying to... but I can't because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: |
+        Describe the feature you'd like. If applicable, show what the Nova
+        syntax or API might look like.
+      render: lua
+      placeholder: |
+        -- Example of proposed syntax or API usage
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: |
+        Have you considered any alternative approaches or workarounds?
+        Why are they insufficient?
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: |
+        Any other context, links, prior art from other languages, or
+        examples that may help clarify the request.

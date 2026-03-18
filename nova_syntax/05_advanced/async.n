@@ -1,0 +1,254 @@
+-- ============================================================
+-- async.n — Async/Await and the Task System
+--
+-- Nova has first-class async/await built directly into the
+-- language. Async functions are coroutines under the hood —
+-- declaring a function 'async' gives it the ability to suspend
+-- and resume without blocking the rest of your program.
+--
+-- Key concepts:
+--   async function  — declares a suspendable function
+--   await           — suspends until a task resolves
+--   spawn           — fires a task without waiting for it
+--   task.run()      — the event loop entry point
+--   task.spawn()    — schedule a task from sync context
+--   task.sleep()    — async delay (non-blocking)
+--   task.status()   — inspect a task's state
+--
+-- Run:  ./bin/nova nova_syntax/05_advanced/async.n
+-- ============================================================
+
+echo "=== Async / Await ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 1: async functions and await
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- An async function, when called, returns a task (a coroutine
+-- in suspended state). It does NOT run immediately. You need
+-- to either await it or run it through task.run().
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Basic async / await ---"
+
+async function greet(name)
+    return "Hello, " .. name .. "!"
+end
+
+-- greet() returns a task, not the string directly
+dec t = greet("Nova")
+printf("  type of greet(): %s\n", type(t))         -- thread
+printf("  status before await: %s\n", task.status(t))  -- suspended
+
+-- task.run() drives the event loop. Use it as your entry point.
+dec message = nil
+async function main()
+    message = await greet("Nova")
+end
+task.run(main)
+printf("  await result: %s\n", message)   -- Hello, Nova!
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 2: Sequential awaits
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- await suspends the current async function until the task
+-- finishes, then resumes with the return value. Multiple
+-- awaits run in the order they appear.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Sequential awaits ---"
+
+async function step(label, value)
+    printf("    running step: %s\n", label)
+    return value
+end
+
+async function pipeline()
+    dec a = await step("parse",   100)
+    dec b = await step("process", a * 2)
+    dec c = await step("format",  b + 50)
+    printf("  pipeline result: %d\n", c)  -- 350
+end
+task.run(pipeline)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 3: Nested async calls
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Async functions can await other async functions freely.
+-- The call stack suspends and resumes transparently.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Nested async calls ---"
+
+async function fetch_data(id)
+    return { id = id, value = id * 10 }
+end
+
+async function enrich(record)
+    dec tag = await fetch_data(record.id * 100)
+    record.tag = tag.value
+    return record
+end
+
+async function process_record(id)
+    dec raw     = await fetch_data(id)
+    dec enriched = await enrich(raw)
+    return enriched
+end
+
+dec result = nil
+async function main2()
+    result = await process_record(7)
+end
+task.run(main2)
+printf("  record id: %d, value: %d, tag: %d\n",
+    result.id, result.value, result.tag)   -- 7, 70, 700
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 4: spawn — fire and forget
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 'spawn' starts a task without awaiting it. The spawned task
+-- runs cooperatively alongside the current one. Use it for
+-- work you want to kick off but don't need to block on.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- spawn (fire and forget) ---"
+
+dec log = {}
+
+async function worker(id)
+    table.insert(log, "worker-" .. id)
+end
+
+async function dispatcher()
+    dec _ = spawn worker(1)
+    dec _ = spawn worker(2)
+    dec _ = spawn worker(3)
+    -- workers run before dispatcher exits
+end
+task.run(dispatcher)
+
+echo "  spawned results:"
+for i = 0, #log - 1 do
+    printf("    %s\n", log[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 5: await on non-task values (passthrough)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- If you await something that isn't a task, the value passes
+-- through unchanged. This makes it safe to await any value
+-- without knowing in advance whether it's async or not.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- await passthrough ---"
+
+async function maybe_async(x, make_task)
+    if make_task then
+        return x * 2  -- called as async, returns a task
+    else
+        return x      -- plain value
+    end
+end
+
+dec r1 = nil
+dec r2 = nil
+async function passthrough_demo()
+    r1 = await maybe_async(21, true)   -- awaits a task → 42
+    r2 = await 99                       -- passthrough    → 99
+end
+task.run(passthrough_demo)
+printf("  task result:       %d\n", r1)   -- 42
+printf("  passthrough value: %d\n", r2)   -- 99
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 6: task.spawn and task.status from sync context
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- task.spawn() can schedule async work from synchronous code.
+-- task.status() returns "suspended", "running", or "dead".
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- task.spawn / task.status ---"
+
+dec spawned_log = {}
+
+function sync_worker(label)
+    table.insert(spawned_log, label)
+end
+
+task.spawn(sync_worker, "alpha")
+task.spawn(sync_worker, "beta")
+
+-- drain the queue by running a no-op async entry point
+async function drain() end
+task.run(drain)
+
+echo "  task.spawn results:"
+for i = 0, #spawned_log - 1 do
+    printf("    %s\n", spawned_log[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 7: async + coroutines interop
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Async functions ARE coroutines. You can use coroutine.yield
+-- inside an async function to cooperatively yield mid-task.
+-- The event loop resumes it on the next tick.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- async + coroutine.yield interop ---"
+
+dec ticks = {}
+async function ticker(name, count)
+    for i = 1, count do
+        table.insert(ticks, name .. "-" .. i)
+        coroutine.yield()  -- cooperatively yield each tick
+    end
+end
+
+async function interleaved()
+    dec _ = spawn ticker("A", 3)
+    dec _ = spawn ticker("B", 3)
+end
+task.run(interleaved)
+
+echo "  interleaved ticks:"
+for i = 0, #ticks - 1 do
+    printf("    %s\n", ticks[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Part 8: deep async nesting (stack safety)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Nova's async/await is stack-safe. You can nest deeply
+-- without overflowing — each await is a coroutine suspend,
+-- not a recursive C call.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- deep async nesting ---"
+
+async function deep(n)
+    if n <= 0 then return 0 end
+    return (await deep(n - 1)) + 1
+end
+
+dec depth_result = nil
+async function depth_test()
+    depth_result = await deep(50)
+end
+task.run(depth_test)
+printf("  deep(50) = %d\n", depth_result)  -- 50
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Summary
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Summary ---"
+echo "  async function  → returns a task (coroutine)"
+echo "  await <task>    → suspend until task resolves, get value"
+echo "  await <value>   → passthrough (no-op if not a task)"
+echo "  spawn <task>    → schedule without blocking"
+echo "  task.run(fn)    → run the event loop from sync code"
+echo "  task.spawn(fn)  → schedule from sync context"
+echo "  task.status(t)  → 'suspended' | 'running' | 'dead'"
+
+echo "\nDone!"

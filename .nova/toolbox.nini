@@ -1,0 +1,18 @@
+# ============================================================
+# Nova Toolbox Manifest
+#
+# User-defined Nova scripts exposed as MCP tools.
+# Each [tool:<name>] section registers a .n script callable
+# by AI agents via MCP.
+#
+# Zorya Corporation - Nova SDK
+# ============================================================
+
+[tool:c_audit]
+path = .nova/scripts/c_audit.n
+description = Audit a C source file for common issues: missing NULL checks, unchecked allocations, stale TODOs, missing doc tags, long functions, style violations, and ZORYA-C v2.0.0 compliance
+entry = audit
+allow_fs = true
+allow_net = false
+allow_os = false
+allow_sql = false

@@ -1,0 +1,353 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "Nova Doc",
+    "scopeName": "source.nova-doc",
+    "fileTypes": ["nd"],
+    "patterns": [
+        { "include": "#frontmatter" },
+        { "include": "#comments" },
+        { "include": "#typed-section" },
+        { "include": "#section" },
+        { "include": "#checklist" },
+        { "include": "#text-block" },
+        { "include": "#tags" },
+        { "include": "#priority" },
+        { "include": "#reference" },
+        { "include": "#include-directive" },
+        { "include": "#array-push" },
+        { "include": "#key-value" }
+    ],
+    "repository": {
+
+        "frontmatter": {
+            "patterns": [
+                {
+                    "comment": "@nova-doc 1 — magic line identifying Nova Doc format",
+                    "name": "meta.frontmatter.magic.nova-doc",
+                    "match": "^\\s*(@nova-doc)\\s+(\\d+)",
+                    "captures": {
+                        "1": { "name": "keyword.control.directive.magic.nova-doc" },
+                        "2": { "name": "constant.numeric.version.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "@key = value — frontmatter metadata",
+                    "match": "^\\s*(@[a-zA-Z_][a-zA-Z0-9_-]*)\\s*(=)\\s*(.*)",
+                    "captures": {
+                        "1": { "name": "keyword.control.directive.frontmatter.nova-doc" },
+                        "2": { "name": "keyword.operator.assignment.nova-doc" },
+                        "3": {
+                            "patterns": [
+                                { "include": "#typed-values" },
+                                { "include": "#interpolation" },
+                                {
+                                    "name": "string.unquoted.nova-doc",
+                                    "match": "[^#;]+"
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+
+        "comments": {
+            "patterns": [
+                {
+                    "comment": "Line comment starting with #",
+                    "name": "comment.line.number-sign.nova-doc",
+                    "match": "^\\s*#(?![a-zA-Z_]).*$"
+                },
+                {
+                    "comment": "Inline comment # (after value)",
+                    "name": "comment.line.inline.nova-doc",
+                    "match": "(?<=\\S)\\s+(#.*)$",
+                    "captures": {
+                        "1": { "name": "comment.line.inline.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "Line comment starting with ;",
+                    "name": "comment.line.semicolon.nova-doc",
+                    "match": "^\\s*;.*$"
+                }
+            ]
+        },
+
+        "typed-section": {
+            "patterns": [
+                {
+                    "comment": "[type:name] — typed section header (file, function, memory, finding, tree, metric, log, tracker)",
+                    "match": "^\\s*\\[(file|function|memory|finding|tree|metric|log|tracker|task):([^\\]]+)\\]",
+                    "captures": {
+                        "1": { "name": "keyword.control.section-type.nova-doc" },
+                        "2": { "name": "entity.name.section.typed.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "section": {
+            "patterns": [
+                {
+                    "comment": "[section] or [section.subsection] — plain section header",
+                    "match": "^\\s*\\[([^\\]]+)\\]",
+                    "captures": {
+                        "1": { "name": "entity.name.section.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "checklist": {
+            "patterns": [
+                {
+                    "comment": "[x] completed checklist item",
+                    "match": "^\\s*(\\[x\\])\\s+(.*)",
+                    "captures": {
+                        "1": { "name": "markup.inserted.checklist.complete.nova-doc" },
+                        "2": { "name": "string.other.checklist-text.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "[-] failed/blocked checklist item",
+                    "match": "^\\s*(\\[-\\])\\s+(.*)",
+                    "captures": {
+                        "1": { "name": "markup.deleted.checklist.failed.nova-doc" },
+                        "2": { "name": "string.other.checklist-text.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "[ ] not-started checklist item",
+                    "match": "^\\s*(\\[ \\])\\s+(.*)",
+                    "captures": {
+                        "1": { "name": "markup.changed.checklist.pending.nova-doc" },
+                        "2": { "name": "string.other.checklist-text.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "text-block": {
+            "patterns": [
+                {
+                    "comment": "<< ... >> — Nova Doc text block",
+                    "name": "string.quoted.block.text-block.nova-doc",
+                    "begin": "<<\\s*$",
+                    "end": "^\\s*>>",
+                    "beginCaptures": {
+                        "0": { "name": "punctuation.definition.string.begin.nova-doc" }
+                    },
+                    "endCaptures": {
+                        "0": { "name": "punctuation.definition.string.end.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "\"\"\"...\"\"\" — NINI multi-line string",
+                    "name": "string.quoted.triple.nova-doc",
+                    "begin": "\"\"\"",
+                    "end": "^\"\"\""
+                }
+            ]
+        },
+
+        "tags": {
+            "patterns": [
+                {
+                    "comment": "+tag — Nova Doc tag marker",
+                    "name": "entity.other.attribute-name.tag.nova-doc",
+                    "match": "(?:^|\\s)(\\+[a-zA-Z_][a-zA-Z0-9_-]*)",
+                    "captures": {
+                        "1": { "name": "entity.other.attribute-name.tag.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "priority": {
+            "patterns": [
+                {
+                    "comment": "!critical priority marker",
+                    "name": "markup.bold.priority.critical.nova-doc",
+                    "match": "(?:^|\\s)(!(critical|high))",
+                    "captures": {
+                        "1": { "name": "markup.bold.priority.critical.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "!medium/low priority marker",
+                    "name": "markup.italic.priority.nova-doc",
+                    "match": "(?:^|\\s)(!(medium|low|info))",
+                    "captures": {
+                        "1": { "name": "markup.italic.priority.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "reference": {
+            "patterns": [
+                {
+                    "comment": "@ref(target) — cross-reference",
+                    "match": "(@ref)\\(([^)]+)\\)",
+                    "captures": {
+                        "1": { "name": "keyword.control.reference.nova-doc" },
+                        "2": { "name": "string.other.link.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "include-directive": {
+            "patterns": [
+                {
+                    "comment": "@include file — file inclusion",
+                    "match": "^\\s*(@include)\\s+(.+)",
+                    "captures": {
+                        "1": { "name": "keyword.control.directive.include.nova-doc" },
+                        "2": { "name": "string.unquoted.path.nova-doc" }
+                    }
+                }
+            ]
+        },
+
+        "array-push": {
+            "patterns": [
+                {
+                    "comment": "key[] = value — array push syntax",
+                    "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_.\\-]*)\\[\\]\\s*(=)\\s*(.*)",
+                    "captures": {
+                        "1": { "name": "variable.other.key.nova-doc" },
+                        "2": { "name": "keyword.operator.assignment.nova-doc" },
+                        "3": {
+                            "patterns": [
+                                { "include": "#value" }
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+
+        "key-value": {
+            "patterns": [
+                {
+                    "comment": "key = value — key-value pair",
+                    "match": "^\\s*([a-zA-Z_][a-zA-Z0-9_.\\-]*)\\s*(=)\\s*(.*)",
+                    "captures": {
+                        "1": { "name": "variable.other.key.nova-doc" },
+                        "2": { "name": "keyword.operator.assignment.nova-doc" },
+                        "3": {
+                            "patterns": [
+                                { "include": "#value" }
+                            ]
+                        }
+                    }
+                }
+            ]
+        },
+
+        "value": {
+            "patterns": [
+                {
+                    "comment": "Text block value << ... >>",
+                    "name": "string.quoted.block.text-block.nova-doc",
+                    "begin": "<<\\s*$",
+                    "end": "^\\s*>>",
+                    "beginCaptures": {
+                        "0": { "name": "punctuation.definition.string.begin.nova-doc" }
+                    },
+                    "endCaptures": {
+                        "0": { "name": "punctuation.definition.string.end.nova-doc" }
+                    }
+                },
+                {
+                    "comment": "Inline array [a, b, c]",
+                    "name": "meta.array.nova-doc",
+                    "begin": "\\[",
+                    "end": "\\]",
+                    "beginCaptures": {
+                        "0": { "name": "punctuation.definition.array.begin.nova-doc" }
+                    },
+                    "endCaptures": {
+                        "0": { "name": "punctuation.definition.array.end.nova-doc" }
+                    },
+                    "patterns": [
+                        { "include": "#typed-values" },
+                        {
+                            "name": "punctuation.separator.comma.nova-doc",
+                            "match": ","
+                        },
+                        {
+                            "comment": "Unquoted array item",
+                            "name": "string.unquoted.nova-doc",
+                            "match": "[^,\\]\\s]+"
+                        }
+                    ]
+                },
+                { "include": "#interpolation" },
+                { "include": "#typed-values" },
+                {
+                    "comment": "Unquoted string value (fallback)",
+                    "name": "string.unquoted.nova-doc",
+                    "match": "[^#;]+"
+                }
+            ]
+        },
+
+        "typed-values": {
+            "patterns": [
+                {
+                    "comment": "Quoted string",
+                    "name": "string.quoted.double.nova-doc",
+                    "begin": "\"",
+                    "end": "\""
+                },
+                {
+                    "comment": "Boolean true",
+                    "name": "constant.language.boolean.true.nova-doc",
+                    "match": "\\b(true|yes|on)\\b"
+                },
+                {
+                    "comment": "Boolean false",
+                    "name": "constant.language.boolean.false.nova-doc",
+                    "match": "\\b(false|no|off)\\b"
+                },
+                {
+                    "comment": "Nil/null",
+                    "name": "constant.language.null.nova-doc",
+                    "match": "\\b(nil|null|none)\\b"
+                },
+                {
+                    "comment": "ISO 8601 timestamp",
+                    "name": "constant.other.timestamp.nova-doc",
+                    "match": "\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}(:\\d{2})?Z?)?"
+                },
+                {
+                    "comment": "Float number",
+                    "name": "constant.numeric.float.nova-doc",
+                    "match": "-?\\d+\\.\\d+"
+                },
+                {
+                    "comment": "Integer number",
+                    "name": "constant.numeric.integer.nova-doc",
+                    "match": "-?\\d+"
+                }
+            ]
+        },
+
+        "interpolation": {
+            "patterns": [
+                {
+                    "comment": "${section.key} variable interpolation",
+                    "match": "(\\$\\{)([^}]+)(\\})",
+                    "captures": {
+                        "1": { "name": "punctuation.section.interpolation.begin.nova-doc" },
+                        "2": { "name": "variable.other.interpolation.nova-doc" },
+                        "3": { "name": "punctuation.section.interpolation.end.nova-doc" }
+                    }
+                }
+            ]
+        }
+    }
+}

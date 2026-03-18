@@ -11,7 +11,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -133,6 +133,7 @@ static const NovaKeyword nova_keywords[] = {
     { "else",     NOVA_TOKEN_ELSE },
     { "elseif",   NOVA_TOKEN_ELSEIF },
     { "end",      NOVA_TOKEN_END },
+    { "enum",     NOVA_TOKEN_ENUM },
     { "export",   NOVA_TOKEN_EXPORT },
     { "false",    NOVA_TOKEN_FALSE },
     { "for",      NOVA_TOKEN_FOR },
@@ -141,19 +142,34 @@ static const NovaKeyword nova_keywords[] = {
     { "if",       NOVA_TOKEN_IF },
     { "import",   NOVA_TOKEN_IMPORT },
     { "in",       NOVA_TOKEN_IN },
-    { "local",    NOVA_TOKEN_LOCAL },
     { "nil",      NOVA_TOKEN_NIL },
     { "not",      NOVA_TOKEN_NOT },
     { "or",       NOVA_TOKEN_OR },
     { "repeat",   NOVA_TOKEN_REPEAT },
     { "return",   NOVA_TOKEN_RETURN },
     { "spawn",    NOVA_TOKEN_SPAWN },
+    { "struct",   NOVA_TOKEN_STRUCT },
     { "then",     NOVA_TOKEN_THEN },
     { "true",     NOVA_TOKEN_TRUE },
+    { "typedec",  NOVA_TOKEN_TYPEDEC },
     { "until",    NOVA_TOKEN_UNTIL },
     { "while",    NOVA_TOKEN_WHILE },
     { "yield",    NOVA_TOKEN_YIELD },
 };
+
+/**
+ * @brief Additional keyword aliases (checked after main table)
+ *
+ * These map to existing token types but use different spellings.
+ * 'dec' and 'declare' both map to NOVA_TOKEN_LOCAL (scope binding).
+ */
+static const NovaKeyword nova_keyword_aliases[] = {
+    { "dec",      NOVA_TOKEN_LOCAL },
+    { "declare",  NOVA_TOKEN_LOCAL },
+};
+
+#define NOVA_KEYWORD_ALIAS_COUNT \
+    (sizeof(nova_keyword_aliases) / sizeof(nova_keyword_aliases[0]))
 
 #define NOVA_KEYWORD_COUNT \
     (sizeof(nova_keywords) / sizeof(nova_keywords[0]))
@@ -1023,6 +1039,13 @@ static NovaToken novai_scan_identifier(NovaLexer *L) {
         nova_keywords, NOVA_KEYWORD_COUNT, start, len
     );
 
+    /* Check keyword aliases (dec, declare) */
+    if (kw == NOVA_TOKEN_NAME) {
+        kw = novai_keyword_lookup(
+            nova_keyword_aliases, NOVA_KEYWORD_ALIAS_COUNT, start, len
+        );
+    }
+
     NovaToken tok = novai_make_token(L, kw, loc);
     tok.value.string.data = start;
     tok.value.string.len = len;
@@ -1074,7 +1097,15 @@ static NovaToken novai_scan_pp_directive(NovaLexer *L) {
     );
 
     if (directive == NOVA_TOKEN_NAME) {
-        /* Unknown directive */
+        /* Not a known directive. If we're already inside a PP
+         * directive (e.g. #define body), this is the stringify
+         * operator: #param.  Rewind past the name so the next
+         * scan picks it up as a regular identifier. */
+        if (L->in_pp_directive) {
+            L->pos = (size_t)(start - L->source);
+            return novai_make_token(L, NOVA_TOKEN_PP_STRINGIFY, loc);
+        }
+        /* Unknown directive at line start */
         novai_lex_error(L, "unknown preprocessor directive '#%.*s'",
                         (int)len, start);
         NovaToken tok = {0};
@@ -1205,10 +1236,6 @@ static NovaToken novai_scan_token(NovaLexer *L) {
         return novai_make_token(L, (NovaTokenType)'=', loc);
 
     case '~':
-        if (novai_peek(L) == '=') {
-            novai_advance(L);
-            return novai_make_token(L, NOVA_TOKEN_NEQ, loc);
-        }
         return novai_make_token(L, (NovaTokenType)'~', loc);
 
     case '!':
@@ -1456,7 +1483,7 @@ const char *nova_token_name(NovaTokenType type) {
         case NOVA_TOKEN_DOTDOT:         return "'..'";
         case NOVA_TOKEN_DOTDOTDOT:      return "'...'";
         case NOVA_TOKEN_EQ:             return "'=='";
-        case NOVA_TOKEN_NEQ:            return "'~='";
+        case NOVA_TOKEN_NEQ:            return "'!='";
         case NOVA_TOKEN_LE:             return "'<='";
         case NOVA_TOKEN_GE:             return "'>='";
         case NOVA_TOKEN_SHL:            return "'<<'";
@@ -1492,7 +1519,7 @@ const char *nova_token_name(NovaTokenType type) {
         case NOVA_TOKEN_GOTO:           return "'goto'";
         case NOVA_TOKEN_IF:             return "'if'";
         case NOVA_TOKEN_IN:             return "'in'";
-        case NOVA_TOKEN_LOCAL:          return "'local'";
+        case NOVA_TOKEN_LOCAL:          return "'dec'";
         case NOVA_TOKEN_NIL:            return "'nil'";
         case NOVA_TOKEN_NOT:            return "'not'";
         case NOVA_TOKEN_OR:             return "'or'";

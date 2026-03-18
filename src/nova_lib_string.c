@@ -17,11 +17,11 @@
  *   string.format(fmt, ...)   Printf-style formatting
  *   string.gsub(s, pat, rep [,n])  Global substitute (basic)
  *   string.match(s, pat)      Pattern match (basic)
- *   string.gmatch(s, pat)     Global match iterator (stub)
+ *   string.gmatch(s, pat)     Global match iterator
  *
  * @author Anthony Taliento
  * @date 2026-02-08
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -34,6 +34,7 @@
 
 #include "nova/nova_lib.h"
 #include "nova/nova_vm.h"
+#include "nova/nova_meta.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1563,5 +1564,37 @@ int nova_open_string(NovaVM *vm) {
     }
 
     nova_lib_register_module(vm, "string", nova_string_lib);
+
+    /* === String metatable ===
+     * Create a metatable with __index = string module table.
+     * This allows method-call syntax on strings:
+     *   s:find(pat)    -->  string.find(s, pat)
+     *   s:upper()      -->  string.upper(s)
+     *   s:sub(0, 3)    -->  string.sub(s, 0, 3)
+     */
+    NovaValue str_mod = nova_vm_get_global(vm, "string");
+    if (nova_is_table(str_mod)) {
+        /* Create metatable */
+        nova_vm_push_table(vm);
+        NovaValue mt_val = nova_vm_get(vm, -1);
+        vm->stack_top--;
+
+        if (nova_is_table(mt_val)) {
+            NovaTable *mt = nova_as_table(mt_val);
+
+            /* Set __index = string module table */
+            NovaString *idx_key = nova_string_new(vm, "__index", 7);
+            if (idx_key != NULL) {
+                nova_table_set_str(vm, mt, idx_key, str_mod);
+            }
+
+            /* Mark metatable as immortal so GC never collects it */
+            ((NovaGCHeader *)mt)->gc_color = NOVA_GC_BLACK;
+
+            /* Register with the metamethod pipeline (GC-rooted via VM) */
+            nova_meta_set_string_mt(vm, mt);
+        }
+    }
+
     return 0;
 }

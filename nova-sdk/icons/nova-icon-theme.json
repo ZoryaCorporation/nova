@@ -1,0 +1,120 @@
+{
+    "hidesExplorerArrows": false,
+    "iconDefinitions": {
+        "_file": {
+            "iconPath": "./default-file-dark.svg"
+        },
+        "_file_light": {
+            "iconPath": "./default-file-light.svg"
+        },
+        "_folder": {
+            "iconPath": "./default-folder-dark.svg"
+        },
+        "_folder_light": {
+            "iconPath": "./default-folder-light.svg"
+        },
+        "_folder_open": {
+            "iconPath": "./default-folder-open-dark.svg"
+        },
+        "_folder_open_light": {
+            "iconPath": "./default-folder-open-light.svg"
+        },
+        "nova-n": {
+            "iconPath": "./nova-n-dark.svg"
+        },
+        "nova-n-light": {
+            "iconPath": "./nova-n-light.svg"
+        },
+        "nova-m": {
+            "iconPath": "./nova-m-dark.svg"
+        },
+        "nova-m-light": {
+            "iconPath": "./nova-m-light.svg"
+        },
+        "nova-no": {
+            "iconPath": "./nova-no-dark.svg"
+        },
+        "nova-no-light": {
+            "iconPath": "./nova-no-light.svg"
+        },
+        "nova-nini": {
+            "iconPath": "./nova-nini-dark.svg"
+        },
+        "nova-nini-light": {
+            "iconPath": "./nova-nini-light.svg"
+        },
+        "nova-t": {
+            "iconPath": "./nova-t-dark.svg"
+        },
+        "nova-t-light": {
+            "iconPath": "./nova-t-light.svg"
+        },
+        "nova-nd": {
+            "iconPath": "./nova-nd-dark.svg"
+        },
+        "nova-nd-light": {
+            "iconPath": "./nova-nd-light.svg"
+        },
+        "nova-txt": {
+            "iconPath": "./nova-txt-dark.svg"
+        },
+        "nova-txt-light": {
+            "iconPath": "./nova-txt-light.svg"
+        }
+    },
+    "file": "_file",
+    "folder": "_folder",
+    "folderExpanded": "_folder_open",
+    "fileExtensions": {        "n": "nova-n",
+        "nova": "nova-n",
+        "no": "nova-no",
+        "m": "nova-m",
+        "nini": "nova-nini",
+        "ni": "nova-nini",
+        "nd": "nova-nd",
+        "txt": "nova-txt"
+    },
+    "fileNames": {
+        "taskfile.nini": "nova-t",
+        "Taskfile.nini": "nova-t",
+        "taskfile.ni": "nova-t",
+        "Taskfile.ni": "nova-t"
+    },
+    "languageIds": {
+        "nova": "nova-n",
+        "nova-header": "nova-m",
+        "nova-object": "nova-no",
+        "nini": "nova-nini",
+        "nini-taskfile": "nova-t",
+        "nova-doc": "nova-nd"
+    },
+    "light": {
+        "file": "_file_light",
+        "folder": "_folder_light",
+        "folderExpanded": "_folder_open_light",
+        "fileExtensions": {
+            "n": "nova-n-light",
+            "nova": "nova-n-light",
+            "no": "nova-no-light",
+            "m": "nova-m-light",
+            "nini": "nova-nini-light",
+            "ni": "nova-nini-light",
+            "nd": "nova-nd-light",
+            "txt": "nova-txt-light"
+        },
+        "fileNames": {
+            "taskfile.nini": "nova-t-light",
+            "Taskfile.nini": "nova-t-light",
+            "taskfile.ni": "nova-t-light",
+            "Taskfile.ni": "nova-t-light"
+        },
+        "languageIds": {
+            "nova": "nova-n-light",
+            "nova-header": "nova-m-light",
+            "nova-object": "nova-no-light",
+            "nini": "nova-nini-light",
+            "nini-taskfile": "nova-t-light",
+            "nova-doc": "nova-nd-light"
+        }
+    }
+}

@@ -1,0 +1,137 @@
+-- ============================================================
+-- Nova Enum Test Suite
+-- Tests: auto-numbered, explicit values, mixed, string values,
+--        comma separators, table nature, single member
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== ENUM TESTS ===")
+
+-- ============================================================
+-- Auto-numbered (0-based)
+-- ============================================================
+print("\n-- auto-numbered --")
+
+enum Color
+    RED
+    GREEN
+    BLUE
+end
+
+check("auto RED",   Color.RED,   0)
+check("auto GREEN", Color.GREEN, 1)
+check("auto BLUE",  Color.BLUE,  2)
+
+-- ============================================================
+-- Explicit values
+-- ============================================================
+print("\n-- explicit values --")
+
+enum HttpStatus
+    OK = 200
+    NOT_FOUND = 404
+    SERVER_ERROR = 500
+end
+
+check("explicit OK",           HttpStatus.OK,           200)
+check("explicit NOT_FOUND",    HttpStatus.NOT_FOUND,    404)
+check("explicit SERVER_ERROR", HttpStatus.SERVER_ERROR, 500)
+
+-- ============================================================
+-- Mixed auto and explicit
+-- ============================================================
+print("\n-- mixed auto/explicit --")
+
+dec function test_mixed()
+    enum LogLevel
+        DEBUG
+        INFO
+        WARN = 10
+        ERROR
+        FATAL
+    end
+
+    check("mixed DEBUG", LogLevel.DEBUG, 0)
+    check("mixed INFO",  LogLevel.INFO,  1)
+    check("mixed WARN",  LogLevel.WARN,  10)
+    check("mixed ERROR", LogLevel.ERROR, 11)
+    check("mixed FATAL", LogLevel.FATAL, 12)
+end
+test_mixed()
+
+-- ============================================================
+-- Single member
+-- ============================================================
+print("\n-- single member --")
+
+enum Singleton
+    ONLY
+end
+
+check("single ONLY", Singleton.ONLY, 0)
+
+-- ============================================================
+-- String values
+-- ============================================================
+print("\n-- string values --")
+
+dec function test_strings()
+    enum FileMode
+        READ = "r"
+        WRITE = "w"
+        APPEND = "a"
+    end
+
+    check("string READ",   FileMode.READ,   "r")
+    check("string WRITE",  FileMode.WRITE,  "w")
+    check("string APPEND", FileMode.APPEND, "a")
+end
+test_strings()
+
+-- ============================================================
+-- Comma separators
+-- ============================================================
+print("\n-- comma separators --")
+
+dec function test_commas()
+    enum Suit
+        HEARTS,
+        DIAMONDS,
+        CLUBS,
+        SPADES
+    end
+
+    check("comma HEARTS",   Suit.HEARTS,   0)
+    check("comma DIAMONDS", Suit.DIAMONDS, 1)
+    check("comma CLUBS",    Suit.CLUBS,    2)
+    check("comma SPADES",   Suit.SPADES,   3)
+end
+test_commas()
+
+-- ============================================================
+-- Table nature
+-- ============================================================
+print("\n-- table nature --")
+check("type is table", type(Color), "table")
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  ENUM TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("ENUM: " .. fail .. " test(s) FAILED")
+end

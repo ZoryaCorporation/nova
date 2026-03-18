@@ -1,3 +1,6 @@
+# Internal development documents (blueprints, planning, brainstorming)
+dev/
+
 # Build artifacts
 build/
 bin/

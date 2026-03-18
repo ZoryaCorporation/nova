@@ -1,0 +1,119 @@
+-- test_bytecode.n — Bytecode compilation roundtrip test
+-- Compile: nova -c tests/test_bytecode.n
+-- Run:     nova tests/test_bytecode.no
+
+print("=== BYTECODE ROUNDTRIP TEST ===")
+
+dec passed = 0
+dec failed = 0
+
+dec function check(name, cond)
+    if cond then
+        passed = passed + 1
+        print("  " .. name .. ": PASS")
+    else
+        failed = failed + 1
+        print("  " .. name .. ": FAIL")
+    end
+end
+
+-- 1. Arithmetic
+check("integer add",       1 + 2 == 3)
+check("float mul",         2.5 * 4 == 10.0)
+check("modulo",            17 % 5 == 2)
+check("unary minus",       -(3) == -3)
+
+-- 2. String operations
+dec s = "hello"
+check("string concat",     s .. " world" == "hello world")
+check("string length",     #s == 5)
+check("string upper",      s:upper() == "HELLO")
+check("string sub",        s:sub(0, 4) == "hello")
+check("string sub2",       s:sub(1, 3) == "ell")
+check("string find",       s:find("llo") == 2)
+check("string rep",        s:rep(2) == "hellohello")
+
+-- 3. Boolean logic
+check("and true",          true and true)
+check("or false",          false or true)
+check("not false",         not false)
+check("comparison lt",     3 < 5)
+check("comparison ge",     5 >= 5)
+
+-- 4. Tables (0-based)
+dec t = {10, 20, 30}
+check("table length",      #t == 3)
+check("table index 0",     t[0] == 10)
+check("table index 2",     t[2] == 30)
+t[3] = 40
+check("table assign",      t[3] == 40)
+
+dec m = { name = "Nova", version = 2 }
+check("table field",       m.name == "Nova")
+check("table field num",   m.version == 2)
+
+-- 5. Functions & closures
+dec function add(a, b) return a + b end
+check("function call",     add(3, 4) == 7)
+
+dec function make_counter()
+    dec n = 0
+    return function()
+        n = n + 1
+        return n
+    end
+end
+dec counter = make_counter()
+check("closure 1",         counter() == 1)
+check("closure 2",         counter() == 2)
+check("closure 3",         counter() == 3)
+
+-- 6. Control flow
+dec sum = 0
+for i = 1, 10 do
+    sum = sum + i
+end
+check("for loop sum",      sum == 55)
+
+dec x = 42
+if x > 40 then
+    check("if branch",     true)
+else
+    check("if branch",     false)
+end
+
+-- 7. Multi-arg function
+dec function vsum(a, b, c, d, e)
+    return a + b + c + d + e
+end
+check("function 5-arg",    vsum(1, 2, 3, 4, 5) == 15)
+
+-- 8. String interpolation (backtick)
+dec who = "world"
+dec greeting = `hello ${who}`
+check("interpolation",     greeting == "hello world")
+
+-- 9. Nested tables
+dec data = {
+    meta = { version = 1 },
+    items = {100, 200, 300}
+}
+check("nested field",      data.meta.version == 1)
+check("nested array",      data.items[1] == 200)
+
+-- 10. Multiple returns
+dec function swap(a, b) return b, a end
+dec p, q = swap(10, 20)
+check("multi return",      p == 20 and q == 10)
+
+-- Results
+print("")
+printf("Results: %d passed, %d failed out of %d\n",
+    passed, failed, passed + failed)
+
+if failed > 0 then
+    print("=== BYTECODE TEST FAILED ===")
+    error("bytecode test failed")
+else
+    print("=== ALL BYTECODE TESTS PASSED ===")
+end

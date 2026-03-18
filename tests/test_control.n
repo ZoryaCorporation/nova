@@ -5,10 +5,10 @@
 --        upvalues, variadic, nested functions
 -- ============================================================
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, got, expected)
+dec function check(name, got, expected)
     if tostring(got) == tostring(expected) then
         pass = pass + 1
         print("  PASS: " .. name)
@@ -25,8 +25,8 @@ print("=== CONTROL FLOW TESTS ===")
 -- ============================================================
 print("\n-- if/elseif/else --")
 
-local x = 10
-local r = "none"
+dec x = 10
+dec r = "none"
 if x > 20 then
     r = "big"
 elseif x > 5 then
@@ -55,8 +55,8 @@ check("empty string truthy", r, "empty str truthy")
 -- ============================================================
 print("\n-- while --")
 
-local sum = 0
-local i = 1
+dec sum = 0
+dec i = 1
 while i <= 10 do
     sum = sum + i
     i = i + 1
@@ -64,7 +64,7 @@ end
 check("while sum 1..10", sum, 55)
 
 -- While with false condition (0 iterations)
-local count = 0
+dec count = 0
 while false do
     count = count + 1
 end
@@ -75,8 +75,8 @@ check("while false: no iterations", count, 0)
 -- ============================================================
 print("\n-- repeat-until --")
 
-local rsum = 0
-local ri = 0
+dec rsum = 0
+dec ri = 0
 repeat
     ri = ri + 1
     rsum = rsum + ri
@@ -85,7 +85,7 @@ check("repeat-until sum", rsum, 15)
 check("repeat-until final i", ri, 5)
 
 -- repeat runs at least once
-local ran_once = false
+dec ran_once = false
 repeat
     ran_once = true
 until true
@@ -96,28 +96,28 @@ check("repeat runs at least once", ran_once, true)
 -- ============================================================
 print("\n-- numeric for --")
 
-local fsum = 0
+dec fsum = 0
 for i = 0, 4 do
     fsum = fsum + i
 end
 check("for 0..4 sum", fsum, 10)
 
 -- Negative step
-local rev = ""
+dec rev = ""
 for i = 5, 1, -1 do
     rev = rev .. tostring(i)
 end
 check("for 5..1 step -1", rev, "54321")
 
 -- Zero iterations (start > stop)
-local zcount = 0
+dec zcount = 0
 for i = 10, 5 do
     zcount = zcount + 1
 end
 check("for zero iterations", zcount, 0)
 
 -- Custom step
-local step_sum = 0
+dec step_sum = 0
 for i = 0, 10, 2 do
     step_sum = step_sum + i
 end
@@ -129,9 +129,9 @@ check("for step 2: 0+2+4+6+8+10", step_sum, 30)
 print("\n-- generic for --")
 
 -- ipairs
-local arr = {10, 20, 30}
-local ip_sum = 0
-local ip_count = 0
+dec arr = {10, 20, 30}
+dec ip_sum = 0
+dec ip_count = 0
 for i, v in ipairs(arr) do
     ip_sum = ip_sum + v
     ip_count = ip_count + 1
@@ -140,9 +140,9 @@ check("ipairs sum", ip_sum, 60)
 check("ipairs count", ip_count, 3)
 
 -- pairs with hash table
-local ht = { a = 1, b = 2, c = 3 }
-local pair_sum = 0
-local pair_keys = 0
+dec ht = { a = 1, b = 2, c = 3 }
+dec pair_sum = 0
+dec pair_keys = 0
 for k, v in pairs(ht) do
     pair_sum = pair_sum + v
     pair_keys = pair_keys + 1
@@ -155,7 +155,7 @@ check("pairs key count", pair_keys, 3)
 -- ============================================================
 print("\n-- break --")
 
-local bsum = 0
+dec bsum = 0
 for i = 0, 99 do
     if i >= 5 then break end
     bsum = bsum + i
@@ -163,7 +163,7 @@ end
 check("break at 5: sum 0..4", bsum, 10)
 
 -- Break in while
-local bw = 0
+dec bw = 0
 while true do
     bw = bw + 1
     if bw >= 3 then break end
@@ -171,7 +171,7 @@ end
 check("break in while", bw, 3)
 
 -- Nested break (only breaks inner loop)
-local outer_count = 0
+dec outer_count = 0
 for i = 0, 2 do
     for j = 0, 99 do
         if j >= 2 then break end
@@ -186,14 +186,14 @@ check("nested break: outer runs 3x", outer_count, 3)
 print("\n-- goto --")
 
 -- Forward goto
-local gval = 0
+dec gval = 0
 goto skip_assign
 gval = 999
 ::skip_assign::
 check("goto forward", gval, 0)
 
 -- goto in loop (skip even numbers)
-local odd_sum = 0
+dec odd_sum = 0
 for i = 0, 9 do
     if i % 2 == 0 then goto continue_loop end
     odd_sum = odd_sum + i
@@ -206,9 +206,9 @@ check("goto continue pattern", odd_sum, 25)
 -- ============================================================
 print("\n-- do-end scoping --")
 
-local outer = "outer"
+dec outer = "outer"
 do
-    local inner = "inner"
+    dec inner = "inner"
     check("do-end: inner visible", inner, "inner")
     check("do-end: outer visible", outer, "outer")
 end
@@ -220,16 +220,16 @@ end
 -- ============================================================
 print("\n-- return --")
 
-local function multi_ret()
+dec function multi_ret()
     return 1, 2, 3
 end
-local a, b, c = multi_ret()
+dec a, b, c = multi_ret()
 check("multi return a", a, 1)
 check("multi return b", b, 2)
 check("multi return c", c, 3)
 
 -- Single return
-local function single_ret()
+dec function single_ret()
     return 42
 end
 check("single return", single_ret(), 42)
@@ -242,35 +242,35 @@ check("single return", single_ret(), 42)
 -- ============================================================
 print("\n-- closures/upvalues --")
 
-local function make_counter()
-    local count = 0
+dec function make_counter()
+    dec count = 0
     return function()
         count = count + 1
         return count
     end
 end
 
-local counter = make_counter()
+dec counter = make_counter()
 check("closure call 1", counter(), 1)
 check("closure call 2", counter(), 2)
 check("closure call 3", counter(), 3)
 
 -- Two independent closures
-local c1 = make_counter()
-local c2 = make_counter()
+dec c1 = make_counter()
+dec c2 = make_counter()
 c1()
 c1()
 check("independent closures: c1", c1(), 3)
 check("independent closures: c2", c2(), 1)
 
 -- Shared upvalue
-local function make_pair()
-    local val = 0
-    local function get() return val end
-    local function set(v) val = v end
+dec function make_pair()
+    dec val = 0
+    dec function get() return val end
+    dec function set(v) val = v end
     return get, set
 end
-local get, set = make_pair()
+dec get, set = make_pair()
 check("shared upvalue: initial", get(), 0)
 set(42)
 check("shared upvalue: after set", get(), 42)
@@ -280,12 +280,12 @@ check("shared upvalue: after set", get(), 42)
 -- NOTE: {…} vararg packing is limited; use select() or
 --       fixed-arg wrappers for now.
 
-local function vfirst(a, ...)
+dec function vfirst(a, ...)
     return a
 end
 check("variadic first arg", vfirst(10, 20, 30), 10)
 
-local function vadd(a, b, ...)
+dec function vadd(a, b, ...)
     return a + b
 end
 check("variadic fixed + rest", vadd(3, 7, 99), 10)
@@ -295,23 +295,23 @@ check("variadic fixed + rest", vadd(3, 7, 99), 10)
 -- ============================================================
 print("\n-- nested functions --")
 
-local function outer_fn()
-    local function inner_fn(x)
+dec function outer_fn()
+    dec function inner_fn(x)
         return x * 2
     end
     return inner_fn(5) + inner_fn(3)
 end
 check("nested function", outer_fn(), 16)
 
--- Recursive function (local)
-local function fib(n)
+-- Recursive function (dec)
+dec function fib(n)
     if n <= 1 then return n end
     return fib(n - 1) + fib(n - 2)
 end
 check("recursive fib(10)", fib(10), 55)
 
 -- Mutual recursion
-local function is_even(n)
+dec function is_even(n)
     if n == 0 then return true end
     return is_odd(n - 1)
 end

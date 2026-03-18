@@ -1,0 +1,132 @@
+{
+    "Section": {
+        "prefix": "section",
+        "body": [
+            "[${1:section}]",
+            "${2:key} = ${3:value}"
+        ],
+        "description": "NINI section"
+    },
+    "Task": {
+        "prefix": "task",
+        "body": [
+            "[task:${1:name}]",
+            "description = ${2:Description}",
+            "command = ${3:command}"
+        ],
+        "description": "NINI task definition"
+    },
+    "Task with Deps": {
+        "prefix": "taskdep",
+        "body": [
+            "[task:${1:name}]",
+            "description = ${2:Description}",
+            "depends = [${3:dep1}]",
+            "command = ${4:command}"
+        ],
+        "description": "NINI task with dependencies"
+    },
+    "Task with Env": {
+        "prefix": "taskenv",
+        "body": [
+            "[task:${1:name}]",
+            "description = ${2:Description}",
+            "command = ${3:command}",
+            "env.${4:VAR} = ${5:value}"
+        ],
+        "description": "NINI task with environment variable"
+    },
+    "Project Section": {
+        "prefix": "project",
+        "body": [
+            "[project]",
+            "name = ${1:project-name}",
+            "version = ${2:0.1.0}",
+            "description = ${3:Description}",
+            "license = ${4:MIT}",
+            "author = ${5:Author}"
+        ],
+        "description": "NINI project metadata section"
+    },
+    "Options Section": {
+        "prefix": "options",
+        "body": [
+            "[options]",
+            "default = ${1:build}",
+            "shell = ${2:/bin/sh}"
+        ],
+        "description": "NINI options section"
+    },
+    "Env Section": {
+        "prefix": "env",
+        "body": [
+            "[env]",
+            "${1:VAR} = ${2:value}"
+        ],
+        "description": "NINI environment variables section"
+    },
+    "Inline Array": {
+        "prefix": "arr",
+        "body": "${1:key} = [${2:item1, item2}]",
+        "description": "NINI inline array"
+    },
+    "Array Push": {
+        "prefix": "push",
+        "body": "${1:key}[] = ${2:value}",
+        "description": "NINI array push syntax"
+    },
+    "Variable Interpolation": {
+        "prefix": "var",
+        "body": "\\${${1:section}.${2:key}}",
+        "description": "NINI variable interpolation"
+    },
+    "Include": {
+        "prefix": "include",
+        "body": "@include ${1:file.nini}",
+        "description": "NINI include directive"
+    },
+    "Multi-line String": {
+        "prefix": "multi",
+        "body": [
+            "${1:key} = \"\"\"",
+            "${2:content}",
+            "\"\"\""
+        ],
+        "description": "NINI multi-line string"
+    },
+    "Taskfile Template": {
+        "prefix": "taskfile",
+        "body": [
+            "# ============================================================================",
+            "# ${1:Project Name} - Build Tasks",
+            "# taskfile.nini",
+            "#",
+            "# Author: ${2:Author}",
+            "# Copyright (c) ${3:2026} ${4:Organization}",
+            "# ============================================================================",
+            "",
+            "[project]",
+            "name = ${5:project}",
+            "version = ${6:0.1.0}",
+            "description = ${7:Description}",
+            "",
+            "[options]",
+            "default = build",
+            "shell = /bin/sh",
+            "",
+            "[task:build]",
+            "description = Build project",
+            "command = ${8:make}",
+            "",
+            "[task:clean]",
+            "description = Clean build artifacts",
+            "command = ${9:make clean}",
+            "",
+            "[task:test]",
+            "description = Run tests",
+            "depends = [build]",
+            "command = ${10:make test}"
+        ],
+        "description": "Complete NINI taskfile template"
+    }
+}

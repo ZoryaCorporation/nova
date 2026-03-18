@@ -1,0 +1,74 @@
+# ============================================================================
+# Nova Language - Build Tasks
+# taskfile.nini
+#
+# Usage:
+#   nova task              List all available tasks
+#   nova task build        Build release binary
+#   nova task debug        Build with debug/sanitizers
+#   nova task test         Build and run test suite
+#   nova task clean        Remove build artifacts
+#   nova task install      Install to /usr/local
+#   nova task --dry build  Preview without executing
+#
+# Author: Anthony Taliento
+# Copyright (c) 2026 Zorya Corporation
+# ============================================================================
+
+[project]
+name = nova
+version = 0.2.0
+description = Register-based bytecode virtual machine
+license = MIT
+author = Anthony Taliento
+
+[options]
+default = build
+shell = /bin/sh
+
+[env]
+NOVA_HOME = .
+
+# --- Build tasks ---
+
+[task:build]
+description = Build Nova interpreter (release)
+command = make
+
+[task:debug]
+description = Build with debug symbols and sanitizers
+command = make clean && make DEBUG=1
+env.ASAN_OPTIONS = detect_leaks=1
+
+[task:clean]
+description = Remove build artifacts
+command = make clean
+
+[task:test]
+description = Run all test suites
+depends = [build]
+command = make test
+
+[task:trace]
+description = Build with trace instrumentation
+command = make trace
+
+[task:lib]
+description = Build libnova.a static library
+command = make lib
+
+[task:install]
+description = Install Nova to /usr/local
+depends = [build]
+command = make install
+platforms = [linux, macos]
+
+[task:uninstall]
+description = Remove installed Nova files
+command = make uninstall
+platforms = [linux, macos]
+
+[task:check]
+description = Build + test + clean cycle
+depends = [clean, build, test]
+command = echo "All checks passed"

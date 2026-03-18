@@ -27,7 +27,7 @@
  * DEPENDENCIES:
  *   - nova_error.h
  *   - <stdio.h>, <string.h>, <stdarg.h>, <stdlib.h>
- *   - <unistd.h> (POSIX: isatty)
+ *   - zorya/pal.h (platform abstraction for terminal detection)
  *
  * THREAD SAFETY:
  *   Color state and source context are module-global.
@@ -41,7 +41,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <unistd.h>    /* isatty(), STDERR_FILENO */
+#include <zorya/pal.h>  /* zorya_isatty() — portable terminal detection */
 
 /* ============================================================
  * MODULE STATE
@@ -69,7 +69,7 @@ static const NovaErrorEntry g_error_catalog[] = {
       "grammar context. This usually means a typo, missing operator,\n"
       "or mismatched brackets.\n\n"
       "Example:\n"
-      "  local x = +\n"
+      "  dec x = +\n"
       "              ^ unexpected '+' here\n\n"
       "Fix: check the expression and ensure all operators have operands." },
 
@@ -78,10 +78,10 @@ static const NovaErrorEntry g_error_catalog[] = {
       "in the current scope or any enclosing scope.\n\n"
       "Example:\n"
       "  print(foo)  -- 'foo' was never defined\n\n"
-      "Fix: define the variable with 'local' or as a global before use." },
+      "Fix: define the variable with 'dec' or as a global before use." },
 
-    { NOVA_E1003, "too many local variables",
-      "A function exceeded the maximum number of local variables\n"
+    { NOVA_E1003, "too many dec variables",
+      "A function exceeded the maximum number of dec variables\n"
       "(typically 200). This includes function parameters.\n\n"
       "Fix: refactor the function into smaller functions, or use\n"
       "a table to group related variables." },
@@ -90,7 +90,7 @@ static const NovaErrorEntry g_error_catalog[] = {
       "The compiler ran out of virtual registers (max 250) for a\n"
       "single function. This happens with very complex expressions\n"
       "or deeply nested calls.\n\n"
-      "Fix: break complex expressions into intermediate locals." },
+      "Fix: break complex expressions into intermediate decs." },
 
     { NOVA_E1005, "too many nested scopes",
       "Exceeded the maximum nesting depth for scopes (blocks, ifs,\n"
@@ -136,7 +136,7 @@ static const NovaErrorEntry g_error_catalog[] = {
       "The function's constant pool is full. Each unique string,\n"
       "number, or global name in a function takes one slot.\n\n"
       "Fix: reduce the number of unique constants (e.g., reuse\n"
-      "strings via local variables)." },
+      "strings via dec variables)." },
 
     { NOVA_E1014, "expected token",
       "The parser expected a specific token (like ')' or 'end')\n"
@@ -179,7 +179,7 @@ static const NovaErrorEntry g_error_catalog[] = {
     { NOVA_E2001, "type error",
       "An operation was applied to a value of the wrong type.\n\n"
       "Example:\n"
-      "  local x = 'hello' + 1  -- can't add string and number\n\n"
+      "  dec x = 'hello' + 1  -- can't add string and number\n\n"
       "Fix: check value types before operating, or use tonumber()/\n"
       "tostring() for explicit conversion." },
 
@@ -198,7 +198,7 @@ static const NovaErrorEntry g_error_catalog[] = {
     { NOVA_E2004, "nil dereference",
       "Attempted to index or call a nil value.\n\n"
       "Example:\n"
-      "  local t = nil\n"
+      "  dec t = nil\n"
       "  print(t.x)   -- nil has no fields\n\n"
       "Fix: check for nil before indexing." },
 
@@ -237,6 +237,122 @@ static const NovaErrorEntry g_error_catalog[] = {
       "A catch-all for runtime errors that don't fit other categories.\n"
       "Check the error message for specific details." },
 
+    { NOVA_E2013, "arithmetic type error",
+      "An arithmetic operator (+, -, *, /, //, %, ^) was applied to\n"
+      "a value that is not a number and has no arithmetic metamethod.\n\n"
+      "Example:\n"
+      "  dec x = 'hello' + 1\n"
+      "            ^^^^^^^ string cannot be added\n\n"
+      "The error message shows the exact operator and the types of\n"
+      "both operands so you can identify the culprit.\n\n"
+      "Fix: convert with tonumber(), or define a __add / __sub / etc.\n"
+      "metamethod on the value's metatable." },
+
+    { NOVA_E2014, "comparison type error",
+      "A relational operator (<, <=) was applied to values of\n"
+      "incompatible types that have no comparison metamethod.\n\n"
+      "Example:\n"
+      "  if 'hello' < 42 then ... end\n"
+      "     ^^^^^^    ^^ string vs number\n\n"
+      "Note: == and != work on any types (different types are never\n"
+      "equal), but < and <= require same-type or a metamethod.\n\n"
+      "Fix: ensure both sides are the same type, or define __lt / __le\n"
+      "metamethods." },
+
+    { NOVA_E2015, "concatenation type error",
+      "The .. operator requires string or number operands, but\n"
+      "received an incompatible type with no __concat metamethod.\n\n"
+      "Example:\n"
+      "  dec x = 'hello ' .. true\n"
+      "                        ^^^^ boolean cannot be concatenated\n\n"
+      "Fix: use tostring() to convert, or define a __concat metamethod." },
+
+    { NOVA_E2016, "length type error",
+      "The # (length) operator was applied to a value that is not\n"
+      "a string or table and has no __len metamethod.\n\n"
+      "Example:\n"
+      "  dec n = #42\n"
+      "             ^^ number has no length\n\n"
+      "Fix: ensure the value is a string or table, or define __len." },
+
+    { NOVA_E2017, "negation type error",
+      "The unary minus (-) operator was applied to a non-number\n"
+      "value with no __unm metamethod.\n\n"
+      "Example:\n"
+      "  dec x = -'hello'\n"
+      "             ^^^^^^^ string cannot be negated\n\n"
+      "Fix: use tonumber() or define __unm on the value's metatable." },
+
+    { NOVA_E2018, "index on non-table",
+      "Attempted to use the index operator ([] or .) on a value\n"
+      "that is not a table and has no __index or __newindex metamethod.\n\n"
+      "Example:\n"
+      "  dec x = 42\n"
+      "  print(x.name)  -- number has no fields\n"
+      "        ^^^^^^ attempt to index a number value\n\n"
+      "Common causes:\n"
+      "  - A function returned nil instead of a table\n"
+      "  - A variable was overwritten with a non-table value\n"
+      "  - Forgot to initialize a table with {}\n\n"
+      "Fix: check that the value is a table before indexing. Use\n"
+      "type(v) == 'table' to verify, or initialize with {}." },
+
+    { NOVA_E2019, "invalid key type",
+      "A table key must be a string, integer, or numeric value\n"
+      "convertible to integer. Other types (nil, boolean, table,\n"
+      "function) are not valid keys.\n\n"
+      "Example:\n"
+      "  dec t = {}\n"
+      "  t[true] = 1   -- boolean is not a valid key\n\n"
+      "Fix: convert the key to a string with tostring()." },
+
+    { NOVA_E2020, "for loop type error",
+      "A numeric for loop requires its init, limit, and step values\n"
+      "to be numbers. A non-numeric value was provided.\n\n"
+      "Example:\n"
+      "  for i = 'a', 10 do end\n"
+      "          ^^^ string is not a number\n\n"
+      "Fix: ensure all three for-loop parameters are numbers.\n"
+      "Use tonumber() if converting from strings." },
+
+    { NOVA_E2021, "argument type error",
+      "A standard library function received an argument of the\n"
+      "wrong type. The error message shows which argument and\n"
+      "what type was expected vs. received.\n\n"
+      "Example:\n"
+      "  string.upper(42)\n"
+      "  bad argument #1 to 'upper' (string expected, got integer)\n\n"
+      "Fix: check the function signature and pass the correct type.\n"
+      "Use type() to inspect values before passing them." },
+
+    { NOVA_E2022, "argument count error",
+      "A function was called with too many or too few arguments.\n\n"
+      "Fix: check the function's expected parameter count." },
+
+    { NOVA_E2023, "module not found",
+      "require() could not locate the specified module.\n"
+      "Nova searches package.path for .n and .no files.\n\n"
+      "Fix: verify the module name, check package.path, and ensure\n"
+      "the file exists in one of the search directories." },
+
+    { NOVA_E2024, "metamethod chain too deep",
+      "A __index or __newindex chain exceeded the maximum depth.\n"
+      "This usually means a circular metatable reference.\n\n"
+      "Example:\n"
+      "  dec a, b = {}, {}\n"
+      "  setmetatable(a, { __index = b })\n"
+      "  setmetatable(b, { __index = a })  -- loop!\n\n"
+      "Fix: break the circular reference in your metatable chain." },
+
+    { NOVA_E2025, "bitwise on non-integer",
+      "A bitwise operator (&, |, ~, <<, >>) was applied to a\n"
+      "non-integer value. Bitwise operations only work on integers.\n\n"
+      "Example:\n"
+      "  dec x = 3.14 & 0xFF\n"
+      "            ^^^^ float cannot be used in bitwise op\n\n"
+      "Fix: use math.floor() or math.tointeger() to convert to\n"
+      "an integer first." },
+
     /* I/O errors */
     { NOVA_E3001, "file not found",
       "The specified file could not be found or opened.\n\n"
@@ -253,9 +369,33 @@ static const NovaErrorEntry g_error_catalog[] = {
     { NOVA_E3004, "parser initialization failed",
       "The parser could not be initialized (out of memory)." },
 
+    { NOVA_E3005, "network error",
+      "An error occurred during a network operation (HTTP request,\n"
+      "socket I/O, etc.). The underlying error from libcurl or the\n"
+      "network stack is included in the message.\n\n"
+      "Fix: check network connectivity, verify the URL, and ensure\n"
+      "the server is reachable." },
+
+    { NOVA_E3006, "database error",
+      "An error occurred during a SQLite database operation.\n"
+      "The underlying SQLite error message is included.\n\n"
+      "Fix: check the SQL syntax, verify the database path, and\n"
+      "ensure the database file is not locked or corrupt." },
+
+    { NOVA_E3007, "permission denied",
+      "A filesystem operation failed due to insufficient permissions.\n\n"
+      "Fix: check file/directory permissions with fs.stat() and\n"
+      "ensure the process has the necessary access rights." },
+
+    { NOVA_E3008, "format/parse error",
+      "An error occurred while parsing or encoding structured data\n"
+      "(JSON, CSV, NINI, TOML, etc.). The format-specific error\n"
+      "message describes the issue.\n\n"
+      "Fix: validate the input data format before parsing." },
+
     /* Warnings */
     { NOVA_W1001, "unused variable",
-      "A local variable was declared but never read.\n\n"
+      "A dec variable was declared but never read.\n\n"
       "Fix: remove the variable, or prefix with '_' to indicate\n"
       "it is intentionally unused." },
 
@@ -264,7 +404,7 @@ static const NovaErrorEntry g_error_catalog[] = {
       "Fix: remove the dead code." },
 
     { NOVA_W1003, "shadowed variable",
-      "A local variable has the same name as one in an outer scope.\n"
+      "A dec variable has the same name as one in an outer scope.\n"
       "This can cause confusion.\n\n"
       "Fix: rename the inner variable to avoid ambiguity." },
 
@@ -277,10 +417,11 @@ static const NovaErrorEntry g_error_catalog[] = {
  * ============================================================ */
 
 void nova_diag_init(void) {
-    /* Auto-detect: enable color if stderr is a TTY */
-    g_color_enabled = isatty(STDERR_FILENO);
+    /* Colors ON by default — Nova embraces a colorful terminal.
+     * Only disable for explicit NO_COLOR or --no-color.            */
+    g_color_enabled = 1;
 
-    /* Also check NO_COLOR environment variable (de facto standard) */
+    /* Respect the NO_COLOR environment variable (https://no-color.org) */
     const char *no_color = getenv("NO_COLOR");
     if (no_color != NULL && no_color[0] != '\0') {
         g_color_enabled = 0;
@@ -473,18 +614,152 @@ static void novai_spaces(FILE *f, int count) {
 }
 
 /* ============================================================
+ * MESSAGE COLORING HELPER
+ *
+ * Parses diagnostic messages and colorizes:
+ *   'token' after "expected" → Nova green (the good/wanted thing)
+ *   'token' after "got" or "unexpected token" → red (the bad thing)
+ * ============================================================ */
+
+/**
+ * @brief Emit diagnostic message with colored expected/got tokens.
+ *
+ * Scans for patterns: expected 'X', got 'Y', unexpected token 'Z'
+ * and wraps the quoted tokens in NOVA_COLOR_EXPECTED (green) or
+ * NOVA_COLOR_GOT (red).
+ */
+static void novai_emit_colored_msg(FILE *f, const char *msg) {
+    if (msg == NULL) { return; }
+    if (!g_color_enabled) { fputs(msg, f); return; }
+
+    /* State machine for expected/got coloring */
+    typedef enum { NEUTRAL, WANT_GREEN, WANT_RED } QState;
+    QState state = NEUTRAL;
+    const char *p = msg;
+
+    while (*p != '\0') {
+        /* "expected " → next quoted thing is green */
+        if (strncmp(p, "expected ", 9) == 0) {
+            fwrite(p, 1, 9, f);
+            p += 9;
+            state = WANT_GREEN;
+            continue;
+        }
+        /* "unexpected token " → next quoted thing is red */
+        if (strncmp(p, "unexpected token ", 17) == 0) {
+            fwrite(p, 1, 17, f);
+            p += 17;
+            state = WANT_RED;
+            continue;
+        }
+        /* "got " → next quoted thing is red */
+        if (strncmp(p, "got ", 4) == 0) {
+            fwrite(p, 1, 4, f);
+            p += 4;
+            state = WANT_RED;
+            continue;
+        }
+
+        /* Quoted or bracketed segment → apply current color state */
+        if (state != NEUTRAL && (*p == '\'' || *p == '<')) {
+            char close = (*p == '\'') ? '\'' : '>';
+            const char *end = strchr(p + 1, close);
+            if (end != NULL) {
+                const char *qcolor = (state == WANT_GREEN)
+                    ? NOVA_COLOR_EXPECTED : NOVA_COLOR_GOT;
+                novai_color(f, qcolor);
+                fwrite(p, 1, (size_t)(end - p + 1), f);
+                novai_color(f, NOVA_COLOR_RESET);
+                novai_color(f, NOVA_COLOR_PATH);
+                p = end + 1;
+                state = NEUTRAL;
+                continue;
+            }
+        }
+
+        fputc(*p, f);
+        p++;
+    }
+}
+
+/* ============================================================
+ * TOKEN LENGTH ESTIMATOR
+ *
+ * Guesses the length of the token at a given source column so
+ * the caret line can underline the full token, not just one char.
+ * ============================================================ */
+
+/**
+ * @brief Estimate token length at a 0-based column position.
+ */
+static int novai_token_length(const char *src, int src_len, int col0) {
+    if (src == NULL || col0 < 0 || col0 >= src_len) {
+        return 1;
+    }
+    unsigned char ch = (unsigned char)src[col0];
+
+    /* Identifier or keyword: [A-Za-z_][A-Za-z0-9_]* */
+    if (isalpha(ch) || ch == '_') {
+        int len = 1;
+        while (col0 + len < src_len) {
+            unsigned char c = (unsigned char)src[col0 + len];
+            if (isalnum(c) || c == '_') { len++; } else { break; }
+        }
+        return len;
+    }
+    /* Number literal */
+    if (isdigit(ch)) {
+        int len = 1;
+        while (col0 + len < src_len &&
+               (isdigit((unsigned char)src[col0 + len]) ||
+                src[col0 + len] == '.')) {
+            len++;
+        }
+        return len;
+    }
+    /* String literal */
+    if (ch == '"' || ch == '\'') {
+        int len = 1;
+        while (col0 + len < src_len &&
+               (unsigned char)src[col0 + len] != ch) {
+            len++;
+        }
+        if (col0 + len < src_len) { len++; } /* closing quote */
+        return len;
+    }
+    /* Two-char operators */
+    if (col0 + 1 < src_len) {
+        char c2 = src[col0 + 1];
+        if ((ch == '=' && c2 == '=') || (ch == '~' && c2 == '=') ||
+            (ch == '<' && c2 == '=') || (ch == '>' && c2 == '=') ||
+            (ch == '.' && c2 == '.')) {
+            return 2;
+        }
+    }
+    return 1;
+}
+
+/* ============================================================
  * MAIN DIAGNOSTIC RENDERER
  *
- * Renders a diagnostic in the following format:
+ * Nova's signature retro-modern TUI error display.
+ * 1980s Nova-green pipes, context window, token highlighting,
+ * and dashes+carets pointing to the error.
  *
- *   error[E1001]: unexpected token
- *     --> script.n:10:5
- *      |
- *   10 |     local x = +
- *      |               ^
- *      = help: expected expression after '='
+ *   [E1014]: expected ')' after parameters, got 'return'
+ *     FILE: script.n  Ln 10, Col 5
+ *         │
+ *    8    │ -- comment
+ *    9    │ local function calculate(a, b
+ *   10    │     return a + b
+ *         │ ────^^^^^^
+ *   11    │ end
  *
  * ============================================================ */
+
+/** Context window: lines shown before/after the error line. */
+#define NOVAI_CTX_BEFORE 3
+#define NOVAI_CTX_AFTER  1
 
 void nova_diag_emit(const NovaDiagnostic *diag) {
     if (diag == NULL) {
@@ -493,154 +768,235 @@ void nova_diag_emit(const NovaDiagnostic *diag) {
 
     FILE *f = stderr;
     const char *sev_color = novai_severity_color(diag->severity);
-    const char *sev_label = novai_severity_label(diag->severity);
 
-    /* ---- Line 1: severity[code]: message ---- */
-    novai_color(f, sev_color);
-    fputs(sev_label, f);
-
+    /* ──────────────────────────────────────────────────────────
+     * Line 1: [CODE]: message
+     *
+     * For errors, drop the "error" prefix — the code is enough.
+     * For warnings/notes/help, keep the severity label.
+     * ────────────────────────────────────────────────────────── */
     if (diag->code != NOVA_E0000) {
+        if (diag->severity != NOVA_DIAG_ERROR) {
+            novai_color(f, sev_color);
+            novai_color(f, NOVA_COLOR_BOLD);
+            fputs(novai_severity_label(diag->severity), f);
+        }
+        novai_color(f, NOVA_COLOR_RESET);
+        novai_color(f, NOVA_COLOR_ERRCODE);
         fputc('[', f);
-        /* Format code: E1001 or W1001 */
         if ((int)diag->code >= 10000) {
             fprintf(f, "W%04d", (int)diag->code - 10000);
         } else {
             fprintf(f, "E%04d", (int)diag->code);
         }
         fputc(']', f);
+    } else {
+        novai_color(f, sev_color);
+        novai_color(f, NOVA_COLOR_BOLD);
+        fputs(novai_severity_label(diag->severity), f);
     }
 
     novai_color(f, NOVA_COLOR_RESET);
     novai_color(f, NOVA_COLOR_BOLD);
     fputs(": ", f);
-    fputs(diag->message, f);
+    novai_color(f, NOVA_COLOR_PATH);
+    novai_emit_colored_msg(f, diag->message);
     novai_color(f, NOVA_COLOR_RESET);
     fputc('\n', f);
 
-    /* ---- Line 2: --> file:line:col ---- */
-    if (diag->filename != NULL && diag->line > 0) {
-        int gutter = novai_digit_count(diag->line);
-        if (gutter < 2) {
-            gutter = 2;
-        }
-
-        novai_spaces(f, gutter);
-        novai_color(f, NOVA_COLOR_GUTTER);
-        fputs("--> ", f);
-        novai_color(f, NOVA_COLOR_RESET);
-
-        novai_color(f, NOVA_COLOR_PATH);
-        fprintf(f, "%s:%d", diag->filename, diag->line);
-        if (diag->column > 0) {
-            fprintf(f, ":%d", diag->column);
-        }
-        novai_color(f, NOVA_COLOR_RESET);
-        fputc('\n', f);
-
-        /* ---- Source context lines ---- */
-        const char *src_line = diag->source_line;
-        int src_len = diag->source_line_len;
-
-        /* Try to get source line from global context if not provided */
-        if (src_line == NULL && g_source != NULL && g_source->source != NULL) {
-            src_line = nova_source_get_line(
-                g_source->source, g_source->source_len,
-                diag->line, &src_len
-            );
-        }
-
-        if (src_line != NULL && src_len > 0) {
-            /* Empty gutter line */
-            novai_spaces(f, gutter + 1);
-            novai_color(f, NOVA_COLOR_GUTTER);
-            fputs("|\n", f);
-            novai_color(f, NOVA_COLOR_RESET);
-
-            /* Source line: "10 |     local x = +" */
-            novai_color(f, NOVA_COLOR_LINENUM);
-            fprintf(f, "%*d", gutter, diag->line);
-            novai_color(f, NOVA_COLOR_RESET);
-            fputc(' ', f);
-            novai_color(f, NOVA_COLOR_GUTTER);
-            fputs("| ", f);
-            novai_color(f, NOVA_COLOR_RESET);
-
-            /* Print source line, replacing tabs with spaces */
-            for (int i = 0; i < src_len; i++) {
-                if (src_line[i] == '\t') {
-                    fputs("    ", f);
-                } else {
-                    fputc(src_line[i], f);
-                }
-            }
-            fputc('\n', f);
-
-            /* Caret line: "   |               ^" or "^^^" */
-            if (diag->column > 0) {
-                novai_spaces(f, gutter + 1);
-                novai_color(f, NOVA_COLOR_GUTTER);
-                fputs("| ", f);
-
-                novai_color(f, sev_color);
-
-                /* Calculate visual column (tabs = 4 spaces) */
-                int visual_col = 0;
-                for (int i = 0; i < diag->column - 1 && i < src_len; i++) {
-                    if (src_line[i] == '\t') {
-                        visual_col += 4;
-                    } else {
-                        visual_col++;
-                    }
-                }
-
-                novai_spaces(f, visual_col);
-
-                /* Draw carets */
-                int caret_count = 1;
-                if (diag->end_column > diag->column) {
-                    caret_count = diag->end_column - diag->column + 1;
-                }
-                for (int i = 0; i < caret_count; i++) {
-                    fputc('^', f);
-                }
-
-                novai_color(f, NOVA_COLOR_RESET);
-                fputc('\n', f);
-            }
-        }
-    } else if (diag->filename != NULL) {
-        /* File path only, no line number */
+    /* ──────────────────────────────────────────────────────────
+     * Line 2: FILE: path  Ln X, Col Y
+     * ────────────────────────────────────────────────────────── */
+    if (diag->filename != NULL) {
         fputs("  ", f);
-        novai_color(f, NOVA_COLOR_GUTTER);
-        fputs("--> ", f);
-        novai_color(f, NOVA_COLOR_RESET);
+        novai_color(f, NOVA_COLOR_MUTED);
+        fputs("FILE: ", f);
         novai_color(f, NOVA_COLOR_PATH);
         fputs(diag->filename, f);
+
+        if (diag->line > 0) {
+            novai_color(f, NOVA_COLOR_RESET);
+            fputs("  ", f);
+            novai_color(f, NOVA_COLOR_LNCOL);
+            fprintf(f, "Ln %d", diag->line);
+            if (diag->column > 0) {
+                fprintf(f, ", Col %d", diag->column);
+            }
+        }
         novai_color(f, NOVA_COLOR_RESET);
         fputc('\n', f);
     }
 
-    /* ---- Sub-diagnostics (notes, help) ---- */
+    /* ──────────────────────────────────────────────────────────
+     * Source context block with surrounding lines
+     * ────────────────────────────────────────────────────────── */
+    if (diag->filename != NULL && diag->line > 0) {
+        /* Determine context window */
+        int first_line = diag->line - NOVAI_CTX_BEFORE;
+        if (first_line < 1) { first_line = 1; }
+        int last_line = diag->line + NOVAI_CTX_AFTER;
+
+        /* Gutter width from largest line number */
+        int gutter = novai_digit_count(last_line);
+        if (gutter < 2) { gutter = 2; }
+        int pipe_col = gutter + 3;
+
+        /* Check if source text is available */
+        int have_global_src = (g_source != NULL && g_source->source != NULL);
+        int have_diag_src = (diag->source_line != NULL &&
+                             diag->source_line_len > 0);
+
+        if (have_global_src || have_diag_src) {
+            /* Empty pipe line (separator) */
+            novai_spaces(f, pipe_col);
+            novai_color(f, NOVA_COLOR_PIPE);
+            fputs("\xe2\x94\x82\n", f);  /* │ */
+            novai_color(f, NOVA_COLOR_RESET);
+
+            /* Iterate context lines */
+            for (int ln = first_line; ln <= last_line; ln++) {
+                int line_len = 0;
+                const char *line_text = NULL;
+
+                /* Get source line text */
+                if (have_global_src) {
+                    line_text = nova_source_get_line(
+                        g_source->source, g_source->source_len,
+                        ln, &line_len);
+                } else if (ln == diag->line && have_diag_src) {
+                    line_text = diag->source_line;
+                    line_len = diag->source_line_len;
+                }
+
+                if (line_text == NULL) { continue; }
+
+                int is_err = (ln == diag->line);
+
+                /* Line number: error line in red, others in muted */
+                if (is_err) {
+                    novai_color(f, NOVA_COLOR_ERROR);
+                } else {
+                    novai_color(f, NOVA_COLOR_MUTED);
+                }
+                fprintf(f, "%*d", gutter, ln);
+                novai_color(f, NOVA_COLOR_RESET);
+
+                /* Gap + pipe */
+                fputs("   ", f);
+                novai_color(f, NOVA_COLOR_PIPE);
+                fputs("\xe2\x94\x82 ", f);  /* │ */
+                novai_color(f, NOVA_COLOR_RESET);
+
+                /* Source text */
+                if (is_err && diag->column > 0) {
+                    /* Error line: highlight the error token */
+                    int col0 = diag->column - 1;
+                    int tok_len = novai_token_length(
+                        line_text, line_len, col0);
+
+                    /* Text before error token */
+                    novai_color(f, NOVA_COLOR_SOURCE);
+                    for (int i = 0; i < col0 && i < line_len; i++) {
+                        if (line_text[i] == '\t') { fputs("    ", f); }
+                        else { fputc(line_text[i], f); }
+                    }
+
+                    /* Error token in severity color (bold red) */
+                    novai_color(f, sev_color);
+                    novai_color(f, NOVA_COLOR_BOLD);
+                    for (int i = col0;
+                         i < col0 + tok_len && i < line_len; i++) {
+                        fputc(line_text[i], f);
+                    }
+                    novai_color(f, NOVA_COLOR_RESET);
+
+                    /* Text after error token */
+                    novai_color(f, NOVA_COLOR_SOURCE);
+                    for (int i = col0 + tok_len; i < line_len; i++) {
+                        if (line_text[i] == '\t') { fputs("    ", f); }
+                        else { fputc(line_text[i], f); }
+                    }
+                    novai_color(f, NOVA_COLOR_RESET);
+                } else {
+                    /* Context line: dimmed source */
+                    novai_color(f, is_err ? NOVA_COLOR_SOURCE
+                                         : NOVA_COLOR_CTXLINE);
+                    for (int i = 0; i < line_len; i++) {
+                        if (line_text[i] == '\t') { fputs("    ", f); }
+                        else { fputc(line_text[i], f); }
+                    }
+                    novai_color(f, NOVA_COLOR_RESET);
+                }
+                fputc('\n', f);
+
+                /* ── Caret/underline line after the error line ── */
+                if (is_err && diag->column > 0) {
+                    novai_spaces(f, pipe_col);
+                    novai_color(f, NOVA_COLOR_PIPE);
+                    fputs("\xe2\x94\x82 ", f);  /* │ */
+
+                    novai_color(f, sev_color);
+
+                    int col0 = diag->column - 1;
+                    int tok_len = novai_token_length(
+                        line_text, line_len, col0);
+
+                    /* Visual column (tabs = 4 spaces) */
+                    int vis_col = 0;
+                    for (int i = 0; i < col0 && i < line_len; i++) {
+                        if (line_text[i] == '\t') { vis_col += 4; }
+                        else { vis_col++; }
+                    }
+
+                    /* Dashes leading up to error position */
+                    for (int i = 0; i < vis_col; i++) {
+                        /* box-drawing ─ (U+2500) */
+                        fputs("\xe2\x94\x80", f);
+                    }
+
+                    /* Carets on the error token */
+                    int carets = tok_len;
+                    if (diag->end_column > diag->column) {
+                        carets = diag->end_column - diag->column + 1;
+                    }
+                    if (carets < 1) { carets = 1; }
+                    for (int i = 0; i < carets; i++) {
+                        fputc('^', f);
+                    }
+
+                    novai_color(f, NOVA_COLOR_RESET);
+                    fputc('\n', f);
+                }
+            }
+        }
+    }
+
+    /* ──────────────────────────────────────────────────────────
+     * Sub-diagnostics (notes, help)
+     * ────────────────────────────────────────────────────────── */
     const NovaDiagnostic *sub = diag->sub;
     while (sub != NULL) {
         int gutter = 2;
         if (diag->line > 0) {
-            gutter = novai_digit_count(diag->line);
-            if (gutter < 2) {
-                gutter = 2;
-            }
+            int last = diag->line + NOVAI_CTX_AFTER;
+            gutter = novai_digit_count(last);
+            if (gutter < 2) { gutter = 2; }
         }
+        int pipe_col = gutter + 3;
 
-        novai_spaces(f, gutter + 1);
-        novai_color(f, NOVA_COLOR_GUTTER);
-        fputs("= ", f);
+        novai_spaces(f, pipe_col);
+        novai_color(f, NOVA_COLOR_PIPE);
+        fputs("\xe2\x95\xb0\xe2\x94\x80\xe2\x94\x80 ", f);  /* ╰── */
         novai_color(f, novai_severity_color(sub->severity));
+        novai_color(f, NOVA_COLOR_BOLD);
         fputs(novai_severity_label(sub->severity), f);
         novai_color(f, NOVA_COLOR_RESET);
         novai_color(f, NOVA_COLOR_BOLD);
         fputs(": ", f);
         novai_color(f, NOVA_COLOR_RESET);
+        novai_color(f, NOVA_COLOR_MUTED);
         fputs(sub->message, f);
+        novai_color(f, NOVA_COLOR_RESET);
         fputc('\n', f);
 
         sub = sub->sub;

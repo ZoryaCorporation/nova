@@ -35,7 +35,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-08
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT

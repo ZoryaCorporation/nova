@@ -1,0 +1,28 @@
+@nova-doc 1
+@type = audit
+@source = nova-toolbox/c_audit
+@target = src/nova_vm.c
+@created = Thu Mar  5 05:08:40 2026
+@tags = [c, audit, zorya-c]
+@priority = low
+
+[file:src/nova_vm.c]
+total_lines = 4084
+code_lines = 2835
+comment_lines = 779
+blank_lines = 470
+functions = 48
+includes = 15
+switches = 5
+allocations = 17
+
+[tracker:nova_vm.c]
+@status = 0/3
+@progress = 0
++audit +zorya-c
+
+# === WARNINGS (should fix) ===
+L1183_long_function = L1183: Function is 1935 lines (threshold 100): int novai_execute(NovaVM *vm) { [ ]
+L3299_long_function = L3299: Function is 137 lines (threshold 100): int nova_vm_call(NovaVM *vm, int nargs, int nresul [ ]
+L3983_long_function = L3983: Function is 102 lines (threshold 100): char *nova_vm_traceback(const NovaVM *vm, const ch [ ]
+

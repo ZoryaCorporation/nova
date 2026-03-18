@@ -13,10 +13,10 @@
 
 #import data
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, cond)
+dec function check(name, cond)
     if cond then
         pass = pass + 1
         printf("  PASS: %s\n", name)
@@ -39,12 +39,12 @@ check("html available", type(html) == "table")
 check("data available", type(data) == "table")
 
 do
-    -- Function availability via local intermediaries
+    -- Function availability via dec intermediaries
     -- (type(tbl["key"]) has a known compiler bug when passed directly)
-    local jd = json["decode"]
-    local je = json["encode"]
-    local cd = csv["decode"]
-    local dd = data["detect"]
+    dec jd = json["decode"]
+    dec je = json["encode"]
+    dec cd = csv["decode"]
+    dec dd = data["detect"]
     check("json.decode is func", type(jd) == "function")
     check("json.encode is func", type(je) == "function")
     check("csv.decode is func", type(cd) == "function")
@@ -70,19 +70,19 @@ print("\n=== JSON ===")
 
 do
     -- Decode object
-    local j1 = json.decode('{"name": "Nova", "version": 1}')
+    dec j1 = json.decode('{"name": "Nova", "version": 1}')
     check("json obj type", type(j1) == "table")
     check("json obj.name", j1.name == "Nova")
     check("json obj.version", j1.version == 1)
 
     -- Decode array
-    local j2 = json.decode("[10, 20, 30]")
+    dec j2 = json.decode("[10, 20, 30]")
     check("json arr[0]", j2[0] == 10)
     check("json arr[1]", j2[1] == 20)
     check("json arr[2]", j2[2] == 30)
 
     -- Decode nested
-    local j3 = json.decode('{"a": {"b": 42}}')
+    dec j3 = json.decode('{"a": {"b": 42}}')
     check("json nested", j3.a.b == 42)
 end
 
@@ -96,7 +96,7 @@ do
     check("json string", json.decode('"hello"') == "hello")
 
     -- Encode
-    local j4 = json.encode({x = 1, y = 2})
+    dec j4 = json.encode({x = 1, y = 2})
     check("json encode obj", type(j4) == "string")
     check("json encode nil", json.encode(nil) == "null")
     check("json encode true", json.encode(true) == "true")
@@ -104,7 +104,7 @@ do
     check("json encode int", json.encode(42) == "42")
 
     -- Round-trip
-    local j5 = json.decode(json.encode({name = "test"}))
+    dec j5 = json.decode(json.encode({name = "test"}))
     check("json round-trip", j5.name == "test")
 end
 
@@ -115,23 +115,23 @@ print("\n=== CSV ===")
 
 do
     -- Decode with header (values auto-typed: "30" -> 30)
-    local c1 = csv.decode("name,age,city\nAlice,30,NYC\nBob,25,LA")
+    dec c1 = csv.decode("name,age,city\nAlice,30,NYC\nBob,25,LA")
     check("csv type", type(c1) == "table")
-    local cr0 = c1[0]
+    dec cr0 = c1[0]
     check("csv r0 type", type(cr0) == "table")
     check("csv r0.name", cr0.name == "Alice")
     check("csv r0.age", cr0.age == 30)
     check("csv r0.city", cr0.city == "NYC")
-    local cr1 = c1[1]
+    dec cr1 = c1[1]
     check("csv r1.name", cr1.name == "Bob")
     check("csv r1.age", cr1.age == 25)
 
     -- Quoted fields
-    local c2 = csv.decode('a,b\n"hello, world","ok"')
+    dec c2 = csv.decode('a,b\n"hello, world","ok"')
     check("csv quoted comma", c2[0].a == "hello, world")
 
     -- Encode
-    local c3 = csv.encode({{name = "X", val = "1"}, {name = "Y", val = "2"}})
+    dec c3 = csv.encode({{name = "X", val = "1"}, {name = "Y", val = "2"}})
     check("csv encode type", type(c3) == "string")
 end
 
@@ -141,12 +141,12 @@ end
 print("\n=== TSV ===")
 
 do
-    local t1 = tsv.decode("name\tage\nAlice\t30\nBob\t25")
+    dec t1 = tsv.decode("name\tage\nAlice\t30\nBob\t25")
     check("tsv type", type(t1) == "table")
-    local tr0 = t1[0]
+    dec tr0 = t1[0]
     check("tsv r0.name", tr0.name == "Alice")
     check("tsv r0.age", tr0.age == 30)
-    local tr1 = t1[1]
+    dec tr1 = t1[1]
     check("tsv r1.name", tr1.name == "Bob")
 end
 
@@ -156,7 +156,7 @@ end
 print("\n=== INI ===")
 
 do
-    local i1 = ini.decode("[server]\nhost = localhost\nport = 8080\n\n[database]\nname = mydb\n")
+    dec i1 = ini.decode("[server]\nhost = localhost\nport = 8080\n\n[database]\nname = mydb\n")
     check("ini type", type(i1) == "table")
     check("ini server type", type(i1.server) == "table")
     check("ini server.host", i1.server.host == "localhost")
@@ -166,16 +166,16 @@ end
 
 do
     -- Global keys
-    local i2 = ini.decode("key = value\n[section]\nfoo = bar")
+    dec i2 = ini.decode("key = value\n[section]\nfoo = bar")
     check("ini global key", i2.key == "value")
     check("ini section.foo", i2.section.foo == "bar")
 
     -- Comments
-    local i3 = ini.decode("; comment\n# also comment\nkey = val")
+    dec i3 = ini.decode("; comment\n# also comment\nkey = val")
     check("ini comments", i3.key == "val")
 
     -- Encode
-    local i4 = ini.encode({editor = {font = "14", theme = "dark"}})
+    dec i4 = ini.encode({editor = {font = "14", theme = "dark"}})
     check("ini encode type", type(i4) == "string")
 end
 
@@ -185,7 +185,7 @@ end
 print("\n=== TOML ===")
 
 do
-    local m1 = toml.decode('title = "My App"\n\n[database]\nserver = "192.168.1.1"\nport = 5432\nenabled = true\n')
+    dec m1 = toml.decode('title = "My App"\n\n[database]\nserver = "192.168.1.1"\nport = 5432\nenabled = true\n')
     check("toml type", type(m1) == "table")
     check("toml title", m1.title == "My App")
     check("toml db.server", m1.database.server == "192.168.1.1")
@@ -195,18 +195,18 @@ end
 
 do
     -- Array
-    local m2 = toml.decode('colors = ["red", "green", "blue"]\n')
+    dec m2 = toml.decode('colors = ["red", "green", "blue"]\n')
     check("toml arr type", type(m2.colors) == "table")
     check("toml arr[0]", m2.colors[0] == "red")
     check("toml arr[2]", m2.colors[2] == "blue")
 
     -- Numbers
-    local m3 = toml.decode("x = 42\ny = 3.14\n")
+    dec m3 = toml.decode("x = 42\ny = 3.14\n")
     check("toml int", m3.x == 42)
     check("toml float", m3.y == 3.14)
 
     -- Encode
-    local m4 = toml.encode({app = {name = "test", debug = true}})
+    dec m4 = toml.encode({app = {name = "test", debug = true}})
     check("toml encode type", type(m4) == "string")
 end
 
@@ -216,19 +216,19 @@ end
 print("\n=== HTML ===")
 
 do
-    local h1 = html.decode("<div><p>Hello</p></div>")
+    dec h1 = html.decode("<div><p>Hello</p></div>")
     check("html type", type(h1) == "table")
-    check("html has tag", h1.tag ~= nil)
+    check("html has tag", h1.tag != nil)
     -- HTML wraps in document node; children is the child list
-    local h1c = h1.children
-    check("html has children", h1c ~= nil)
+    dec h1c = h1.children
+    check("html has children", h1c != nil)
 end
 
 do
-    local h2 = html.decode('<img src="logo.png" />')
+    dec h2 = html.decode('<img src="logo.png" />')
     check("html self-close", type(h2) == "table")
 
-    local h3 = html.decode('<a href="https://zorya.dev" class="btn">Click</a>')
+    dec h3 = html.decode('<a href="https://zorya.dev" class="btn">Click</a>')
     check("html attrs", type(h3) == "table")
 end
 
@@ -238,13 +238,13 @@ end
 print("\n=== data.* API ===")
 
 do
-    local d1 = data.decode('{"test": true}', "json")
+    dec d1 = data.decode('{"test": true}', "json")
     check("data.decode json", d1.test == true)
 
-    local d2 = data.decode("a,b\n1,2", "csv")
+    dec d2 = data.decode("a,b\n1,2", "csv")
     check("data.decode csv", d2[0].a == 1)
 
-    local d3 = data.encode({key = "val"}, "json")
+    dec d3 = data.encode({key = "val"}, "json")
     check("data.encode json", type(d3) == "string")
 end
 
@@ -260,7 +260,7 @@ print("\n=== YAML ===")
 
 do
     -- Basic mapping
-    local y1 = yaml.decode("name: Nova\nversion: 1\nenabled: true\n")
+    dec y1 = yaml.decode("name: Nova\nversion: 1\nenabled: true\n")
     check("yaml type", type(y1) == "table")
     check("yaml string", y1.name == "Nova")
     check("yaml int", y1.version == 1)
@@ -269,7 +269,7 @@ end
 
 do
     -- Nested mappings
-    local y2 = yaml.decode("server:\n  host: localhost\n  port: 8080\ndatabase:\n  name: mydb\n")
+    dec y2 = yaml.decode("server:\n  host: localhost\n  port: 8080\ndatabase:\n  name: mydb\n")
     check("yaml nested type", type(y2.server) == "table")
     check("yaml server.host", y2.server.host == "localhost")
     check("yaml server.port", y2.server.port == 8080)
@@ -278,7 +278,7 @@ end
 
 do
     -- Sequence (list)
-    local y3 = yaml.decode("- apple\n- banana\n- cherry\n")
+    dec y3 = yaml.decode("- apple\n- banana\n- cherry\n")
     check("yaml list type", type(y3) == "table")
     check("yaml list[0]", y3[0] == "apple")
     check("yaml list[1]", y3[1] == "banana")
@@ -287,7 +287,7 @@ end
 
 do
     -- Type inference
-    local y4 = yaml.decode("nil_val: null\nbool_f: false\nfloat: 3.14\nquoted: \"hello world\"\n")
+    dec y4 = yaml.decode("nil_val: null\nbool_f: false\nfloat: 3.14\nquoted: \"hello world\"\n")
     check("yaml null", y4.nil_val == nil)
     check("yaml false", y4.bool_f == false)
     check("yaml float", type(y4.float) == "number")
@@ -296,7 +296,7 @@ end
 
 do
     -- List of mappings
-    local y5 = yaml.decode("- name: Alice\n  age: 30\n- name: Bob\n  age: 25\n")
+    dec y5 = yaml.decode("- name: Alice\n  age: 30\n- name: Bob\n  age: 25\n")
     check("yaml list-of-maps", type(y5) == "table")
     check("yaml lom[0].name", y5[0].name == "Alice")
     check("yaml lom[0].age", y5[0].age == 30)
@@ -305,20 +305,20 @@ end
 
 do
     -- Comments and document markers
-    local y6 = yaml.decode("---\n# This is a comment\nkey: value\n# Another comment\nfoo: bar\n")
+    dec y6 = yaml.decode("---\n# This is a comment\nkey: value\n# Another comment\nfoo: bar\n")
     check("yaml comments", y6.key == "value")
     check("yaml skip comment", y6.foo == "bar")
 end
 
 do
     -- Encode
-    local enc = yaml.encode({name = "test", count = 42})
+    dec enc = yaml.encode({name = "test", count = 42})
     check("yaml encode type", type(enc) == "string")
 end
 
 do
     -- data.* API for YAML
-    local dy = data.decode("key: val\nnum: 10\n", "yaml")
+    dec dy = data.decode("key: val\nnum: 10\n", "yaml")
     check("data.decode yaml", dy.key == "val")
 end
 

@@ -8,7 +8,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -26,9 +26,9 @@
  * ============================================================ */
 
 #define NOVA_VERSION_MAJOR  0
-#define NOVA_VERSION_MINOR  1
+#define NOVA_VERSION_MINOR  2
 #define NOVA_VERSION_PATCH  0
-#define NOVA_VERSION_STRING "0.1.0"
+#define NOVA_VERSION_STRING "0.2.0"
 
 #define NOVA_VERSION_NUMBER \
     (NOVA_VERSION_MAJOR * 10000 + NOVA_VERSION_MINOR * 100 + NOVA_VERSION_PATCH)
@@ -234,27 +234,34 @@ typedef NOVA_UNSIGNED_TYPE nova_uint_t;
 
 /* ============================================================
  * PLATFORM DETECTION
+ *
+ * Delegates to ZORYA PAL for the canonical detection macros.
+ * Nova-specific aliases are provided for backward compatibility.
  * ============================================================ */
 
-#if defined(__linux__)
+#include <zorya/pal_detect.h>
+
+/* Map ZORYA_OS_* → NOVA_PLATFORM_* for existing Nova code */
+#if ZORYA_OS_LINUX
     #define NOVA_PLATFORM_LINUX 1
-#elif defined(__APPLE__)
+#elif ZORYA_OS_MACOS
     #define NOVA_PLATFORM_MACOS 1
-#elif defined(_WIN32) || defined(_WIN64)
+#elif ZORYA_OS_WINDOWS
     #define NOVA_PLATFORM_WINDOWS 1
-#elif defined(__FreeBSD__)
+#elif ZORYA_OS_FREEBSD
     #define NOVA_PLATFORM_FREEBSD 1
 #else
     #define NOVA_PLATFORM_UNKNOWN 1
 #endif
 
-#if defined(__x86_64__) || defined(_M_X64)
+/* Map ZORYA_ARCH_* → NOVA_ARCH_* for existing Nova code */
+#if ZORYA_ARCH_X64
     #define NOVA_ARCH_X86_64 1
-#elif defined(__aarch64__) || defined(_M_ARM64)
+#elif ZORYA_ARCH_ARM64
     #define NOVA_ARCH_ARM64 1
-#elif defined(__i386__) || defined(_M_IX86)
+#elif ZORYA_ARCH_X86
     #define NOVA_ARCH_X86 1
-#elif defined(__arm__) || defined(_M_ARM)
+#elif ZORYA_ARCH_ARM32
     #define NOVA_ARCH_ARM32 1
 #else
     #define NOVA_ARCH_UNKNOWN 1
@@ -273,13 +280,9 @@ typedef NOVA_UNSIGNED_TYPE nova_uint_t;
     #endif
 #endif
 
-/** Enable computed goto dispatch (GCC/Clang only) */
+/** Enable computed goto dispatch — delegates to PAL detection */
 #ifndef NOVA_COMPUTED_GOTO
-    #if defined(__GNUC__) || defined(__clang__)
-        #define NOVA_COMPUTED_GOTO 1
-    #else
-        #define NOVA_COMPUTED_GOTO 0
-    #endif
+    #define NOVA_COMPUTED_GOTO ZORYA_HAS_COMPUTED_GOTO
 #endif
 
 /** Enable string interpolation with backtick syntax */

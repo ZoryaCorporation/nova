@@ -19,7 +19,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -287,6 +287,9 @@ typedef enum {
     NOVA_STMT_IMPORT,           /**< import "module"              */
     NOVA_STMT_EXPORT,           /**< export name                  */
     NOVA_STMT_CONST,            /**< const name = expr            */
+    NOVA_STMT_ENUM,             /**< enum Name ... end            */
+    NOVA_STMT_STRUCT,           /**< struct Name ... end          */
+    NOVA_STMT_TYPEDEC,          /**< typedec Name = type          */
 
     NOVA_STMT_COUNT
 } NovaStmtType;

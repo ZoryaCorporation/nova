@@ -13,7 +13,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-06
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -672,7 +672,7 @@ void nova_proto_dump(const NovaProto *proto, int indent) {
                     i,
                     proto->upvalues[i].name ? proto->upvalues[i].name : "?",
                     proto->upvalues[i].index,
-                    proto->upvalues[i].in_stack ? "(local)" : "(upvalue)");
+                    proto->upvalues[i].in_stack ? "(dec)" : "(upvalue)");
         }
     }
 

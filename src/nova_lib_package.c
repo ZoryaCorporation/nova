@@ -21,7 +21,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-07
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -51,7 +51,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/stat.h>
+#include <zorya/pal.h>   /* zorya_is_file() — portable file existence check */
 
 /* ============================================================
  * INTERNAL CONSTANTS
@@ -73,8 +73,7 @@
  * ============================================================ */
 
 static int novai_file_exists(const char *path) {
-    struct stat st;
-    return (stat(path, &st) == 0 && S_ISREG(st.st_mode));
+    return zorya_is_file(path);
 }
 
 /* ============================================================
@@ -360,26 +359,15 @@ static int nova_base_require(NovaVM *vm) {
             if (nova_is_string(skv)) {
                 search_key = nova_as_string(skv);
             }
-            if (search_key != NULL && ltbl->hash_size > 0) {
-                uint64_t h = search_key->hash;
-                for (uint32_t i = 0; i < ltbl->hash_size; i++) {
-                    uint32_t slot = (uint32_t)((h + (uint64_t)i) &
-                        (uint64_t)(ltbl->hash_size - 1));
-                    if (!ltbl->hash[slot].occupied) {
-                        break;
-                    }
-                    if (nova_is_string(ltbl->hash[slot].key) &&
-                        nova_str_hash(nova_as_string(ltbl->hash[slot].key)) == h &&
-                        nova_str_len(nova_as_string(ltbl->hash[slot].key)) == search_key->length &&
-                        memcmp(nova_str_data(nova_as_string(ltbl->hash[slot].key)),
-                               search_key->data, search_key->length) == 0) {
-                        /* Found in cache! */
-                        NTRACE(MODULE, "require('%s') CACHE HIT", modname);
-                        NTRACE_LEAVE();
-                        vm->stack_top = result_slot;
-                        nova_vm_push_value(vm, ltbl->hash[slot].value);
-                        return 1;
-                    }
+            if (search_key != NULL) {
+                NovaValue found = nova_table_get_str(ltbl, search_key);
+                if (!nova_is_nil(found)) {
+                    /* Found in cache! */
+                    NTRACE(MODULE, "require('%s') CACHE HIT", modname);
+                    NTRACE_LEAVE();
+                    vm->stack_top = result_slot;
+                    nova_vm_push_value(vm, found);
+                    return 1;
                 }
             }
         }

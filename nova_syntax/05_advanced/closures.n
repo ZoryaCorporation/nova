@@ -1,0 +1,182 @@
+-- ============================================================
+-- closures.n — Closures and Upvalues
+--
+-- A closure is a function that captures variables from its
+-- surrounding scope. Nova migrates upvalues from stack to
+-- heap automatically when the enclosing function returns.
+--
+-- Run:  ./bin/nova nova_syntax/05_advanced/closures.n
+-- ============================================================
+
+echo "=== Closures & Upvalues ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Basic Closure: Counter
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Counter Factory ---"
+
+dec function make_counter(start, step)
+    dec count = start or 0
+    step = step or 1
+    return {
+        next = function()
+            count = count + step
+            return count
+        end,
+        peek = function()
+            return count
+        end,
+        reset = function()
+            count = start or 0
+        end,
+    }
+end
+
+dec c = make_counter(0, 5)
+printf("  next: %d\n", c.next())
+printf("  next: %d\n", c.next())
+printf("  next: %d\n", c.next())
+printf("  peek: %d\n", c.peek())
+c.reset()
+printf("  after reset: %d\n", c.peek())
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Currying: Functions that Return Functions
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Currying ---"
+
+dec function multiply_by(factor)
+    return function(x)
+        return x * factor
+    end
+end
+
+dec double = multiply_by(2)
+dec triple = multiply_by(3)
+dec tenfold = multiply_by(10)
+
+printf("  double(7)  = %d\n", double(7))
+printf("  triple(7)  = %d\n", triple(7))
+printf("  tenfold(7) = %d\n", tenfold(7))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Memoization: Cache Expensive Results
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Memoization ---"
+
+dec function memoize(fn)
+    dec cache = {}
+    dec calls = 0
+    dec hits = 0
+
+    return function(x)
+        dec key = tostring(x)
+        if cache[key] != nil then
+            hits = hits + 1
+            return cache[key]
+        end
+        calls = calls + 1
+        dec result = fn(x)
+        cache[key] = result
+        return result
+    end, function()
+        return calls, hits
+    end
+end
+
+dec function slow_square(n)
+    -- Pretend this is expensive
+    return n * n
+end
+
+dec fast_square, get_stats = memoize(slow_square)
+
+-- First calls compute, second calls use cache
+dec inputs = {3, 7, 3, 5, 7, 3, 5, 9}
+echo "  Computing squares:"
+for i = 0, #inputs - 1 do
+    dec n = inputs[i]
+    printf("    square(%d) = %d\n", n, fast_square(n))
+end
+
+dec computed, cached = get_stats()
+printf("  Stats: %d computed, %d cache hits\n", computed, cached)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Iterator Factory
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Custom Iterator ---"
+
+dec function range(start, stop, step)
+    step = step or 1
+    dec current = start - step
+    return function()
+        current = current + step
+        if current <= stop then
+            return current
+        end
+        return nil
+    end
+end
+
+echo "  range(0, 20, 5):"
+dec iter = range(0, 20, 5)
+while true do
+    dec val = iter()
+    if val == nil then break end
+    printf("    %d\n", val)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Event System (Pub/Sub with Closures)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Event System ---"
+
+dec function create_event_bus()
+    dec listeners = {}
+
+    return {
+        on = function(event, callback)
+            if listeners[event] == nil then
+                listeners[event] = {}
+            end
+            table.insert(listeners[event], callback)
+        end,
+
+        emit = function(event, data)
+            dec handlers = listeners[event]
+            if handlers == nil then return end
+            for i = 0, #handlers - 1 do
+                handlers[i](data)
+            end
+        end,
+    }
+end
+
+dec bus = create_event_bus()
+
+-- Subscribe
+bus.on("user_login", function(data)
+    printf("    [AUTH] User logged in: %s\n", data.name)
+end)
+
+bus.on("user_login", function(data)
+    printf("    [LOG]  Login at %.4f: %s\n", data.time, data.name)
+end)
+
+bus.on("error", function(data)
+    printf("    [ERR]  %s\n", data.message)
+end)
+
+-- Emit events
+echo "  Emitting events:"
+bus.emit("user_login", {name = "Alice", time = os.clock()})
+bus.emit("error", {message = "disk full"})
+bus.emit("user_login", {name = "Bob", time = os.clock()})
+
+echo "\nDone!"

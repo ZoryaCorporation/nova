@@ -4,10 +4,10 @@
 --        error on missing module
 -- ============================================================
 
-local pass = 0
-local fail = 0
+dec pass = 0
+dec fail = 0
 
-local function check(name, got, expected)
+dec function check(name, got, expected)
     if tostring(got) == tostring(expected) then
         pass = pass + 1
         print("  PASS: " .. name)
@@ -29,14 +29,14 @@ check("package.path is string", type(package.path), "string")
 check("package.loaded is table", type(package.loaded), "table")
 
 -- package.path contains ?
-check("package.path has ?", string.find(package.path, "?") ~= nil, true)
+check("package.path has ?", string.find(package.path, "?") != nil, true)
 
 -- ============================================================
 -- require() loads a module
 -- ============================================================
 print("\n-- require --")
 
-local mod = require("lib/test_module")
+dec mod = require("lib/test_module")
 check("require returns table", type(mod), "table")
 check("mod.greeting", mod.greeting, "hello from module")
 check("mod.version", mod.version, 42)
@@ -48,12 +48,12 @@ check("mod.greet('Nova')", mod.greet("Nova"), "Hello, Nova!")
 -- ============================================================
 print("\n-- caching --")
 
-local mod2 = require("lib/test_module")
+dec mod2 = require("lib/test_module")
 check("cached: same object", mod == mod2, true)
 
 -- Check it's in package.loaded
-local loaded = package.loaded["lib/test_module"]
-check("package.loaded has module", loaded ~= nil, true)
+dec loaded = package.loaded["lib/test_module"]
+check("package.loaded has module", loaded != nil, true)
 if loaded then
     check("package.loaded same object", loaded == mod, true)
 end
@@ -63,7 +63,7 @@ end
 -- ============================================================
 print("\n-- require math_utils --")
 
-local mu = require("lib/math_utils")
+dec mu = require("lib/math_utils")
 check("math_utils loaded", type(mu), "table")
 
 -- ============================================================
@@ -71,9 +71,9 @@ check("math_utils loaded", type(mu), "table")
 -- ============================================================
 print("\n-- missing module --")
 
-local ok, err = pcall(require, "nonexistent_module_xyz")
+dec ok, err = pcall(require, "nonexistent_module_xyz")
 check("missing module: pcall fails", ok, false)
-check("missing module: has error msg", err ~= nil, true)
+check("missing module: has error msg", err != nil, true)
 
 -- ============================================================
 -- RESULTS

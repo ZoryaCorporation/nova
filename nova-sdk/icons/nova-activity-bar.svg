@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <!-- N letterform for Nova -->
+  <path d="M5 19V5l7 14V5" />
+  <path d="M17 19V5" />
+  <!-- Subtle spark/star accent -->
+  <circle cx="19" cy="5" r="1.5" fill="currentColor" stroke="none" opacity="0.7" />
+</svg>

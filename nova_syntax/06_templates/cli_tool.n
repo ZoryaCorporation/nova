@@ -1,0 +1,139 @@
+-- ============================================================
+-- cli_tool.n — Command-Line Tool Template
+--
+-- A skeleton for building CLI utilities in Nova.
+-- Shows argument parsing, help text, and structured output.
+--
+-- Run:  ./bin/nova nova_syntax/06_templates/cli_tool.n
+-- ============================================================
+
+echo "=== CLI Tool Template ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Configuration
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec APP_NAME    = "nova-tool"
+dec APP_VERSION = "1.0.0"
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Help System
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function show_help()
+    printf("\n%s v%s — A Nova CLI tool template\n\n", APP_NAME, APP_VERSION)
+    echo "Usage:"
+    echo "  nova-tool <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  greet <name>     Greet someone by name"
+    echo "  count <n>        Count from 1 to n"
+    echo "  stats <numbers>  Compute stats on a list of numbers"
+    echo "  help             Show this help text"
+    echo ""
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Command: greet
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function cmd_greet(name)
+    if not name or #name == 0 then
+        echo "[error] greet requires a name"
+        return false
+    end
+    printf("Hello, %s! Welcome to %s.\n", name, APP_NAME)
+    return true
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Command: count
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function cmd_count(n)
+    if not n then
+        echo "[error] count requires a number"
+        return false
+    end
+    dec limit = tonumber(n)
+    if not limit or limit < 1 then
+        echo "[error] count requires a positive integer"
+        return false
+    end
+    echo "  Counting:"
+    for i = 1, limit do
+        printf("    %d...\n", i)
+    end
+    echo "  Done!"
+    return true
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Command: stats
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function cmd_stats(data)
+    if not data or #data == 0 then
+        echo "[error] stats requires at least one number"
+        return false
+    end
+
+    dec sum = 0
+    dec min_val = data[0]
+    dec max_val = data[0]
+
+    for i = 0, #data - 1 do
+        dec v = data[i]
+        sum = sum + v
+        if v < min_val then min_val = v end
+        if v > max_val then max_val = v end
+    end
+
+    dec mean = sum / #data
+    printf("\n  Statistics for %d values:\n", #data)
+    printf("    Sum:  %.2f\n", sum)
+    printf("    Mean: %.2f\n", mean)
+    printf("    Min:  %.2f\n", min_val)
+    printf("    Max:  %.2f\n", max_val)
+    return true
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Command Router
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function dispatch(command, ...)
+    if command == "greet" then
+        return cmd_greet(...)
+    elseif command == "count" then
+        return cmd_count(...)
+    elseif command == "stats" then
+        return cmd_stats(...)
+    elseif command == "help" then
+        show_help()
+        return true
+    else
+        printf("[error] Unknown command: %s\n", tostring(command))
+        show_help()
+        return false
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Demo Run (simulates CLI invocation)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Demo: help ---"
+dispatch("help")
+
+echo "--- Demo: greet ---"
+dispatch("greet", "Developer")
+
+echo "\n--- Demo: count ---"
+dispatch("count", 5)
+
+echo "\n--- Demo: stats ---"
+dec sample_data = {42, 17, 88, 3, 65, 29, 71, 50}
+dispatch("stats", sample_data)
+
+echo "\nDone!"

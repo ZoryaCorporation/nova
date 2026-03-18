@@ -1,0 +1,163 @@
+-- ============================================================
+-- contact_book.n — Searchable Contact Directory
+--
+-- A mini contact book with add, search, list, and delete.
+-- Demonstrates tables-as-databases, string matching,
+-- and the echo/printf pattern throughout.
+--
+-- Run:  ./bin/nova nova_syntax/04_real_programs/contact_book.n
+-- ============================================================
+
+echo "=== Contact Book ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Data Layer
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec contacts = {}
+dec next_id = 1
+
+dec function add(name, phone, email, city)
+    echo `  + Adding ${name}`
+    dec contact = {
+        id    = next_id,
+        name  = name,
+        phone = phone or "",
+        email = email or "",
+        city  = city or "",
+    }
+    table.insert(contacts, contact)
+    next_id = next_id + 1
+    return contact
+end
+
+dec function find_by_name(query)
+    dec results = {}
+    dec q = string.lower(query)
+    for i = 0, #contacts - 1 do
+        dec c = contacts[i]
+        if string.find(string.lower(c.name), q) != nil then
+            table.insert(results, c)
+        end
+    end
+    return results
+end
+
+dec function find_by_city(city)
+    dec results = {}
+    dec q = string.lower(city)
+    for i = 0, #contacts - 1 do
+        dec c = contacts[i]
+        if string.lower(c.city) == q then
+            table.insert(results, c)
+        end
+    end
+    return results
+end
+
+dec function delete_by_id(id)
+    for i = 0, #contacts - 1 do
+        if contacts[i].id == id then
+            dec removed = contacts[i]
+            table.remove(contacts, i)
+            echo `  - Deleted ${removed.name}`
+            return true
+        end
+    end
+    echo `  ! Contact #${id} not found`
+    return false
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Display Helpers
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+dec function show_contact(c)
+    printf("    #%-3d %-18s %-14s %-24s %s\n",
+           c.id, c.name, c.phone, c.email, c.city)
+end
+
+dec function show_header()
+    printf("    %-4s %-18s %-14s %-24s %s\n",
+           "ID", "Name", "Phone", "Email", "City")
+    printf("    %-4s %-18s %-14s %-24s %s\n",
+           "---", string.rep("-", 18), string.rep("-", 14),
+           string.rep("-", 24), string.rep("-", 12))
+end
+
+dec function show_all()
+    echo "\n  All Contacts:"
+    show_header()
+    for i = 0, #contacts - 1 do
+        show_contact(contacts[i])
+    end
+    printf("    (%d contact%s)\n", #contacts, #contacts != 1 and "s" or "")
+end
+
+dec function show_results(label, results)
+    printf("\n  Search: %s\n", label)
+    if #results == 0 then
+        echo "    (no matches)"
+        return
+    end
+    show_header()
+    for i = 0, #results - 1 do
+        show_contact(results[i])
+    end
+    printf("    (%d match%s)\n", #results, #results != 1 and "es" or "")
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Populate the Book
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Adding Contacts ---"
+
+add("Alice Johnson",   "555-0101", "alice@example.com",   "New York")
+add("Bob Smith",       "555-0102", "bob@example.com",     "Chicago")
+add("Charlie Brown",   "555-0103", "charlie@example.com", "New York")
+add("Diana Prince",    "555-0104", "diana@example.com",   "Seattle")
+add("Eve Torres",      "555-0105", "eve@example.com",     "Chicago")
+add("Frank Castle",    "555-0106", "frank@example.com",   "New York")
+add("Grace Hopper",    "555-0107", "grace@example.com",   "Seattle")
+add("Hank Pym",        "555-0108", "hank@example.com",    "Boston")
+
+show_all()
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Search Operations
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Searching ---"
+
+-- Search by name
+dec results = find_by_name("alice")
+show_results("name contains 'alice'", results)
+
+-- Search by partial name
+results = find_by_name("an")
+show_results("name contains 'an'", results)
+
+-- Search by city
+results = find_by_city("New York")
+show_results("city = 'New York'", results)
+
+results = find_by_city("Seattle")
+show_results("city = 'Seattle'", results)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Delete
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Deleting ---"
+
+delete_by_id(3)
+delete_by_id(99)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Final State
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+show_all()
+
+echo "\nDone!"

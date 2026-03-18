@@ -20,7 +20,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-08
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -233,6 +233,23 @@ int nova_open_data(NovaVM *vm);
 
 /** Debug library: traceback, getinfo, getlocal, sethook */
 int nova_open_debug(NovaVM *vm);
+
+/** Network library: get, post, put, delete, patch, head, request */
+#ifndef NOVA_NO_NET
+int nova_open_net(NovaVM *vm);
+#endif
+
+/** SQL library: open, exec, query, close (SQLite3 backend) */
+int nova_open_sql(NovaVM *vm);
+
+/** Filesystem library: exists, read, write, list, walk, glob, etc. */
+int nova_open_fs(NovaVM *vm);
+
+/** NLP library: tokenize, stem, fuzzy, freq, tfidf, ngrams, etc. */
+int nova_open_nlp(NovaVM *vm);
+
+/** Tools library: cat, ls, tree, find, grep, head, tail, wc, pwd, run */
+int nova_open_tools(NovaVM *vm);
 
 /* ============================================================
  * SHARED LIBRARY FUNCTIONS

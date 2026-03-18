@@ -8,7 +8,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -51,7 +51,7 @@ typedef enum {
     NOVA_TOKEN_DOTDOT   = 256,  /* ..                */
     NOVA_TOKEN_DOTDOTDOT,       /* ...               */
     NOVA_TOKEN_EQ,              /* ==                */
-    NOVA_TOKEN_NEQ,             /* ~= (Lua) or !=    */
+    NOVA_TOKEN_NEQ,             /* !=                */
     NOVA_TOKEN_LE,              /* <=                */
     NOVA_TOKEN_GE,              /* >=                */
     NOVA_TOKEN_SHL,             /* <<                */
@@ -88,7 +88,7 @@ typedef enum {
     NOVA_TOKEN_GOTO,            /* goto              */
     NOVA_TOKEN_IF,              /* if                */
     NOVA_TOKEN_IN,              /* in                */
-    NOVA_TOKEN_LOCAL,           /* local             */
+    NOVA_TOKEN_LOCAL,           /* dec / declare     */
     NOVA_TOKEN_NIL,             /* nil               */
     NOVA_TOKEN_NOT,             /* not               */
     NOVA_TOKEN_OR,              /* or                */
@@ -103,9 +103,12 @@ typedef enum {
     NOVA_TOKEN_ASYNC,           /* async             */
     NOVA_TOKEN_AWAIT,           /* await             */
     NOVA_TOKEN_CONST,           /* const             */
+    NOVA_TOKEN_ENUM,            /* enum              */
     NOVA_TOKEN_EXPORT,          /* export            */
     NOVA_TOKEN_IMPORT,          /* import            */
     NOVA_TOKEN_SPAWN,           /* spawn             */
+    NOVA_TOKEN_STRUCT,          /* struct             */
+    NOVA_TOKEN_TYPEDEC,         /* typedec            */
     NOVA_TOKEN_YIELD,           /* yield             */
 
     /* Preprocessor directives */

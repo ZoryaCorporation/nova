@@ -1,0 +1,118 @@
+-- ============================================================
+-- Nova Typedec Test Suite
+-- Tests: basic wrapper, string base, boolean base, multiple
+--        instances, constructor type, combined usage
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== TYPEDEC TESTS ===")
+
+-- ============================================================
+-- Basic wrapper (integer)
+-- ============================================================
+print("\n-- basic integer wrapper --")
+
+typedec UserId = integer
+
+dec id = UserId(42)
+check("__type",  id.__type,  "UserId")
+check("value",   id.value,   42)
+check("__base",  id.__base,  "integer")
+
+-- ============================================================
+-- String base type
+-- ============================================================
+print("\n-- string base --")
+
+typedec Email = string
+
+dec e = Email("test@example.com")
+check("string __type", e.__type, "Email")
+check("string value",  e.value,  "test@example.com")
+check("string __base", e.__base, "string")
+
+-- ============================================================
+-- Boolean base
+-- ============================================================
+print("\n-- boolean base --")
+
+typedec Flag = boolean
+
+dec f = Flag(true)
+check("bool __type", f.__type, "Flag")
+check("bool value",  f.value,  true)
+check("bool __base", f.__base, "boolean")
+
+-- ============================================================
+-- Multiple instances
+-- ============================================================
+print("\n-- multiple instances --")
+
+dec id1 = UserId(100)
+dec id2 = UserId(200)
+check("instance 1", id1.value, 100)
+check("instance 2", id2.value, 200)
+
+-- ============================================================
+-- Constructor is a function
+-- ============================================================
+print("\n-- constructor type --")
+
+check("constructor type", type(UserId), "function")
+
+-- ============================================================
+-- Combined: enum + struct + typedec
+-- ============================================================
+print("\n-- combined usage --")
+
+dec function test_combined()
+    enum Direction
+        NORTH = 0
+        SOUTH = 1
+        EAST = 2
+        WEST = 3
+    end
+
+    struct Player
+        name = "unknown"
+        x = 0
+        y = 0
+        facing = 0
+    end
+
+    typedec Score = number
+
+    dec player = Player("Alice", 10, 20, Direction.NORTH)
+    dec score = Score(1500)
+
+    check("combined player name",  player.name, "Alice")
+    check("combined player x",     player.x, 10)
+    check("combined player y",     player.y, 20)
+    check("combined player facing", player.facing, Direction.NORTH)
+    check("combined player __type", player.__type, "Player")
+    check("combined score value",   score.value, 1500)
+    check("combined score __type",  score.__type, "Score")
+end
+test_combined()
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  TYPEDEC TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("TYPEDEC: " .. fail .. " test(s) FAILED")
+end

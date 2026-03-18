@@ -32,6 +32,7 @@
 #include "nova/nova_vm.h"
 #include "nova/nova_opcode.h"
 #include "nova/nova_trace.h"
+#include "nova/nova_error.h"
 #include "zorya/nxh.h"
 #include "zorya/pcm.h"
 
@@ -40,8 +41,10 @@
 #include <stdlib.h>
 #include <math.h>
 
-/* NXH64 seed: use NOVA_STRING_SEED from nova_vm.h (single source of truth) */
-#define NOVAI_STRING_SEED NOVA_STRING_SEED  /* compat alias */
+/* NOVA_STRING_SEED comes from nova_vm.h (single source of truth) */
+
+/* === Per-type metatables (module-global, single-threaded) === */
+static NovaTable *g_string_mt = NULL;
 
 /* Forward declarations for functions defined later in this file */
 static int nova_meta_raw_set(NovaVM *vm, NovaTable *t,
@@ -129,36 +132,7 @@ static NovaValue novai_meta_raw_get_str_cstr(NovaTable *t,
     if (t == NULL) {
         return nova_value_nil();
     }
-
-    /* Direct hash probe for C string key — we need to match
-     * against NovaString keys in the hash table. This is the
-     * ONE place we still need direct hash access because we
-     * have a raw C string, not a NovaString*. */
-    if (t->hash_size == 0) {
-        return nova_value_nil();
-    }
-
-    uint64_t h = nxh64(key, (size_t)key_len, NOVA_STRING_SEED);
-    uint32_t mask = t->hash_size - 1;
-    uint32_t idx = HASH_SLOT((uint32_t)h, mask);
-    uint32_t start = idx;
-
-    do {
-        if (t->hash[idx].occupied == 0) {
-            return nova_value_nil();
-        }
-        if (nova_is_string(t->hash[idx].key)) {
-            NovaString *ks = nova_as_string(t->hash[idx].key);
-            if (nova_str_hash(ks) == h &&
-                nova_str_len(ks) == key_len &&
-                memcmp(nova_str_data(ks), key, (size_t)key_len) == 0) {
-                return t->hash[idx].value;
-            }
-        }
-        HASH_PROBE_LINEAR(idx, mask);
-    } while (idx != start);
-
-    return nova_value_nil();
+    return nova_table_get_cstr(t, key, key_len);
 }
 
 /* ============================================================
@@ -381,11 +355,23 @@ static int novai_meta_invoke(NovaVM *vm, NovaValue func,
 
 NovaTable *nova_meta_get_mt(NovaValue v) {
     if (nova_is_table(v) && nova_as_table(v) != NULL) {
-        return nova_as_table(v)->metatable;
+        return nova_table_get_metatable(nova_as_table(v));
+    }
+    /* Per-type metatables: strings get a shared metatable
+     * with __index = string module table, enabling s:find() etc. */
+    if (nova_is_string(v) && g_string_mt != NULL) {
+        return g_string_mt;
     }
     /* Future: userdata metatables */
-    /* Future: per-type metatables for string, number */
+    /* Future: per-type metatables for number */
     return NULL;
+}
+
+void nova_meta_set_string_mt(NovaVM *vm, NovaTable *mt) {
+    g_string_mt = mt;
+    if (vm != NULL) {
+        vm->string_mt = mt;
+    }
 }
 
 NovaValue nova_meta_get_method(NovaTable *mt, NovaMetaTag tag) {
@@ -470,8 +456,14 @@ int nova_meta_index(NovaVM *vm, NovaValue obj, NovaValue key,
                 *result = nova_value_nil();
                 return 0;
             }
-            novai_error(vm, NOVA_VM_ERR_TYPE,
-                        "attempt to index a non-table value");
+            {
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                         "attempt to index a %s value",
+                         nova_vm_typename(nova_typeof(obj)));
+                vm->diag_code = NOVA_E2018;
+                novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+            }
             return -1;
         }
 
@@ -482,8 +474,14 @@ int nova_meta_index(NovaVM *vm, NovaValue obj, NovaValue key,
                 *result = nova_value_nil();
                 return 0;
             }
-            novai_error(vm, NOVA_VM_ERR_TYPE,
-                        "attempt to index a non-table value");
+            {
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                         "attempt to index a %s value (no __index metamethod)",
+                         nova_vm_typename(nova_typeof(obj)));
+                vm->diag_code = NOVA_E2018;
+                novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+            }
             return -1;
         }
 
@@ -500,12 +498,14 @@ int nova_meta_index(NovaVM *vm, NovaValue obj, NovaValue key,
         }
 
         /* __index is something weird -- error */
+        vm->diag_code = NOVA_E2011;
         novai_error(vm, NOVA_VM_ERR_TYPE,
                     "invalid __index metamethod (expected table or function)");
         return -1;
     }
 
     /* Exhausted depth limit */
+    vm->diag_code = NOVA_E2024;
     novai_error(vm, NOVA_VM_ERR_TYPE,
                 "__index chain too deep (possible loop)");
     return -1;
@@ -525,8 +525,14 @@ int nova_meta_newindex(NovaVM *vm, NovaValue obj, NovaValue key,
             if (!nova_is_nil(handler)) {
                 return nova_meta_call3(vm, handler, obj, key, val);
             }
-            novai_error(vm, NOVA_VM_ERR_TYPE,
-                        "attempt to index a non-table value");
+            {
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                         "attempt to index a %s value",
+                         nova_vm_typename(nova_typeof(obj)));
+                vm->diag_code = NOVA_E2018;
+                novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+            }
             return -1;
         }
 
@@ -540,7 +546,7 @@ int nova_meta_newindex(NovaVM *vm, NovaValue obj, NovaValue key,
         }
 
         /* Key doesn't exist: check for __newindex */
-        NovaTable *mt = t->metatable;
+        NovaTable *mt = nova_table_get_metatable(t);
         if (mt != NULL) {
             NovaValue handler = nova_meta_get_method(mt, NOVA_TM_NEWINDEX);
             if (!nova_is_nil(handler)) {
@@ -568,6 +574,7 @@ raw_set:
         return nova_meta_raw_set(vm, t, key, val);  /* forward-declared */
     }
 
+    vm->diag_code = NOVA_E2024;
     novai_error(vm, NOVA_VM_ERR_TYPE,
                 "__newindex chain too deep (possible loop)");
     return -1;
@@ -596,6 +603,7 @@ static int nova_meta_raw_set(NovaVM *vm, NovaTable *t,
         }
     }
 
+    vm->diag_code = NOVA_E2019;
     novai_error(vm, NOVA_VM_ERR_TYPE, "invalid table key type");
     return -1;
 }
@@ -622,6 +630,31 @@ static NovaMetaTag novai_opcode_to_tm(NovaOpcode op) {
         case NOVA_OP_SHL:  return NOVA_TM_SHL;
         case NOVA_OP_SHR:  return NOVA_TM_SHR;
         default:           return NOVA_TM_ADD;  /* fallback */
+    }
+}
+
+/**
+ * @brief Map an arithmetic opcode to its operator symbol for errors.
+ */
+static const char *novai_opcode_symbol(NovaOpcode op) {
+    switch (op) {
+        case NOVA_OP_ADD:  case NOVA_OP_ADDI:
+        case NOVA_OP_ADDK: return "+";
+        case NOVA_OP_SUB:  case NOVA_OP_SUBK: return "-";
+        case NOVA_OP_MUL:  case NOVA_OP_MULK: return "*";
+        case NOVA_OP_DIV:  case NOVA_OP_DIVK: return "/";
+        case NOVA_OP_MOD:  case NOVA_OP_MODK: return "%";
+        case NOVA_OP_POW:  return "^";
+        case NOVA_OP_IDIV: return "//";
+        case NOVA_OP_BAND: return "&";
+        case NOVA_OP_BOR:  return "|";
+        case NOVA_OP_BXOR: return "~";
+        case NOVA_OP_SHL:  return "<<";
+        case NOVA_OP_SHR:  return ">>";
+        case NOVA_OP_UNM:  return "-";
+        case NOVA_OP_BNOT: return "~";
+        case NOVA_OP_STRLEN: return "#";
+        default:           return "?";
     }
 }
 
@@ -782,8 +815,27 @@ int nova_meta_arith(NovaVM *vm, NovaOpcode op,
     }
 
     /* Step 4: No metamethod -- error */
-    novai_error(vm, NOVA_VM_ERR_TYPE,
-                "attempt to perform arithmetic on non-number value");
+    {
+        const char *ltype = nova_vm_typename(nova_typeof(left));
+        const char *rtype = nova_vm_typename(nova_typeof(right));
+        const char *sym   = novai_opcode_symbol(op);
+        int is_bitwise = (op == NOVA_OP_BAND || op == NOVA_OP_BOR ||
+                          op == NOVA_OP_BXOR || op == NOVA_OP_SHL ||
+                          op == NOVA_OP_SHR);
+        char buf[256];
+        if (is_bitwise) {
+            snprintf(buf, sizeof(buf),
+                     "attempt to perform bitwise '%s' on %s and %s",
+                     sym, ltype, rtype);
+            vm->diag_code = NOVA_E2025;
+        } else {
+            snprintf(buf, sizeof(buf),
+                     "attempt to perform '%s' on %s and %s",
+                     sym, ltype, rtype);
+            vm->diag_code = NOVA_E2013;
+        }
+        novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+    }
     return -1;
 }
 
@@ -830,7 +882,7 @@ int nova_meta_unary(NovaVM *vm, NovaMetaTag tag,
             }
             /* Raw table length = array_used */
             *result = nova_value_integer(
-                (nova_int_t)nova_as_table(operand)->array_used);
+                (nova_int_t)nova_table_array_len(nova_as_table(operand)));
             return 0;
         }
     }
@@ -842,21 +894,38 @@ int nova_meta_unary(NovaVM *vm, NovaMetaTag tag,
     }
 
     /* Error */
-    const char *msg = "attempt to perform invalid operation";
-    switch (tag) {
-        case NOVA_TM_UNM:
-            msg = "attempt to negate non-number value";
-            break;
-        case NOVA_TM_BNOT:
-            msg = "attempt to bitwise-not non-integer value";
-            break;
-        case NOVA_TM_LEN:
-            msg = "attempt to get length of non-string/table value";
-            break;
-        default:
-            break;
+    /* Error */
+    {
+        const char *vtype = nova_vm_typename(nova_typeof(operand));
+        char buf[256];
+        switch (tag) {
+            case NOVA_TM_UNM:
+                snprintf(buf, sizeof(buf),
+                         "attempt to negate a %s value (number expected)",
+                         vtype);
+                vm->diag_code = NOVA_E2017;
+                break;
+            case NOVA_TM_BNOT:
+                snprintf(buf, sizeof(buf),
+                         "attempt to bitwise-not a %s value (integer expected)",
+                         vtype);
+                vm->diag_code = NOVA_E2025;
+                break;
+            case NOVA_TM_LEN:
+                snprintf(buf, sizeof(buf),
+                         "attempt to get length of a %s value (string or table expected)",
+                         vtype);
+                vm->diag_code = NOVA_E2016;
+                break;
+            default:
+                snprintf(buf, sizeof(buf),
+                         "attempt to perform invalid operation on a %s value",
+                         vtype);
+                vm->diag_code = NOVA_E2001;
+                break;
+        }
+        novai_error(vm, NOVA_VM_ERR_TYPE, buf);
     }
-    novai_error(vm, NOVA_VM_ERR_TYPE, msg);
     return -1;
 }
 
@@ -900,8 +969,10 @@ int nova_meta_compare(NovaVM *vm, NovaMetaTag tag,
     /* -- Raw EQ: same type + same pointer for tables/functions -- */
     if (tag == NOVA_TM_EQ) {
         if (nova_typeof(left) != nova_typeof(right)) {
-            /* Check metamethods before claiming false */
-            goto try_meta;
+            /* Different types are never equal (standard semantics).
+             * __eq is only consulted for same-type comparisons. */
+            *result = 0;
+            return 0;
         }
         /* Same-type raw equality */
         switch (nova_typeof(left)) {
@@ -928,7 +999,6 @@ int nova_meta_compare(NovaVM *vm, NovaMetaTag tag,
         }
     }
 
-try_meta:
     /* -- Try metamethods -- */
     {
         NovaValue method = nova_meta_get_tm(left, tag);
@@ -956,8 +1026,17 @@ try_meta:
     }
 
     /* -- No metamethod for LT/LE: error -- */
-    novai_error(vm, NOVA_VM_ERR_TYPE,
-                "attempt to compare incompatible values");
+    {
+        const char *ltype = nova_vm_typename(nova_typeof(left));
+        const char *rtype = nova_vm_typename(nova_typeof(right));
+        const char *op_sym = (tag == NOVA_TM_LT) ? "<" : "<=";
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "attempt to compare %s with %s using '%s'",
+                 ltype, rtype, op_sym);
+        vm->diag_code = NOVA_E2014;
+        novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+    }
     return -1;
 }
 
@@ -1011,8 +1090,16 @@ int nova_meta_concat(NovaVM *vm, NovaValue left, NovaValue right,
         return nova_meta_call2(vm, method, left, right, result);
     }
 
-    novai_error(vm, NOVA_VM_ERR_TYPE,
-                "attempt to concatenate incompatible values");
+    {
+        const char *ltype = nova_vm_typename(nova_typeof(left));
+        const char *rtype = nova_vm_typename(nova_typeof(right));
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "attempt to concatenate %s and %s",
+                 ltype, rtype);
+        vm->diag_code = NOVA_E2015;
+        novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+    }
     return -1;
 }
 
@@ -1040,8 +1127,14 @@ int nova_meta_call(NovaVM *vm, NovaValue obj, NovaValue *callable) {
         return 0;
     }
 
-    novai_error(vm, NOVA_VM_ERR_TYPE,
-                "attempt to call a non-function value");
+    {
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 "attempt to call a %s value",
+                 nova_vm_typename(nova_typeof(obj)));
+        vm->diag_code = NOVA_E2008;
+        novai_error(vm, NOVA_VM_ERR_TYPE, buf);
+    }
     return -1;
 }
 

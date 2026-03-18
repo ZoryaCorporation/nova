@@ -23,11 +23,11 @@
  *   pairs(t)          General iterator factory
  *   next(t [,k])      Next key/value after k in table
  *   unpack(t [,i,j])  Unpack table elements as multiple returns
- *   collectgarbage()   Stub (GC placeholder)
+ *   collectgarbage()   GC control interface
  *
  * @author Anthony Taliento
  * @date 2026-02-08
- * @version 0.1.0
+ * @version 0.2.0
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -692,8 +692,9 @@ static int nova_base_rawget(NovaVM *vm) {
     /* Integer key -> array access */
     if (nova_is_integer(key)) {
         nova_int_t idx = nova_as_integer(key);
-        if (idx >= 0 && (uint32_t)idx < nova_as_table(t)->array_used) {
-            nova_vm_push_value(vm, nova_as_table(t)->array[(uint32_t)idx]);
+        NovaTable *tbl = nova_as_table(t);
+        if (idx >= 0 && (uint32_t)idx < nova_table_array_len(tbl)) {
+            nova_vm_push_value(vm, nova_table_get_int(tbl, idx));
         } else {
             nova_vm_push_nil(vm);
         }
@@ -702,29 +703,9 @@ static int nova_base_rawget(NovaVM *vm) {
 
     /* String key -> hash access */
     if (nova_is_string(key)) {
-        /* Linear scan of hash part */
         NovaTable *tbl = nova_as_table(t);
-        uint64_t hash = nova_str_hash(nova_as_string(key));
-        if (tbl->hash_size > 0) {
-            uint32_t slot = (uint32_t)(hash & (uint64_t)(tbl->hash_size - 1));
-            for (uint32_t i = 0; i < tbl->hash_size; i++) {
-                uint32_t idx = (slot + i) & (tbl->hash_size - 1);
-                if (!tbl->hash[idx].occupied) {
-                    break;
-                }
-                if (nova_is_string(tbl->hash[idx].key) &&
-                    nova_str_hash(nova_as_string(tbl->hash[idx].key)) == hash &&
-                    nova_str_len(nova_as_string(tbl->hash[idx].key)) == nova_str_len(nova_as_string(key)) &&
-                    memcmp(nova_str_data(nova_as_string(tbl->hash[idx].key)),
-                           nova_str_data(nova_as_string(key)),
-                           nova_str_len(nova_as_string(key))) == 0) {
-                    /* Found - push the value */
-                    nova_vm_push_value(vm, tbl->hash[idx].value);
-                    return 1;
-                }
-            }
-        }
-        nova_vm_push_nil(vm);
+        NovaValue found = nova_table_get_str(tbl, nova_as_string(key));
+        nova_vm_push_value(vm, found);
         return 1;
     }
 
@@ -754,29 +735,7 @@ static int nova_base_rawset(NovaVM *vm) {
         nova_int_t idx = nova_as_integer(key);
         if (idx >= 0) {
             NovaTable *tbl = nova_as_table(t);
-            /* Grow array if needed */
-            uint32_t needed = (uint32_t)(idx + 1);
-            if (needed > tbl->array_size) {
-                uint32_t new_size = tbl->array_size == 0 ? 4 : tbl->array_size;
-                while (new_size < needed) {
-                    new_size *= 2;
-                }
-                NovaValue *new_arr = (NovaValue *)realloc(
-                    tbl->array, new_size * sizeof(NovaValue));
-                if (new_arr != NULL) {
-                    for (uint32_t i = tbl->array_size; i < new_size; i++) {
-                        new_arr[i] = nova_value_nil();
-                    }
-                    tbl->array = new_arr;
-                    tbl->array_size = new_size;
-                }
-            }
-            if ((uint32_t)idx < tbl->array_size) {
-                tbl->array[(uint32_t)idx] = val;
-                if (needed > tbl->array_used) {
-                    tbl->array_used = needed;
-                }
-            }
+            nova_table_set_int(vm, tbl, idx, val);
         }
     } else if (nova_is_string(key)) {
         /* Use the VM's internal table set */
@@ -800,7 +759,8 @@ static int nova_base_rawlen(NovaVM *vm) {
     NovaValue v = nova_vm_get(vm, 0);
 
     if (nova_is_table(v)) {
-        nova_vm_push_integer(vm, (nova_int_t)nova_as_table(v)->array_used);
+        nova_vm_push_integer(vm,
+            (nova_int_t)nova_table_array_len(nova_as_table(v)));
         return 1;
     }
 
@@ -894,11 +854,11 @@ static int nova_base_ipairs_iter(NovaVM *vm) {
     }
 
     NovaTable *tbl = nova_as_table(t);
-    if (idx < 0 || (uint32_t)idx >= tbl->array_used) {
+    if (idx < 0 || (uint32_t)idx >= nova_table_array_len(tbl)) {
         return 0;  /* End of iteration */
     }
 
-    NovaValue elem = tbl->array[(uint32_t)idx];
+    NovaValue elem = nova_table_get_int(tbl, idx);
     if (nova_is_nil(elem)) {
         return 0;  /* Stop at nil */
     }
@@ -950,98 +910,24 @@ static int nova_base_next(NovaVM *vm) {
     int nargs = nova_vm_get_top(vm);
     NovaValue key = (nargs >= 2) ? nova_vm_get(vm, 1) : nova_value_nil();
 
-    /* --- Array part traversal --- */
-    uint32_t array_start = 0;
-
+    /* Find the iterator cursor for the current key */
+    uint32_t iter_idx;
     if (nova_is_nil(key)) {
-        /* Start from beginning */
-        array_start = 0;
-    } else if (nova_is_integer(key) && nova_as_integer(key) >= 0 &&
-               (uint32_t)nova_as_integer(key) < tbl->array_used) {
-        /* Current key is an array index; advance past it */
-        array_start = (uint32_t)nova_as_integer(key) + 1;  /* 0-based, next index */
+        iter_idx = 0;
     } else {
-        /* Key is in hash part or not found -- skip array */
-        array_start = tbl->array_used;
-    }
-
-    /* Scan remaining array elements */
-    for (uint32_t i = array_start; i < tbl->array_used; i++) {
-        if (!nova_is_nil(tbl->array[i])) {
-            nova_vm_push_integer(vm, (nova_int_t)i);  /* 0-based key */
-            nova_vm_push_value(vm, tbl->array[i]);
-            return 2;
-        }
-    }
-
-    /* --- Hash part traversal --- */
-    uint32_t hash_start = 0;
-
-    if (!nova_is_nil(key) && !(nova_is_integer(key) &&
-        nova_as_integer(key) >= 0 && (uint32_t)nova_as_integer(key) < tbl->array_used)) {
-        /* Find the current key in the hash part and advance past it */
-        int found = 0;
-        if (nova_is_string(key) && tbl->hash_size > 0) {
-            uint64_t h = nova_str_hash(nova_as_string(key));
-            for (uint32_t j = 0; j < tbl->hash_size; j++) {
-                uint32_t slot = (uint32_t)((h + (uint64_t)j) &
-                    (uint64_t)(tbl->hash_size - 1));
-                if (!tbl->hash[slot].occupied) {
-                    break;
-                }
-                if (nova_is_string(tbl->hash[slot].key) &&
-                    nova_str_hash(nova_as_string(tbl->hash[slot].key)) == h &&
-                    nova_str_len(nova_as_string(tbl->hash[slot].key)) == nova_str_len(nova_as_string(key)) &&
-                    memcmp(nova_str_data(nova_as_string(tbl->hash[slot].key)),
-                           nova_str_data(nova_as_string(key)), nova_str_len(nova_as_string(key))) == 0) {
-                    hash_start = slot + 1;
-                    found = 1;
-                    break;
-                }
-            }
-        }
-        if (!found) {
-            /* Key not found — linear scan for any match */
-            for (uint32_t j = 0; j < tbl->hash_size; j++) {
-                if (tbl->hash[j].occupied) {
-                    /* Simple identity match for non-string keys */
-                    if (nova_typeof(tbl->hash[j].key) == nova_typeof(key)) {
-                        int match = 0;
-                        switch (nova_typeof(key)) {
-                            case NOVA_TYPE_INTEGER:
-                                match = (nova_as_integer(tbl->hash[j].key) == nova_as_integer(key));
-                                break;
-                            case NOVA_TYPE_NUMBER:
-                                match = (nova_as_number(tbl->hash[j].key) == nova_as_number(key));
-                                break;
-                            case NOVA_TYPE_BOOL:
-                                match = (nova_as_bool(tbl->hash[j].key) == nova_as_bool(key));
-                                break;
-                            default:
-                                break;
-                        }
-                        if (match) {
-                            hash_start = j + 1;
-                            found = 1;
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-        if (!found) {
-            /* Key was not in hash — return nil (end of iteration) */
+        iter_idx = nova_table_find_iter_idx(tbl, key);
+        if (iter_idx == (uint32_t)-1) {
+            /* Key was not found — end of iteration */
             return 0;
         }
     }
 
-    /* Scan remaining hash entries */
-    for (uint32_t j = hash_start; j < tbl->hash_size; j++) {
-        if (tbl->hash[j].occupied) {
-            nova_vm_push_value(vm, tbl->hash[j].key);
-            nova_vm_push_value(vm, tbl->hash[j].value);
-            return 2;
-        }
+    /* Get the next entry */
+    NovaValue out_key, out_val;
+    if (nova_table_next(tbl, &iter_idx, &out_key, &out_val)) {
+        nova_vm_push_value(vm, out_key);
+        nova_vm_push_value(vm, out_val);
+        return 2;
     }
 
     /* No more entries */
@@ -1095,7 +981,7 @@ static int nova_base_unpack(NovaVM *vm) {
     int nargs = nova_vm_get_top(vm);
     NovaTable *tbl = nova_as_table(t);
     nova_int_t i = 0;
-    nova_int_t j = (nova_int_t)tbl->array_used - 1;
+    nova_int_t j = (nova_int_t)nova_table_array_len(tbl) - 1;
 
     if (nargs >= 2) {
         NovaValue vi = nova_vm_get(vm, 1);
@@ -1112,10 +998,10 @@ static int nova_base_unpack(NovaVM *vm) {
 
     int count = 0;
     for (nova_int_t k = i; k <= j; k++) {
-        if (k < 0 || (uint32_t)k >= tbl->array_used) {
+        if (k < 0 || (uint32_t)k >= nova_table_array_len(tbl)) {
             nova_vm_push_nil(vm);
         } else {
-            nova_vm_push_value(vm, tbl->array[(uint32_t)k]);
+            nova_vm_push_value(vm, nova_table_get_int(tbl, k));
         }
         count++;
     }
@@ -1340,9 +1226,9 @@ static int nova_base_setmetatable(NovaVM *vm) {
 
     NovaValue mt = nova_vm_get(vm, 1);
     if (nova_is_nil(mt)) {
-        nova_as_table(t)->metatable = NULL;
+        nova_table_set_metatable(nova_as_table(t), NULL);
     } else if (nova_is_table(mt)) {
-        nova_as_table(t)->metatable = nova_as_table(mt);
+        nova_table_set_metatable(nova_as_table(t), nova_as_table(mt));
         /* Write barrier: table now references the metatable */
         nova_gc_barrier(vm, NOVA_GC_HDR(nova_as_table(t)));
     } else {
@@ -1367,9 +1253,11 @@ static int nova_base_getmetatable(NovaVM *vm) {
     }
 
     NovaValue obj = nova_vm_get(vm, 0);
-    if (nova_is_table(obj) && nova_as_table(obj)->metatable != NULL) {
+    if (nova_is_table(obj) &&
+        nova_table_get_metatable(nova_as_table(obj)) != NULL) {
         /* Check for __metatable field in the metatable */
-        nova_vm_push_value(vm, nova_value_table(nova_as_table(obj)->metatable));
+        nova_vm_push_value(vm,
+            nova_value_table(nova_table_get_metatable(nova_as_table(obj))));
     } else {
         nova_vm_push_nil(vm);
     }
@@ -1517,6 +1405,7 @@ static int nova_base_load(NovaVM *vm) {
 
 static const NovaLibReg nova_base_lib[] = {
     {"print",          nova_base_print},
+    {"echo",           nova_base_print},  /* alias for print */
     {"printf",         nova_base_printf},
     {"sprintf",        nova_base_sprintf},
     {"fprintf",        nova_base_fprintf},
@@ -1659,6 +1548,15 @@ int nova_open_libs(NovaVM *vm) {
         return -1;
     }
     if (nova_open_debug(vm) != 0) {
+        return -1;
+    }
+    if (nova_open_fs(vm) != 0) {
+        return -1;
+    }
+    if (nova_open_nlp(vm) != 0) {
+        return -1;
+    }
+    if (nova_open_tools(vm) != 0) {
         return -1;
     }
     /* Data modules (json, csv, ini, toml, html) are NOT auto-loaded.
