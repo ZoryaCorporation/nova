@@ -88,8 +88,12 @@
     #include <sys/types.h>
     #define nova_fs_stat      _stat
     #define nova_fs_stat_t    struct _stat
-    #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
-    #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+    #ifndef S_ISREG
+        #define S_ISREG(m) (((m) & _S_IFMT) == _S_IFREG)
+    #endif
+    #ifndef S_ISDIR
+        #define S_ISDIR(m) (((m) & _S_IFMT) == _S_IFDIR)
+    #endif
 #else
     #include <unistd.h>
     #include <sys/stat.h>

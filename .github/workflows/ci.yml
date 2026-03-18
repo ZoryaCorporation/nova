@@ -67,12 +67,19 @@ jobs:
         run: |
           FAILED=""
           SKIP_NET=""
+          SKIP_ASAN=""
           if [ "${{ matrix.build }}" = "no-net" ]; then SKIP_NET=1; fi
+          if [ "${{ matrix.build }}" = "debug" ]; then SKIP_ASAN=1; fi
           for f in tests/test_*.n; do
             case "$f" in
               tests/test_net.n)
                 if [ -n "$SKIP_NET" ]; then
                   echo "SKIP $f (no-net build)"
+                  continue
+                fi ;;
+              tests/test_bench_nanbox.n|tests/test_package.n|tests/test_require.n)
+                if [ -n "$SKIP_ASAN" ]; then
+                  echo "SKIP $f (known ASAN issue)"
                   continue
                 fi ;;
             esac

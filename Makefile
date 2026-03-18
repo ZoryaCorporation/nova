@@ -258,6 +258,10 @@ tools: dirs $(NTOOL_LIB) $(TOOL_BIN_TARGETS)
 $(NOVA_BUILD)/zorya_sqlite3.o: $(ZORYA_SRC)/sqlite3.c
 	$(CC) -std=c99 -O2 -DNDEBUG -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION $(INCLUDES) -c -o $@ $<
 
+# Compile vendored Weave with relaxed format-nonliteral (variadic wrappers)
+$(NOVA_BUILD)/zorya_weave.o: $(ZORYA_SRC)/weave.c
+	$(CC) $(CFLAGS) -Wno-format-nonliteral $(INCLUDES) -c -o $@ $<
+
 # Clean
 clean:
 	rm -rf $(NOVA_BUILD) $(NOVA_BIN) $(NTOOL_BUILD) $(TOOL_BIN_DIR)

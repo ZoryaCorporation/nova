@@ -2143,7 +2143,8 @@ void nova_parser_free(NovaParser *P) {
     if (P == NULL) {
         return;
     }
-    /* Parser doesn't own pp or any allocated state beyond error_msg */
+    /* Free the row-based AST arena if it was allocated */
+    nova_ast_table_destroy(&P->table);
     P->pp = NULL;
 }
 
