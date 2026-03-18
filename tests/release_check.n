@@ -1,0 +1,286 @@
+-- ============================================================
+-- Nova 0.2.0 Release Verification Script
+-- Zorya Corporation — Engineering Excellence, Democratized
+-- ============================================================
+-- Run with: ./bin/nova tests/release_check.n
+-- Every check prints [x] on pass or [-] on fail.
+-- Exit summary shows total pass/fail count.
+
+dec pass = 0
+dec fail = 0
+
+dec function check(ok, label)
+    if ok then
+        echo(`[x] ${label}`)
+        pass = pass + 1
+    else
+        echo(`[-] ${label}`)
+        fail = fail + 1
+    end
+end
+
+-- ============================================================
+-- 1. VERSION CONSISTENCY
+-- ============================================================
+echo("\n=== VERSION CONSISTENCY ===")
+
+dec ver = tostring(_VERSION)
+check(ver != nil, "Nova _VERSION is defined")
+check(type(ver) == "string", "_VERSION is a string")
+-- Accept "Nova 0.2.x" or just "0.2.x"
+dec has_02 = string.find(ver, "0.2") != nil
+check(has_02, `_VERSION contains 0.2 (got: ${ver})`)
+
+-- Check VERSION file via fs module
+dec vfile = fs.read("VERSION")
+if vfile then
+    -- Strip trailing newline
+    vfile = string.gsub(vfile, "\n", "")
+    check(string.find(vfile, "0.2") != nil,
+          `VERSION file contains 0.2 (got: ${vfile})`)
+else
+    check(false, "VERSION file readable")
+end
+
+-- ============================================================
+-- 2. ECHO PREFERRED OVER PRINT
+-- ============================================================
+echo("\n=== ECHO OUTPUT ===")
+
+check(type(echo) == "function", "echo is a function")
+check(type(print) == "function", "print exists as alias")
+
+-- ============================================================
+-- 3. VARARGS FORWARDING
+-- ============================================================
+echo("\n=== VARARGS FORWARDING ===")
+
+-- Basic: select("#", ...) inside vararg function
+dec function va_count(...)
+    return select("#", ...)
+end
+check(va_count(10, 20, 30) == 3, "select('#', ...) returns correct count")
+check(va_count() == 0, "select('#') with no args returns 0")
+check(va_count("a") == 1, "select('#', ...) single arg returns 1")
+
+-- Nested forwarding
+dec function va_inner(...)
+    return select("#", ...)
+end
+dec function va_outer(...)
+    return va_inner(...)
+end
+check(va_outer(1, 2, 3, 4, 5) == 5, "nested varargs forwarding preserves count")
+
+-- Mixed params + varargs
+dec function va_mixed(a, b, ...)
+    return a, b, select("#", ...)
+end
+dec a, b, n = va_mixed("x", "y", 1, 2, 3)
+check(a == "x", "mixed params: first param correct")
+check(b == "y", "mixed params: second param correct")
+check(n == 3, "mixed params: vararg count correct")
+
+-- echo(...) forwarding
+dec function va_log(...)
+    echo(...)
+end
+-- (This produces output; we just check it doesn't crash)
+check(pcall(va_log, "vararg", "forward", "test"), "echo(...) forwarding works")
+
+-- ============================================================
+-- 4. CORE LANGUAGE FEATURES
+-- ============================================================
+echo("\n=== CORE LANGUAGE ===")
+
+-- Arithmetic
+check(2 + 3 == 5, "integer addition")
+check(10 / 3 > 3.3 and 10 / 3 < 3.4, "float division")
+check(2 ^ 10 == 1024, "exponentiation")
+check(17 % 5 == 2, "modulo")
+
+-- Strings (0-based)
+dec s = "hello"
+check(s:len() == 5, "string:len()")
+check(s:upper() == "HELLO", "string:upper()")
+check(s:sub(0, 2) == "hel", "string:sub() 0-based")
+check(s:find("llo") != nil, "string:find()")
+
+-- Tables (0-based)
+dec t = {10, 20, 30}
+check(t[0] == 10, "table[0] is first element")
+check(t[1] == 20, "table[1] is second element")
+check(#t == 3, "table length operator")
+
+-- Closures
+dec function make_counter()
+    dec n = 0
+    return function()
+        n = n + 1
+        return n
+    end
+end
+dec counter = make_counter()
+check(counter() == 1, "closure call 1")
+check(counter() == 2, "closure call 2")
+check(counter() == 3, "closure call 3")
+
+-- String interpolation (backticks)
+dec who = "Nova"
+dec greeting = `hello ${who}`
+check(greeting == "hello Nova", "backtick string interpolation")
+
+-- Multi-return
+dec function multi()
+    return 1, 2, 3
+end
+dec x, y, z = multi()
+check(x == 1 and y == 2 and z == 3, "multi-return values")
+
+-- ============================================================
+-- 5. PCALL / XPCALL ERROR HANDLING
+-- ============================================================
+echo("\n=== ERROR HANDLING ===")
+
+dec ok, err = pcall(function() error("test error") end)
+check(not ok, "pcall catches error")
+check(type(err) == "string", "pcall error is string")
+
+dec xok, xerr = xpcall(
+    function() error("xtest") end,
+    function(e) return "CAUGHT: " .. e end
+)
+check(not xok, "xpcall catches error")
+check(string.find(xerr, "CAUGHT:") != nil, "xpcall handler transforms error")
+
+-- ============================================================
+-- 6. STANDARD LIBRARY MODULES
+-- ============================================================
+echo("\n=== STANDARD LIBRARY ===")
+
+check(type(math) == "table", "math module loaded")
+check(type(math.pi) == "number", "math.pi exists")
+check(math.abs(-5) == 5, "math.abs()")
+check(math.floor(3.7) == 3, "math.floor()")
+check(math.sqrt(16) == 4, "math.sqrt()")
+
+check(type(string) == "table", "string module loaded")
+check(string.rep("ab", 3) == "ababab", "string.rep()")
+check(string.reverse("abc") == "cba", "string.reverse()")
+
+check(type(table) == "table", "table module loaded")
+dec tt = {1, 2, 3}
+table.insert(tt, 4)
+check(#tt == 4, "table.insert()")
+
+check(type(os) == "table", "os module loaded")
+check(type(os.clock) == "function", "os.clock exists")
+
+check(type(io) == "table", "io module loaded")
+
+check(type(fs) == "table", "fs module loaded")
+check(type(fs.exists) == "function", "fs.exists()")
+check(fs.exists("Makefile"), "fs.exists detects Makefile")
+
+-- ============================================================
+-- 7. BYTECODE COMPILE/RUN
+-- ============================================================
+echo("\n=== BYTECODE ===")
+
+-- Write a small test script, compile it, run the .no
+dec bc_src = [[echo("BYTECODE_OK")]]
+dec bc_path = "/tmp/nova_release_bc_test.n"
+dec bc_out  = "/tmp/nova_release_bc_test.no"
+fs.write(bc_path, bc_src)
+check(fs.exists(bc_path), "bytecode test source written")
+
+dec cres = os.execute(`./bin/nova -c ${bc_path}`)
+check(cres == true, "bytecode compilation succeeds")
+check(fs.exists(bc_out), "compiled .no file exists")
+
+dec run_out = os.capture(`./bin/nova ${bc_out}`)
+dec bc_ok = run_out != nil and string.find(run_out, "BYTECODE_OK") != nil
+check(bc_ok, "bytecode execution produces correct output")
+
+-- Cleanup
+os.execute(`rm -f ${bc_path} ${bc_out}`)
+
+-- ============================================================
+-- 8. NINI CODEC
+-- ============================================================
+echo("\n=== NINI CODEC ===")
+
+#import nini
+
+dec nini_str = [[
+[server]
+host = localhost
+port = 8080
+debug = true
+tags = [web, api, v2]
+]]
+
+dec cfg = nini.decode(nini_str)
+check(cfg != nil, "nini.decode() succeeds")
+check(cfg.server != nil, "nini section parsed")
+check(cfg.server.host == "localhost", "nini string value")
+check(cfg.server.port == 8080, "nini integer value")
+check(cfg.server.debug == true, "nini boolean value")
+check(type(cfg.server.tags) == "table", "nini inline array parsed")
+check(#cfg.server.tags == 3, "nini inline array length correct")
+
+-- Round-trip
+dec encoded = nini.encode(cfg)
+check(type(encoded) == "string", "nini.encode() returns string")
+check(string.find(encoded, "localhost") != nil, "nini.encode() preserves data")
+
+-- ============================================================
+-- 9. DATA PROCESSING (NDP)
+-- ============================================================
+echo("\n=== DATA PROCESSING ===")
+
+#import json
+#import csv
+
+-- JSON decode
+dec jstr = '{"name":"Nova","version":"0.2.0","fast":true}'
+dec jobj = json.decode(jstr)
+check(jobj != nil, "json.decode() succeeds")
+check(jobj.name == "Nova", "json string field")
+check(jobj.fast == true, "json boolean field")
+
+-- JSON round-trip
+dec jenc = json.encode(jobj)
+check(type(jenc) == "string", "json.encode() returns string")
+check(string.find(jenc, "Nova") != nil, "json.encode() preserves data")
+
+-- CSV decode
+dec csv_str = "name,age,city\nAlice,30,NYC\nBob,25,LA\n"
+dec csv_data = csv.decode(csv_str)
+check(csv_data != nil, "csv.decode() succeeds")
+check(#csv_data >= 2, "csv.decode() returns rows")
+check(csv_data[0].name == "Alice", "csv row field access")
+
+-- ============================================================
+-- 10. FILESYSTEM OPS
+-- ============================================================
+echo("\n=== FILESYSTEM ===")
+
+check(fs.isfile("Makefile"), "fs.isfile() on Makefile")
+check(fs.isdir("src"), "fs.isdir() on src/")
+dec listing = fs.list("src")
+check(type(listing) == "table", "fs.list() returns table")
+check(#listing > 0, "fs.list() has entries")
+
+-- ============================================================
+-- SUMMARY
+-- ============================================================
+dec total = pass + fail
+echo(`\n============================================`)
+echo(`  RELEASE CHECK: ${pass}/${total} passed`)
+if fail > 0 then
+    echo(`  *** ${fail} CHECK(S) FAILED ***`)
+else
+    echo("  ALL CHECKS PASSED — READY FOR RELEASE")
+end
+echo("============================================")

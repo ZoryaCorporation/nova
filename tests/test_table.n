@@ -1,0 +1,226 @@
+-- ============================================================
+-- Nova Table Library Test Suite (Phase 10.1)
+-- Tests: insert, remove, concat, sort, move, pack, #, constructor
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== TABLE LIBRARY TESTS ===")
+
+-- ============================================================
+-- table.insert
+-- ============================================================
+print("\n-- table.insert --")
+
+dec t1 = {10, 20, 30}
+table.insert(t1, 40)
+check("insert at end: length", #t1, 4)
+check("insert at end: value", t1[3], 40)
+
+dec t2 = {1, 2, 3}
+table.insert(t2, 1, 99)
+check("insert at pos 1: t[0]", t2[0], 1)
+check("insert at pos 1: t[1]", t2[1], 99)
+check("insert at pos 1: t[2]", t2[2], 2)
+check("insert at pos 1: t[3]", t2[3], 3)
+check("insert at pos 1: length", #t2, 4)
+
+dec t3 = {}
+table.insert(t3, "first")
+check("insert into empty", t3[0], "first")
+check("insert into empty: length", #t3, 1)
+
+-- ============================================================
+-- table.remove
+-- ============================================================
+print("\n-- table.remove --")
+
+dec r1 = {10, 20, 30, 40}
+dec removed = table.remove(r1)
+check("remove end: returned", removed, 40)
+check("remove end: length", #r1, 3)
+
+dec r2 = {10, 20, 30, 40}
+dec removed2 = table.remove(r2, 1)
+check("remove pos 1: returned", removed2, 20)
+check("remove pos 1: r[0]", r2[0], 10)
+check("remove pos 1: r[1]", r2[1], 30)
+check("remove pos 1: length", #r2, 3)
+
+-- ============================================================
+-- table.concat
+-- ============================================================
+print("\n-- table.concat --")
+
+dec c1 = {"hello", "world", "foo"}
+dec joined = table.concat(c1, ", ")
+check("concat with sep", joined, "hello, world, foo")
+
+dec c2 = {"a", "b", "c"}
+dec joined2 = table.concat(c2, "")
+check("concat empty sep", joined2, "abc")
+
+dec c3 = {"only"}
+dec joined3 = table.concat(c3, "-")
+check("concat single element", joined3, "only")
+
+-- concat with range (i, j)
+dec c4 = {"a", "b", "c", "d", "e"}
+dec ranged = table.concat(c4, "-", 1, 3)
+check("concat with range", ranged, "b-c-d")
+
+-- ============================================================
+-- table.sort
+-- ============================================================
+print("\n-- table.sort --")
+
+dec s1 = {5, 3, 1, 4, 2}
+table.sort(s1)
+check("sort default: [0]", s1[0], 1)
+check("sort default: [1]", s1[1], 2)
+check("sort default: [2]", s1[2], 3)
+check("sort default: [3]", s1[3], 4)
+check("sort default: [4]", s1[4], 5)
+
+-- Sort with custom comparator (descending)
+dec s2 = {1, 2, 3, 4, 5}
+table.sort(s2, function(a, b) return a > b end)
+check("sort custom desc: [0]", s2[0], 5)
+check("sort custom desc: [1]", s2[1], 4)
+check("sort custom desc: [4]", s2[4], 1)
+
+-- Sort strings
+dec s3 = {"banana", "apple", "cherry"}
+table.sort(s3)
+check("sort strings: [0]", s3[0], "apple")
+check("sort strings: [1]", s3[1], "banana")
+check("sort strings: [2]", s3[2], "cherry")
+
+-- Already sorted
+dec s4 = {1, 2, 3}
+table.sort(s4)
+check("sort already sorted", s4[0] .. s4[1] .. s4[2], "123")
+
+-- Sort single element
+dec s5 = {42}
+table.sort(s5)
+check("sort single element", s5[0], 42)
+
+-- ============================================================
+-- table.move
+-- ============================================================
+print("\n-- table.move --")
+
+-- Returns destination table
+dec m1 = {10, 20, 30}
+dec ret = table.move(m1, 0, 2, 5)
+check("move returns table", ret == m1, true)
+
+-- Non-overlapping forward
+check("move fwd: m1[5]", m1[5], 10)
+check("move fwd: m1[6]", m1[6], 20)
+check("move fwd: m1[7]", m1[7], 30)
+
+-- Overlapping (dest > src)
+dec m2 = {1, 2, 3, 4, 5}
+table.move(m2, 0, 3, 1)
+check("move overlap: m2[1]", m2[1], 1)
+check("move overlap: m2[2]", m2[2], 2)
+check("move overlap: m2[3]", m2[3], 3)
+check("move overlap: m2[4]", m2[4], 4)
+
+-- Move to different table
+dec msrc = {10, 20, 30}
+dec mdst = {0, 0, 0, 0, 0}
+dec mret = table.move(msrc, 0, 2, 1, mdst)
+check("move a2: returns dst", mret == mdst, true)
+check("move a2: dst[1]", mdst[1], 10)
+check("move a2: dst[2]", mdst[2], 20)
+check("move a2: dst[3]", mdst[3], 30)
+
+-- Empty range
+dec m3 = {1, 2, 3}
+table.move(m3, 5, 3, 0)
+check("move empty range: unchanged", m3[0], 1)
+
+-- Array growth
+dec m4 = {1, 2}
+table.move(m4, 0, 1, 10)
+check("move growth: m4[10]", m4[10], 1)
+check("move growth: m4[11]", m4[11], 2)
+
+-- ============================================================
+-- table.pack
+-- ============================================================
+print("\n-- table.pack --")
+
+dec p1 = table.pack(10, 20, 30)
+check("pack: p[0]", p1[0], 10)
+check("pack: p[1]", p1[1], 20)
+check("pack: p[2]", p1[2], 30)
+
+dec p2 = table.pack("hello")
+check("pack single: p[0]", p2[0], "hello")
+
+dec p3 = table.pack()
+check("pack empty: type", type(p3), "table")
+
+-- ============================================================
+-- Length operator #
+-- ============================================================
+print("\n-- length operator --")
+
+dec l1 = {1, 2, 3, 4, 5}
+check("# basic", #l1, 5)
+
+dec l2 = {}
+check("# empty", #l2, 0)
+
+dec l3 = {"only"}
+check("# single", #l3, 1)
+
+-- ============================================================
+-- Constructor syntax
+-- ============================================================
+print("\n-- constructor syntax --")
+
+dec ct1 = {1, 2, 3}
+check("array ctor: [0]", ct1[0], 1)
+check("array ctor: [1]", ct1[1], 2)
+check("array ctor: len", #ct1, 3)
+
+dec ct2 = {x = 10, y = 20}
+check("hash ctor: x", ct2.x, 10)
+check("hash ctor: y", ct2.y, 20)
+
+dec ct3 = {1, 2, x = "hi", 3}
+check("mixed ctor: [0]", ct3[0], 1)
+check("mixed ctor: [1]", ct3[1], 2)
+check("mixed ctor: [2]", ct3[2], 3)
+check("mixed ctor: x", ct3.x, "hi")
+
+-- Nested tables
+dec ct4 = { {1, 2}, {3, 4} }
+check("nested: [0][0]", ct4[0][0], 1)
+check("nested: [1][1]", ct4[1][1], 4)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  TABLE TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("TABLE: " .. fail .. " test(s) FAILED")
+end

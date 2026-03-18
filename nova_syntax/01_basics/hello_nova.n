@@ -1,0 +1,28 @@
+-- ============================================================
+-- hello_nova.n — Your First Nova Program
+--
+-- Welcome! This is the simplest possible Nova script.
+-- Run it:  ./bin/nova nova_syntax/01_basics/hello_nova.n
+-- ============================================================
+
+-- echo: the simplest way to put text on screen
+echo "Hello, Nova!"
+echo "Welcome to the Zorya Corporation."
+
+-- Variables hold values
+dec name = "World"
+dec year = 2026
+
+-- Backtick strings let you embed expressions with ${}
+echo `Greetings, ${name}! The year is ${year}.`
+
+-- Numbers just work
+dec answer = 6 * 7
+echo `The answer to everything: ${answer}`
+
+-- Booleans
+dec nova_is_cool = true
+echo `Is Nova cool? ${tostring(nova_is_cool)}`
+
+-- That's it! You just wrote your first Nova program.
+echo "Done!"

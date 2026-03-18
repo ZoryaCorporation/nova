@@ -1,0 +1,356 @@
+-- test_async.n: Async/await runtime test suite
+-- Exercises async function declaration, await, spawn, and the
+-- task stdlib (task.run, task.spawn, task.sleep, task.status).
+
+echo("=== ASYNC/AWAIT TEST SUITE ===")
+echo("")
+
+dec checks = 0
+dec function check(name, cond)
+    checks = checks + 1
+    if cond then
+        echo("  [OK] " .. name)
+    else
+        echo("  [FAIL] " .. name)
+        error("Test failed: " .. name)
+    end
+end
+
+-- ============================================================
+-- TEST 1: Basic async function returns a task (coroutine)
+-- ============================================================
+echo("Test 1: Async function creates a task")
+
+async function simple_task()
+    return 42
+end
+
+dec t1 = simple_task()
+check("async call returns thread", type(t1) == "thread")
+check("task is suspended", coroutine.status(t1) == "suspended")
+
+-- ============================================================
+-- TEST 2: Await resolves a task
+-- ============================================================
+echo("Test 2: Await resolves a task")
+
+async function get_value()
+    return 99
+end
+
+dec result = nil
+async function test2_main()
+    result = await get_value()
+end
+task.run(test2_main)
+check("await returns correct value", result == 99)
+
+-- ============================================================
+-- TEST 3: Await with arguments
+-- ============================================================
+echo("Test 3: Async function with arguments")
+
+async function add(a, b)
+    return a + b
+end
+
+dec sum = nil
+async function test3_main()
+    sum = await add(17, 25)
+end
+task.run(test3_main)
+check("async args work", sum == 42)
+
+-- ============================================================
+-- TEST 4: Multiple awaits in sequence
+-- ============================================================
+echo("Test 4: Sequential awaits")
+
+async function double(x)
+    return x * 2
+end
+
+dec r1 = nil
+dec r2 = nil
+dec r3 = nil
+async function test4_main()
+    r1 = await double(5)
+    r2 = await double(10)
+    r3 = await double(r1 + r2)
+end
+task.run(test4_main)
+check("first await", r1 == 10)
+check("second await", r2 == 20)
+check("chained await", r3 == 60)
+
+-- ============================================================
+-- TEST 5: Await on non-task passes through
+-- ============================================================
+echo("Test 5: Await on non-task value")
+
+dec passthrough = nil
+async function test5_main()
+    passthrough = await 42
+end
+task.run(test5_main)
+check("await non-task passes through", passthrough == 42)
+
+-- ============================================================
+-- TEST 6: Nested async calls
+-- ============================================================
+echo("Test 6: Nested async calls")
+
+async function inner(x)
+    return x + 1
+end
+
+async function outer(x)
+    dec a = await inner(x)
+    dec b = await inner(a)
+    return b
+end
+
+dec nested = nil
+async function test6_main()
+    nested = await outer(10)
+end
+task.run(test6_main)
+check("nested async", nested == 12)
+
+-- ============================================================
+-- TEST 7: Async function with yield (cooperative)
+-- ============================================================
+echo("Test 7: Async with yield")
+
+async function yielding_task()
+    coroutine.yield(1)
+    coroutine.yield(2)
+    return 3
+end
+
+dec yielded_result = nil
+async function test7_main()
+    yielded_result = await yielding_task()
+end
+task.run(test7_main)
+check("yield through await returns final", yielded_result == 3)
+
+-- ============================================================
+-- TEST 8: Spawn registers a task
+-- ============================================================
+echo("Test 8: Spawn and task queue")
+
+dec spawn_log = {}
+
+async function worker(id)
+    table.insert(spawn_log, id)
+end
+
+async function test8_main()
+    dec _ = spawn worker(1)
+    dec _ = spawn worker(2)
+    dec _ = spawn worker(3)
+end
+task.run(test8_main)
+check("spawned tasks count", #spawn_log == 3)
+
+-- ============================================================
+-- TEST 9: task.spawn from stdlib
+-- ============================================================
+echo("Test 9: task.spawn stdlib")
+
+dec spawn_results = {}
+
+function recorder(val)
+    table.insert(spawn_results, val)
+end
+
+task.spawn(recorder, 100)
+task.spawn(recorder, 200)
+
+-- Run the event loop to drain spawned tasks
+async function drain_main()
+    -- no-op, just let spawned tasks run
+end
+task.run(drain_main)
+check("task.spawn tasks ran", #spawn_results == 2)
+
+-- ============================================================
+-- TEST 10: task.status
+-- ============================================================
+echo("Test 10: task.status")
+
+async function sleepy()
+    return "done"
+end
+
+dec ts = sleepy()
+check("status before await", task.status(ts) == "suspended")
+
+async function test10_main()
+    await ts
+end
+task.run(test10_main)
+check("status after await", task.status(ts) == "dead")
+
+-- ============================================================
+-- TEST 11: task.run with arguments
+-- ============================================================
+echo("Test 11: task.run with arguments")
+
+dec run_arg = nil
+async function with_args(x)
+    run_arg = x * 3
+end
+task.run(with_args, 7)
+check("task.run passes args", run_arg == 21)
+
+-- ============================================================
+-- TEST 12: Error propagation in await
+-- ============================================================
+echo("Test 12: Error propagation via pcall")
+
+async function failing_task()
+    error("boom")
+end
+
+-- pcall around task.run to catch the error
+dec ok12, err12 = pcall(task.run, failing_task)
+check("error propagates through await", ok12 == false)
+
+-- ============================================================
+-- TEST 13: Async with closures
+-- ============================================================
+echo("Test 13: Async with closures")
+
+function make_async_adder(base)
+    async function adder(x)
+        return base + x
+    end
+    return adder
+end
+
+dec add10 = make_async_adder(10)
+dec closure_result = nil
+async function test13_main()
+    closure_result = await add10(5)
+end
+task.run(test13_main)
+check("async closure preserves upvalue", closure_result == 15)
+
+-- ============================================================
+-- TEST 14: Async with loops
+-- ============================================================
+echo("Test 14: Async accumulator loop")
+
+async function accumulate(n)
+    dec sum = 0
+    for i = 1, n do
+        sum = sum + i
+    end
+    return sum
+end
+
+dec loop_sum = nil
+async function test14_main()
+    loop_sum = await accumulate(100)
+end
+task.run(test14_main)
+check("async loop accumulate", loop_sum == 5050)
+
+-- ============================================================
+-- TEST 15: Multiple concurrent spawns with shared state
+-- ============================================================
+echo("Test 15: Concurrent spawn with shared state")
+
+dec counter = 0
+
+async function increment()
+    counter = counter + 1
+    coroutine.yield()
+    counter = counter + 1
+end
+
+async function test15_main()
+    dec _ = spawn increment()
+    dec _ = spawn increment()
+    dec _ = spawn increment()
+    coroutine.yield()  -- let spawned tasks run one tick
+    coroutine.yield()  -- let them finish
+end
+task.run(test15_main)
+check("concurrent increments", counter == 6)
+
+-- ============================================================
+-- TEST 16: task.wrap
+-- ============================================================
+echo("Test 16: task.wrap")
+
+function plain_function()
+    return 77
+end
+
+dec wrapped = task.wrap(plain_function)
+check("wrap returns thread", type(wrapped) == "thread")
+check("wrapped is suspended", coroutine.status(wrapped) == "suspended")
+
+-- Resume the wrapped function
+dec ok16, v16 = coroutine.resume(wrapped)
+check("wrapped executes", ok16 == true)
+check("wrapped value", v16 == 77)
+
+-- ============================================================
+-- TEST 17: GC safety under async
+-- ============================================================
+echo("Test 17: GC safety with async tasks")
+
+dec gc_results = {}
+
+async function gc_worker(id)
+    -- Create garbage to trigger GC
+    for i = 1, 1000 do
+        dec a = i
+        dec b = i + 1
+        dec c = i + 2
+        dec t = {a, b, c}
+        dec _ = t
+    end
+    table.insert(gc_results, id)
+end
+
+async function test17_main()
+    for i = 1, 5 do
+        dec _ = spawn gc_worker(i)
+    end
+    coroutine.yield()  -- let workers run
+end
+task.run(test17_main)
+check("GC safe async", #gc_results == 5)
+
+-- ============================================================
+-- TEST 18: Deep async nesting
+-- ============================================================
+echo("Test 18: Deep async nesting")
+
+async function deep(n)
+    if n <= 0 then
+        return 0
+    end
+    dec sub = await deep(n - 1)
+    return sub + 1
+end
+
+dec depth = nil
+async function test18_main()
+    depth = await deep(20)
+end
+task.run(test18_main)
+check("deep async nesting", depth == 20)
+
+-- ============================================================
+-- SUMMARY
+-- ============================================================
+echo("")
+echo("=== ASYNC/AWAIT TEST SUITE COMPLETE ===")
+echo("Checks passed: " .. checks)
+echo("")

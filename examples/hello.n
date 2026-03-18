@@ -1,0 +1,47 @@
+-- hello.n  --  First Nova program
+-- Tests basic language features
+
+#define GREETING "Hello from Nova!"
+#define VERSION  "0.2.0"
+
+print(GREETING)
+printf("Nova v%s -- ready.\n", VERSION)
+
+-- Variables
+dec x = 42
+dec name = "Nova"
+dec pi = 3.14159
+
+-- Arithmetic
+dec result = (x * 2) + 10
+printf("The answer is: %d\n", result)
+
+-- Tables (0-indexed!)
+dec colors = { "red", "green", "blue" }
+printf("First color: %s\n", colors[0])
+
+-- Functions
+function factorial(n)
+    if n <= 1 then
+        return 1
+    end
+    return n * factorial(n - 1)
+end
+
+printf("10! = %d\n", factorial(10))
+
+-- For loop
+for i = 0, 4 do
+    printf("  i = %d\n", i)
+end
+
+-- Table constructor
+dec player = {
+    name = "Zorya",
+    hp = 100,
+    level = 1,
+}
+
+printf("Player: %s (HP: %d)\n", player.name, player.hp)
+
+print("Done!")

@@ -1,0 +1,515 @@
+-- ============================================================
+-- goto_advanced.n — Advanced Goto & Label Patterns
+--
+-- Goto is Nova's lowest-level control flow primitive. It jumps
+-- execution unconditionally to a named label (::label::).
+-- Used wisely, it replaces multi-level break, implements
+-- cleanup-on-error, builds state machines, and pairs with
+-- coroutines for blazing-fast data pipelines.
+--
+-- This showcase goes from essential patterns to "black magic."
+-- Every section explains WHY you'd reach for goto.
+--
+-- Run:  ./bin/nova nova_syntax/03_control_flow/goto_advanced.n
+-- ============================================================
+
+echo "=== Advanced Goto & Label Patterns ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 1: The "continue" Idiom
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Nova (like Lua 5.2+) has no continue keyword. Goto fills
+-- that gap. Place the label at the end of the loop body.
+--
+--   for i = 0, n do
+--       if skip_condition then goto continue end
+--       -- work here --
+--       ::continue::
+--   end
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 1: Continue Idiom ---"
+
+-- Collect only odd numbers from a range
+dec odds = {}
+dec oi = 0
+for i = 0, 19 do
+    if i % 2 == 0 then goto next_i end   -- skip evens
+    odds[oi] = i
+    oi = oi + 1
+    ::next_i::
+end
+printf("  Odd numbers (0-19): collected %d values\n", oi)
+printf("  First: %d  Last: %d\n", odds[0], odds[oi - 1])
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 2: Multi-Level Break
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- `break` exits only the innermost loop. Sometimes you need
+-- to bail out of a deeply nested search. Goto jumps straight
+-- to a label outside ALL the loops.
+--
+--   for ...
+--       for ...
+--           if found then goto done end
+--       end
+--   end
+--   ::done::
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 2: Multi-Level Break ---"
+
+-- Search a 2D grid for a target value
+dec grid = {
+    {1, 2, 3, 4, 5},
+    {6, 7, 8, 9, 10},
+    {11, 12, 13, 14, 15},
+    {16, 17, 18, 19, 20}
+}
+dec target = 13
+dec found_row = -1
+dec found_col = -1
+
+for r = 0, #grid - 1 do
+    dec row = grid[r]
+    for c = 0, #row - 1 do
+        if row[c] == target then
+            found_row = r
+            found_col = c
+            goto found_it           -- break out of BOTH loops
+        end
+    end
+end
+::found_it::
+printf("  Found %d at grid[%d][%d]\n", target, found_row, found_col)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 3: Cleanup-on-Error (the "goto cleanup")
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- This is the classic C pattern: allocate resources, do work,
+-- and if anything fails, jump to a cleanup section at the end
+-- that releases resources in reverse order.
+--
+-- In Nova we don't manage raw memory, but the pattern shines
+-- for multi-step operations where each step can fail and you
+-- need to undo prior steps.
+--
+--   function do_work()
+--       -- step 1
+--       if bad then goto cleanup end
+--       -- step 2
+--       if bad then goto cleanup end
+--       -- success path
+--       return result
+--       ::cleanup::
+--       -- undo steps in reverse order
+--       return nil, "error message"
+--   end
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 3: Cleanup-on-Error ---"
+
+dec function deploy_pipeline(stages)
+    -- Track which stages succeeded so cleanup knows what to undo
+    dec completed = {}
+    dec ci = 0
+
+    for i = 0, #stages - 1 do
+        dec stage = stages[i]
+        -- Simulate a failure on stage "test" if data has a bug
+        if stage == "FAIL" then
+            printf("  [FAIL] Stage '%s' failed!\n", stage)
+            goto cleanup
+        end
+        printf("  [ OK ] Stage '%s' completed\n", stage)
+        completed[ci] = stage
+        ci = ci + 1
+    end
+
+    -- If we get here, all stages passed
+    printf("  Pipeline succeeded (%d stages)\n", ci)
+    do return true end
+
+    ::cleanup::
+    -- Undo completed stages in reverse order
+    echo "  Rolling back..."
+    for j = ci - 1, 0, -1 do
+        printf("    Undo: %s\n", completed[j])
+    end
+    return false
+end
+
+-- Successful pipeline
+dec ok1 = deploy_pipeline({"build", "lint", "test", "deploy"})
+printf("  Result: %s\n", tostring(ok1))
+
+echo ""
+
+-- Failing pipeline (FAIL triggers rollback)
+dec ok2 = deploy_pipeline({"build", "lint", "FAIL", "deploy"})
+printf("  Result: %s\n", tostring(ok2))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 4: Finite State Machine
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- A goto-based state machine is brutally simple: each state is
+-- a label, transitions are gotos. No tables, no dispatch, no
+-- overhead. The code reads like a flowchart.
+--
+-- This FSM tokenizes a simple number format: optional sign,
+-- digits, optional decimal point, more digits.
+--
+-- States: START -> SIGN -> INTEGER -> DECIMAL -> FRACTION -> DONE/ERROR
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 4: Finite State Machine ---"
+
+dec function classify_number(input)
+    dec pos = 0
+    dec len = #input
+    dec ch = ""          -- declared up front so gotos don't jump over it
+
+    -- For readability we use a small goto-based dispatcher.
+    -- Each label is a state; each goto is a transition arrow.
+
+    ::state_start::
+    if pos >= len then goto state_error end
+    ch = string.sub(input, pos, pos)
+    if ch == "+" or ch == "-" then
+        pos = pos + 1
+        goto state_integer       -- sign consumed, expect digits
+    end
+    if ch >= "0" and ch <= "9" then
+        goto state_integer       -- no sign, go straight to digits
+    end
+    goto state_error
+
+    ::state_integer::
+    if pos >= len then goto state_done end  -- all digits consumed
+    ch = string.sub(input, pos, pos)
+    if ch >= "0" and ch <= "9" then
+        pos = pos + 1
+        goto state_integer       -- eat more digits
+    end
+    if ch == "." then
+        pos = pos + 1
+        goto state_fraction      -- decimal point, expect fraction
+    end
+    goto state_error             -- unexpected character
+
+    ::state_fraction::
+    if pos >= len then goto state_done end  -- "3." is valid
+    ch = string.sub(input, pos, pos)
+    if ch >= "0" and ch <= "9" then
+        pos = pos + 1
+        goto state_fraction      -- eat fraction digits
+    end
+    goto state_error             -- unexpected after decimal
+
+    ::state_done::
+    do return "valid" end
+
+    ::state_error::
+    do return "invalid" end
+end
+
+dec test_numbers = {
+    "+42", "-3.14", "100", "7.", ".5", "12.34", "abc", "12x5"
+}
+-- Note: ".5" starts with "." which is not a digit or sign -> invalid
+-- in our strict FSM. That's by design to show the state logic.
+
+for i = 0, #test_numbers - 1 do
+    dec num = test_numbers[i]
+    printf("  %-8s -> %s\n", num, classify_number(num))
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 5: Retry with Backoff
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- When an operation might transiently fail (network, file I/O),
+-- a goto-based retry loop is clean and readable. Jump back to
+-- the retry label to try again.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 5: Retry with Backoff ---"
+
+dec function flaky_operation(attempt)
+    -- Simulate: succeeds on 3rd try
+    if attempt < 3 then
+        return false, "connection timeout"
+    end
+    return true, "data received"
+end
+
+dec attempt = 0
+dec max_retries = 5
+
+::retry::
+attempt = attempt + 1
+dec ok, msg = flaky_operation(attempt)
+if ok then
+    printf("  Attempt %d: SUCCESS - %s\n", attempt, msg)
+    goto retry_done
+end
+printf("  Attempt %d: FAILED  - %s\n", attempt, msg)
+if attempt < max_retries then
+    goto retry           -- jump back = retry
+end
+echo "  Max retries exceeded!"
+
+::retry_done::
+printf("  Completed after %d attempts\n", attempt)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 6: Goto + Coroutines — Fast Data Pipeline
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Here's the "black magic": we use a coroutine as a data
+-- generator (yielding records one at a time), and inside
+-- the consumer function we use goto for fast-path branching:
+--
+--   1. Coroutine yields raw records (simulating a data stream)
+--   2. Consumer resumes the coroutine in a loop
+--   3. Consumer uses goto to classify and dispatch each record
+--      (skip invalid, accumulate valid, bail on poison pill)
+--   4. Results are collected in a table and returned
+--
+-- WHY mix goto + coroutines?
+--   - Coroutines give lazy, memory-efficient data streaming
+--   - Goto gives zero-overhead branching within the hot loop
+--   - Together: you get a pipeline that processes millions of
+--     records with no function-call overhead per classification
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 6: Goto + Coroutine Pipeline ---"
+
+-- Generator: yields data records (some valid, some bad, one poison)
+dec function data_stream()
+    dec records = {
+        {id = 1, value = 42,   status = "ok"},
+        {id = 2, value = -1,   status = "error"},
+        {id = 3, value = 100,  status = "ok"},
+        {id = 4, value = 0,    status = "skip"},
+        {id = 5, value = 77,   status = "ok"},
+        {id = 6, value = 999,  status = "poison"},   -- stop signal
+        {id = 7, value = 50,   status = "ok"}        -- never reached
+    }
+    for i = 0, #records - 1 do
+        coroutine.yield(records[i])
+    end
+end
+
+-- Consumer: pulls records from coroutine, classifies with goto
+dec function process_stream()
+    dec co = coroutine.create(data_stream)
+    dec results = {}
+    dec ri = 0
+    dec skipped = 0
+    dec errors = 0
+
+    ::pull_next::
+    dec ok, record = coroutine.resume(co)
+    if not ok or record == nil then goto done end
+
+    -- Fast-path classification using goto
+    if record.status == "poison" then
+        echo "  [STOP] Poison pill received, halting pipeline"
+        goto done
+    end
+    if record.status == "error" then
+        errors = errors + 1
+        printf("  [ERR ] Record %d: error (value=%d)\n", record.id, record.value)
+        goto pull_next                -- skip to next record
+    end
+    if record.status == "skip" then
+        skipped = skipped + 1
+        printf("  [SKIP] Record %d: skipped\n", record.id)
+        goto pull_next                -- skip to next record
+    end
+
+    -- Valid record: accumulate
+    printf("  [ OK ] Record %d: value=%d\n", record.id, record.value)
+    results[ri] = record.value
+    ri = ri + 1
+    goto pull_next                    -- pull next record
+
+    ::done::
+    return results, ri, skipped, errors
+end
+
+dec values, count, skipped, errs = process_stream()
+echo ""
+printf("  Pipeline results: %d valid, %d skipped, %d errors\n",
+       count, skipped, errs)
+dec total = 0
+for i = 0, count - 1 do
+    total = total + values[i]
+end
+printf("  Sum of valid values: %d\n", total)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 7: Nested Goto with Scope Awareness
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Important rule: goto CANNOT jump into a block that introduces
+-- a new dec variable. It CAN jump forward over code and CAN
+-- jump backward (but be careful — infinite loops!).
+--
+-- This example shows a multi-phase data validator where each
+-- phase can short-circuit to the next phase or to the end.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 7: Multi-Phase Validator ---"
+
+dec function validate(name, age, email)
+    dec issues = {}
+    dec ii = 0
+    dec has_at = false       -- hoisted so gotos don't jump over it
+
+    -- Phase 1: name check
+    if name == nil or name == "" then
+        issues[ii] = "name is required"
+        ii = ii + 1
+        goto phase2              -- skip further name checks
+    end
+    if #name < 2 then
+        issues[ii] = "name too short"
+        ii = ii + 1
+    end
+
+    ::phase2::
+    -- Phase 2: age check
+    if age == nil then
+        issues[ii] = "age is required"
+        ii = ii + 1
+        goto phase3
+    end
+    if age < 0 or age > 150 then
+        issues[ii] = "age out of range"
+        ii = ii + 1
+    end
+
+    ::phase3::
+    -- Phase 3: email check (simple: must contain @)
+    if email == nil or email == "" then
+        issues[ii] = "email is required"
+        ii = ii + 1
+        goto verdict
+    end
+    -- Check for @ character
+    has_at = false
+    for i = 0, #email - 1 do
+        if string.sub(email, i, i) == "@" then
+            has_at = true
+        end
+    end
+    if not has_at then
+        issues[ii] = "email must contain @"
+        ii = ii + 1
+    end
+
+    ::verdict::
+    if ii == 0 then
+        return true, "valid"
+    end
+    -- Build error string
+    dec msg = issues[0]
+    for i = 1, ii - 1 do
+        msg = msg .. "; " .. issues[i]
+    end
+    return false, msg
+end
+
+dec test_cases = {
+    {name = "Alice",  age = 30,  email = "alice@example.com"},
+    {name = "",       age = 25,  email = "bob@example.com"},
+    {name = "C",      age = -5,  email = "bad-email"},
+    {name = "Diana",  age = 28,  email = ""},
+    {name = "Eve",    age = 200, email = "eve@test.org"}
+}
+
+for i = 0, #test_cases - 1 do
+    dec tc = test_cases[i]
+    dec ok, msg = validate(tc.name, tc.age, tc.email)
+    dec status = "PASS"
+    if not ok then status = "FAIL" end
+    printf("  [%s] name=%-8s age=%-4s email=%-20s => %s\n",
+           status,
+           tostring(tc.name),
+           tostring(tc.age),
+           tostring(tc.email),
+           msg)
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- PATTERN 8: Computed Dispatch Table with Goto Fallback
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Sometimes you can't easily express complex dispatch logic
+-- in a single if/elseif chain. Here we combine a lookup table
+-- with goto as the "unknown command" fallback.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Pattern 8: Command Dispatcher ---"
+
+dec function execute_commands(commands)
+    dec output = {}
+    dec oi = 0
+
+    for i = 0, #commands - 1 do
+        dec cmd = commands[i]
+
+        -- Known commands handled inline
+        if cmd == "PUSH" then
+            output[oi] = "pushed"
+            oi = oi + 1
+            goto next_cmd
+        end
+        if cmd == "POP" then
+            if oi > 0 then
+                oi = oi - 1
+            end
+            goto next_cmd
+        end
+        if cmd == "DUP" then
+            if oi > 0 then
+                output[oi] = output[oi - 1]
+                oi = oi + 1
+            end
+            goto next_cmd
+        end
+        if cmd == "HALT" then
+            echo "  HALT encountered, stopping execution"
+            goto halt
+        end
+
+        -- Unknown command: skip with warning
+        printf("  WARNING: unknown command '%s', skipping\n", cmd)
+        ::next_cmd::
+    end
+
+    ::halt::
+    printf("  Stack depth: %d\n", oi)
+    for j = 0, oi - 1 do
+        printf("  stack[%d] = %s\n", j, output[j])
+    end
+end
+
+execute_commands({"PUSH", "PUSH", "DUP", "BOGUS", "PUSH", "POP", "HALT", "PUSH"})
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Summary
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n=== Goto Patterns Summary ==="
+echo "  1. Continue      — skip loop iterations (no 'continue' keyword)"
+echo "  2. Multi-Break   — escape nested loops in one jump"
+echo "  3. Cleanup       — undo steps on failure (C-style cleanup)"
+echo "  4. State Machine — labels as states, gotos as transitions"
+echo "  5. Retry         — backward jump for retry loops"
+echo "  6. Coroutine+    — lazy streaming with goto classification"
+echo "  7. Validator     — multi-phase short-circuit logic"
+echo "  8. Dispatcher    — command processor with fallback"
+echo ""
+echo "Goto is a precision tool. Used in these patterns, it makes"
+echo "complex control flow SIMPLER, not harder to read."
+echo ""
+echo "=== All Goto Examples Complete ==="

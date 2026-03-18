@@ -1,0 +1,9 @@
+# ============================================================================
+# Nova Language - Git Attributes
+#
+# Copyright (c) 2026 Zorya Corporation
+# ============================================================================
+
+# --- Linguist: language detection ---
+*.n  linguist-language=Lua
+*.m  linguist-language=Lua

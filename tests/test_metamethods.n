@@ -1,0 +1,222 @@
+-- ============================================================
+-- Nova Metamethod Test Suite
+-- Tests the centralized nova_meta.c pipeline
+-- ============================================================
+
+print("=== METAMETHOD TESTS ===")
+
+-- --------------------------------------------------------
+-- TEST 1: __index with table chaining (prototype pattern)
+-- --------------------------------------------------------
+print("\n-- Test 1: __index table chaining --")
+
+dec base = { greeting = "hello" }
+dec child = {}
+setmetatable(child, { __index = base })
+
+print("child.greeting = " .. child.greeting)  -- should print "hello"
+assert(child.greeting == "hello", "__index table chain failed")
+print("Test 1: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 2: __index with function
+-- --------------------------------------------------------
+print("\n-- Test 2: __index function --")
+
+dec proxy = {}
+setmetatable(proxy, {
+    __index = function(t, k)
+        return "default_" .. k
+    end
+})
+
+dec val = proxy.foo
+print("proxy.foo = " .. val)
+assert(val == "default_foo", "__index function failed")
+print("Test 2: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 3: __newindex with function
+-- --------------------------------------------------------
+print("\n-- Test 3: __newindex function --")
+
+dec store = {}
+dec readonly = {}
+setmetatable(readonly, {
+    __newindex = function(t, k, v)
+        store[k] = v  -- redirect writes to store
+    end,
+    __index = store
+})
+
+readonly.x = 42
+print("readonly.x = " .. tostring(readonly.x))
+assert(readonly.x == 42, "__newindex redirect failed")
+assert(store.x == 42, "__newindex store failed")
+print("Test 3: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 4: __add metamethod
+-- --------------------------------------------------------
+print("\n-- Test 4: __add --")
+
+dec Vec = {}
+Vec.__index = Vec
+
+function Vec.new(x, y)
+    dec v = { x = x, y = y }
+    setmetatable(v, Vec)
+    return v
+end
+
+Vec.__add = function(a, b)
+    return Vec.new(a.x + b.x, a.y + b.y)
+end
+
+dec v1 = Vec.new(1, 2)
+dec v2 = Vec.new(3, 4)
+dec v3 = v1 + v2
+print("v1 + v2 = (" .. v3.x .. ", " .. v3.y .. ")")
+assert(v3.x == 4, "__add x failed")
+assert(v3.y == 6, "__add y failed")
+print("Test 4: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 5: __sub metamethod
+-- --------------------------------------------------------
+print("\n-- Test 5: __sub --")
+
+Vec.__sub = function(a, b)
+    return Vec.new(a.x - b.x, a.y - b.y)
+end
+
+dec v4 = v2 - v1
+print("v2 - v1 = (" .. v4.x .. ", " .. v4.y .. ")")
+assert(v4.x == 2, "__sub x failed")
+assert(v4.y == 2, "__sub y failed")
+print("Test 5: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 6: __mul metamethod
+-- --------------------------------------------------------
+print("\n-- Test 6: __mul --")
+
+Vec.__mul = function(a, b)
+    if type(b) == "integer" or type(b) == "number" then
+        return Vec.new(a.x * b, a.y * b)
+    else
+        return Vec.new(a.x * b.x, a.y * b.y)
+    end
+end
+
+dec v5 = v1 * 3
+print("v1 * 3 = (" .. v5.x .. ", " .. v5.y .. ")")
+assert(v5.x == 3, "__mul scalar x failed")
+assert(v5.y == 6, "__mul scalar y failed")
+print("Test 6: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 7: __eq metamethod
+-- --------------------------------------------------------
+print("\n-- Test 7: __eq --")
+
+Vec.__eq = function(a, b)
+    return a.x == b.x and a.y == b.y
+end
+
+dec va = Vec.new(5, 10)
+dec vb = Vec.new(5, 10)
+dec vc = Vec.new(5, 11)
+
+-- Note: va and vb are different tables, so raw equality = false.
+-- But with __eq, they should be equal.
+assert(va == vb, "__eq same coords failed")
+assert(not (va == vc), "__eq diff coords should be false")
+print("Test 7: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 8: __len metamethod
+-- --------------------------------------------------------
+print("\n-- Test 8: __len --")
+
+Vec.__len = function(v)
+    return math.sqrt(v.x * v.x + v.y * v.y)
+end
+
+dec magnitude = #Vec.new(3, 4)
+print("|Vec(3,4)| = " .. magnitude)
+assert(magnitude == 5, "__len failed (expected 5, got " .. magnitude .. ")")
+print("Test 8: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 9: __tostring metamethod
+-- --------------------------------------------------------
+print("\n-- Test 9: __tostring --")
+
+Vec.__tostring = function(v)
+    return "Vec(" .. v.x .. ", " .. v.y .. ")"
+end
+
+dec s = tostring(Vec.new(7, 8))
+print("tostring(Vec(7,8)) = " .. s)
+assert(s == "Vec(7, 8)", "__tostring failed: " .. s)
+print("Test 9: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 10: __unm (unary minus) metamethod
+-- --------------------------------------------------------
+print("\n-- Test 10: __unm --")
+
+Vec.__unm = function(v)
+    return Vec.new(-v.x, -v.y)
+end
+
+dec v6 = -Vec.new(3, -7)
+print("-Vec(3,-7) = (" .. v6.x .. ", " .. v6.y .. ")")
+assert(v6.x == -3, "__unm x failed")
+assert(v6.y == 7, "__unm y failed")
+print("Test 10: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 11: __index chain depth (2 levels)
+-- --------------------------------------------------------
+print("\n-- Test 11: __index 2-level chain --")
+
+dec grandparent = { legacy = "ancient" }
+dec parent = {}
+setmetatable(parent, { __index = grandparent })
+dec child2 = {}
+setmetatable(child2, { __index = parent })
+
+print("child2.legacy = " .. child2.legacy)
+assert(child2.legacy == "ancient", "2-level __index chain failed")
+print("Test 11: PASSED")
+
+-- --------------------------------------------------------
+-- TEST 12: Raw access bypasses metamethods
+-- --------------------------------------------------------
+print("\n-- Test 12: rawget/rawset bypass --")
+
+dec guarded = {}
+setmetatable(guarded, {
+    __index = function(t, k)
+        return "intercepted"
+    end,
+    __newindex = function(t, k, v)
+        rawset(t, k, v * 2)  -- double the value
+    end
+})
+
+guarded.val = 10                       -- __newindex: stores 20
+assert(rawget(guarded, "val") == 20, "rawset in __newindex failed")
+print("rawget(guarded, 'val') = " .. rawget(guarded, "val"))
+
+-- rawget on missing key should return nil (no __index)
+dec rg = rawget(guarded, "missing")
+assert(rg == nil, "rawget should bypass __index")
+print("Test 12: PASSED")
+
+-- --------------------------------------------------------
+-- SUMMARY
+-- --------------------------------------------------------
+print("\n=== ALL METAMETHOD TESTS PASSED ===")

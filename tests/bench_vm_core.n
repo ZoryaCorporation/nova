@@ -1,0 +1,644 @@
+-- ==========================================================
+-- bench_vm_core.n - VM Core Dispatch Microbenchmarks
+--
+-- Measures the raw throughput of Nova's computed-goto dispatch
+-- loop across every major opcode category. Each benchmark
+-- isolates a single operation type and runs it at multiple
+-- scales to reveal scaling behavior.
+--
+-- Categories:
+--   1. Arithmetic (add, sub, mul, div, mod, pow, unary minus)
+--   2. Comparison (lt, le, eq, neq, gt, ge)
+--   3. Logical operators (and, or, not)
+--   4. Variable access (dec read/write, upvalue read/write)
+--   5. Loop dispatch (numeric for, while, repeat)
+--   6. Branch cost (if/elseif chains)
+--   7. Integer vs float arithmetic
+--   8. Constant folding verification
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec TOTAL_START = os.clock()
+
+echo("================================================================")
+echo("  NOVA VM CORE DISPATCH MICROBENCHMARKS")
+echo("  " .. os.date())
+echo("================================================================")
+
+-- ── Helpers ──────────────────────────────────────────────
+
+dec function header(name)
+    printf("\n── %s ─────────────────────────────────────\n", name)
+end
+
+dec function row(label, elapsed, ops)
+    dec rate = ops / elapsed
+    dec unit = "ops/sec"
+    if rate >= 1e9 then
+        printf("  %-40s %8.4f sec  %7.2f G%s\n", label, elapsed, rate / 1e9, unit)
+    elseif rate >= 1e6 then
+        printf("  %-40s %8.4f sec  %7.2f M%s\n", label, elapsed, rate / 1e6, unit)
+    elseif rate >= 1e3 then
+        printf("  %-40s %8.4f sec  %7.2f K%s\n", label, elapsed, rate / 1e3, unit)
+    else
+        printf("  %-40s %8.4f sec  %7.2f  %s\n", label, elapsed, rate, unit)
+    end
+end
+
+dec function sep()
+    echo("")
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("1. INTEGER ARITHMETIC")
+-- ═══════════════════════════════════════════════════════════
+
+-- 1a. Addition (1M, 5M, 10M)
+do
+    dec N = 1000000
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + i end
+    dec e = os.clock() - s
+    row("int add (1M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + i end
+    dec e = os.clock() - s
+    row("int add (5M)", e, N)
+end
+
+do
+    dec N = 10000000
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + i end
+    dec e = os.clock() - s
+    row("int add (10M)", e, N)
+end
+
+sep()
+
+-- 1b. Subtraction
+do
+    dec N = 5000000
+    dec diff = 999999999
+    dec s = os.clock()
+    for i = 0, N - 1 do diff = diff - 1 end
+    dec e = os.clock() - s
+    row("int sub (5M)", e, N)
+end
+
+-- 1c. Multiplication
+do
+    dec N = 5000000
+    dec prod = 1
+    dec s = os.clock()
+    for i = 1, N do prod = i * 3 end
+    dec e = os.clock() - s
+    row("int mul (5M)", e, N)
+end
+
+-- 1d. Division
+do
+    dec N = 5000000
+    dec q = 0
+    dec s = os.clock()
+    for i = 1, N do q = i / 3 end
+    dec e = os.clock() - s
+    row("int div (5M)", e, N)
+end
+
+-- 1e. Modulo
+do
+    dec N = 5000000
+    dec r = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do r = i % 7 end
+    dec e = os.clock() - s
+    row("int mod (5M)", e, N)
+end
+
+-- 1f. Unary minus
+do
+    dec N = 5000000
+    dec x = 42
+    dec s = os.clock()
+    for i = 0, N - 1 do x = -x end
+    dec e = os.clock() - s
+    row("int unary minus (5M)", e, N)
+end
+
+-- 1g. Mixed arithmetic (add + mul + mod per iteration)
+do
+    dec N = 5000000
+    dec x = 0
+    dec s = os.clock()
+    for i = 1, N do x = (x + i * 3) % 1000000 end
+    dec e = os.clock() - s
+    row("int mixed add+mul+mod (5M)", e, N * 3)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("2. FLOATING-POINT ARITHMETIC")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 5000000
+    dec sum = 0.0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + 0.5 end
+    dec e = os.clock() - s
+    row("float add (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec prod = 1.0
+    dec s = os.clock()
+    for i = 1, N do prod = i * 1.5 end
+    dec e = os.clock() - s
+    row("float mul (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec q = 0.0
+    dec s = os.clock()
+    for i = 1, N do q = i / 3.7 end
+    dec e = os.clock() - s
+    row("float div (5M)", e, N)
+end
+
+do
+    dec N = 2000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = i ^ 0.5 end
+    dec e = os.clock() - s
+    row("float pow/sqrt (2M)", e, N)
+end
+
+sep()
+
+-- Int vs float comparison at same scale
+do
+    dec N = 5000000
+    dec xi = 0
+    dec s1 = os.clock()
+    for i = 0, N - 1 do xi = xi + 1 end
+    dec t_int = os.clock() - s1
+
+    dec xf = 0.0
+    dec s2 = os.clock()
+    for i = 0, N - 1 do xf = xf + 1.0 end
+    dec t_flt = os.clock() - s2
+
+    row("int increment (5M)", t_int, N)
+    row("float increment (5M)", t_flt, N)
+    dec ratio = t_flt / t_int
+    printf("  %-40s %.2fx\n", "float/int ratio:", ratio)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("3. COMPARISON OPERATORS")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i < 2500000 then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("int less-than (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i <= 2500000 then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("int less-equal (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i == 9999999 then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("int equality (5M, miss)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec c = 0
+    dec target = 42
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if target == 42 then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("int equality (5M, hit)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i != 42 then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("int not-equal (5M)", e, N)
+end
+
+sep()
+
+-- String comparison
+do
+    dec N = 1000000
+    dec a = "hello_world"
+    dec b = "hello_world"
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if a == b then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("string eq same intern (1M)", e, N)
+end
+
+do
+    dec N = 1000000
+    dec a = "hello_world_left"
+    dec b = "hello_world_right"
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if a == b then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("string eq diff intern (1M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("4. LOGICAL OPERATORS")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 5000000
+    dec a = true
+    dec b = true
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = a and b end
+    dec e = os.clock() - s
+    row("and (true,true) (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec a = false
+    dec b = true
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = a and b end
+    dec e = os.clock() - s
+    row("and (false,true) short-circuit (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec a = false
+    dec b = true
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = a or b end
+    dec e = os.clock() - s
+    row("or (false,true) (5M)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec a = true
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = not a end
+    dec e = os.clock() - s
+    row("not (5M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("5. VARIABLE ACCESS PATTERNS")
+-- ═══════════════════════════════════════════════════════════
+
+-- 5a. Local read
+do
+    dec N = 5000000
+    dec x = 42
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + x end
+    dec e = os.clock() - s
+    row("dec read (5M)", e, N)
+end
+
+-- 5b. Local write
+do
+    dec N = 5000000
+    dec x = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do x = i end
+    dec e = os.clock() - s
+    row("dec write (5M)", e, N)
+end
+
+-- 5c. Upvalue read
+do
+    dec N = 5000000
+    dec x = 42
+    dec function reader()
+        dec sum = 0
+        for i = 0, N - 1 do sum = sum + x end
+        return sum
+    end
+    dec s = os.clock()
+    reader()
+    dec e = os.clock() - s
+    row("upvalue read (5M)", e, N)
+end
+
+-- 5d. Upvalue write
+do
+    dec N = 5000000
+    dec x = 0
+    dec function writer()
+        for i = 0, N - 1 do x = i end
+    end
+    dec s = os.clock()
+    writer()
+    dec e = os.clock() - s
+    row("upvalue write (5M)", e, N)
+end
+
+-- 5e. Global read
+GLOBAL_VAL = 42
+do
+    dec N = 2000000
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + GLOBAL_VAL end
+    dec e = os.clock() - s
+    row("global read (2M)", e, N)
+end
+
+-- 5f. Global write
+do
+    dec N = 2000000
+    dec s = os.clock()
+    for i = 0, N - 1 do GLOBAL_VAL = i end
+    dec e = os.clock() - s
+    row("global write (2M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("6. LOOP DISPATCH OVERHEAD")
+-- ═══════════════════════════════════════════════════════════
+
+-- Numeric for at multiple scales
+do
+    for _, n in ipairs({100000, 500000, 1000000, 5000000, 10000000}) do
+        dec sum = 0
+        dec s = os.clock()
+        for i = 0, n - 1 do sum = sum + 1 end
+        dec e = os.clock() - s
+        row(sprintf("numeric for (%s)", n >= 1000000 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)), e, n)
+    end
+end
+
+sep()
+
+-- While loop at multiple scales
+do
+    for _, n in ipairs({100000, 500000, 1000000, 5000000, 10000000}) do
+        dec sum = 0
+        dec i = 0
+        dec s = os.clock()
+        while i < n do sum = sum + 1; i = i + 1 end
+        dec e = os.clock() - s
+        row(sprintf("while loop (%s)", n >= 1000000 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)), e, n)
+    end
+end
+
+sep()
+
+-- Numeric for with step
+do
+    dec N = 5000000
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N * 2 - 1, 2 do sum = sum + 1 end
+    dec e = os.clock() - s
+    row("numeric for step=2 (5M iters)", e, N)
+end
+
+do
+    dec N = 5000000
+    dec sum = 0
+    dec s = os.clock()
+    for i = N, 1, -1 do sum = sum + 1 end
+    dec e = os.clock() - s
+    row("numeric for countdown (5M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("7. BRANCH COST")
+-- ═══════════════════════════════════════════════════════════
+
+-- Single if
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i > 0 then c = c + 1 end
+    end
+    dec e = os.clock() - s
+    row("single if (5M)", e, N)
+end
+
+-- if-else
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i % 2 == 0 then c = c + 1
+        else c = c + 2 end
+    end
+    dec e = os.clock() - s
+    row("if-else (5M)", e, N)
+end
+
+-- if-elseif-else (4 branches)
+do
+    dec N = 5000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec m = i % 4
+        if m == 0 then c = c + 1
+        elseif m == 1 then c = c + 2
+        elseif m == 2 then c = c + 3
+        else c = c + 4 end
+    end
+    dec e = os.clock() - s
+    row("if/4-branch (5M)", e, N)
+end
+
+-- if-elseif chain (8 branches)
+do
+    dec N = 2000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec m = i % 8
+        if m == 0 then c = c + 1
+        elseif m == 1 then c = c + 2
+        elseif m == 2 then c = c + 3
+        elseif m == 3 then c = c + 4
+        elseif m == 4 then c = c + 5
+        elseif m == 5 then c = c + 6
+        elseif m == 6 then c = c + 7
+        else c = c + 8 end
+    end
+    dec e = os.clock() - s
+    row("if/8-branch (2M)", e, N)
+end
+
+-- if-elseif chain (16 branches)
+do
+    dec N = 1000000
+    dec c = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec m = i % 16
+        if m == 0 then c = c + 1
+        elseif m == 1 then c = c + 2
+        elseif m == 2 then c = c + 3
+        elseif m == 3 then c = c + 4
+        elseif m == 4 then c = c + 5
+        elseif m == 5 then c = c + 6
+        elseif m == 6 then c = c + 7
+        elseif m == 7 then c = c + 8
+        elseif m == 8 then c = c + 9
+        elseif m == 9 then c = c + 10
+        elseif m == 10 then c = c + 11
+        elseif m == 11 then c = c + 12
+        elseif m == 12 then c = c + 13
+        elseif m == 13 then c = c + 14
+        elseif m == 14 then c = c + 15
+        else c = c + 16 end
+    end
+    dec e = os.clock() - s
+    row("if/16-branch (1M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("8. MATH LIBRARY THROUGHPUT")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 2000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.sqrt(i) end
+    dec e = os.clock() - s
+    row("math.sqrt (2M)", e, N)
+end
+
+do
+    dec N = 2000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.abs(-i) end
+    dec e = os.clock() - s
+    row("math.abs (2M)", e, N)
+end
+
+do
+    dec N = 2000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.floor(i + 0.7) end
+    dec e = os.clock() - s
+    row("math.floor (2M)", e, N)
+end
+
+do
+    dec N = 1000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.sin(i * 0.001) end
+    dec e = os.clock() - s
+    row("math.sin (1M)", e, N)
+end
+
+do
+    dec N = 1000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.cos(i * 0.001) end
+    dec e = os.clock() - s
+    row("math.cos (1M)", e, N)
+end
+
+do
+    dec N = 1000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.log(i + 1) end
+    dec e = os.clock() - s
+    row("math.log (1M)", e, N)
+end
+
+do
+    dec N = 1000000
+    dec r = 0.0
+    dec s = os.clock()
+    for i = 1, N do r = math.exp(i * 0.000001) end
+    dec e = os.clock() - s
+    row("math.exp (1M)", e, N)
+end
+
+do
+    dec N = 2000000
+    dec r = 0
+    dec s = os.clock()
+    for i = 1, N do r = math.random(1, 1000) end
+    dec e = os.clock() - s
+    row("math.random (2M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("SUMMARY")
+-- ═══════════════════════════════════════════════════════════
+
+dec TOTAL_ELAPSED = os.clock() - TOTAL_START
+printf("\n  Total benchmark time: %.4f sec\n", TOTAL_ELAPSED)
+echo("================================================================")
+echo("  VM Core Dispatch Microbenchmarks COMPLETE")
+echo("================================================================")

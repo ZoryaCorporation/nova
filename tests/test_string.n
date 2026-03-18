@@ -1,0 +1,340 @@
+-- ============================================================
+-- test_string.n - String Pattern Matching Test Suite
+--
+-- Tests: find, match, gsub, gmatch with Lua-compatible patterns
+-- Author: Anthony Taliento
+-- Date: 2026-07-21
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expect)
+    if got == expect then
+        pass = pass + 1
+    else
+        fail = fail + 1
+        print("FAIL: " .. name)
+        print("  expected: " .. tostring(expect))
+        print("  got:      " .. tostring(got))
+    end
+end
+
+print("============================================")
+print("  STRING PATTERN MATCHING TESTS")
+print("============================================")
+
+-- ============================================================
+-- PART 1: string.find with patterns
+-- ============================================================
+print("\n--- find ---")
+do
+
+-- Basic literal find (backward-compatible)
+dec s, e = string.find("hello world", "world")
+check("find literal", s, 6)
+check("find literal end", e, 10)
+
+-- Digit class
+s, e = string.find("abc 123 def", "%d+")
+check("find %d+", s, 4)
+check("find %d+ end", e, 6)
+
+-- Letter class
+s, e = string.find("123abc456", "%a+")
+check("find %a+", s, 3)
+check("find %a+ end", e, 5)
+
+-- Whitespace class
+s, e = string.find("hello   world", "%s+")
+check("find %s+", s, 5)
+check("find %s+ end", e, 7)
+
+-- Any char (.)
+s, e = string.find("abc", "..")
+check("find ..", s, 0)
+check("find .. end", e, 1)
+
+-- Anchor ^
+s, e = string.find("hello", "^hello$")
+check("find ^hello$", s, 0)
+
+s = string.find("hello", "^world")
+check("find ^world (no match)", s, nil)
+
+-- Anchor $ only
+s, e = string.find("hello", "lo$")
+check("find lo$", s, 3)
+
+-- init parameter
+s, e = string.find("abcabc", "abc", 1)
+check("find with init", s, 3)
+
+-- plain flag
+s, e = string.find("hello %d+", "%d+", 0, true)
+check("find plain %d+", s, 6)
+
+-- Quantifier *
+s, e = string.find("aaa bbb", "%a*")
+check("find %a* start", s, 0)
+
+-- Quantifier +
+s = string.find("   hello", "%a+")
+check("find %a+ skip spaces", s, 3)
+
+-- Quantifier ?
+s, e = string.find("color", "colou?r")
+check("find optional u (no u)", s, 0)
+s, e = string.find("colour", "colou?r")
+check("find optional u (with u)", s, 0)
+
+-- Complement class %D (non-digit)
+dec m = string.match("abc123", "%D+")
+check("match %D+", m, "abc")
+
+-- Hex class
+m = string.match("deadBEEF!", "%x+")
+check("match %x+", m, "deadBEEF")
+
+-- Uppercase class
+m = string.match("Hello World", "%u%l+")
+check("match %u%l+", m, "Hello")
+
+-- Punctuation class
+m = string.match("hello, world!", "%p")
+check("match %p", m, ",")
+
+end -- PART 1
+
+-- ============================================================
+-- PART 2: Character sets [...]
+-- ============================================================
+print("\n--- character sets ---")
+do
+
+dec m = string.match("hello", "[helo]+")
+check("set [helo]+", m, "hello")
+
+m = string.match("abc123", "[a-z]+")
+check("set [a-z]+", m, "abc")
+
+m = string.match("ABC123", "[A-Z]+")
+check("set [A-Z]+", m, "ABC")
+
+m = string.match("abc123", "[0-9]+")
+check("set [0-9]+", m, "123")
+
+-- Complement set
+m = string.match("abc123", "[^%a]+")
+check("set [^%%a]+", m, "123")
+
+m = string.match("hello world", "[^ ]+")
+check("set [^ ]+", m, "hello")
+
+end -- PART 2
+
+-- ============================================================
+-- PART 3: string.match with captures
+-- ============================================================
+print("\n--- match with captures ---")
+do
+
+-- Single capture
+dec m = string.match("hello 123 world", "(%d+)")
+check("match (%d+)", m, "123")
+
+-- Multiple captures
+dec y, mo, d = string.match("2026-02-12", "(%d+)-(%d+)-(%d+)")
+check("capture year", y, "2026")
+check("capture month", mo, "02")
+check("capture day", d, "12")
+
+-- Nested captures
+dec outer, inner = string.match("((hello))", "%((.-)%)")
+-- Note: this tests escaped parens and lazy match
+-- Actually, let's do a simpler nested capture test
+dec a, b = string.match("hello world", "((%w+))")
+check("nested outer", a, "hello")
+check("nested inner", b, "hello")
+
+-- Greedy vs lazy
+m = string.match("<b>bold</b>", "<(.-)>")
+check("lazy match", m, "b")
+
+m = string.match("<b>bold</b>", "<(.+)>")
+check("greedy match", m, "b>bold</b")
+
+-- No captures: returns whole match
+m = string.match("hello 123", "%d+")
+check("match no capture", m, "123")
+
+-- No match returns nil
+m = string.match("hello", "%d+")
+check("match no match", m, nil)
+
+-- match with init
+m = string.match("abc abc", "%a+", 4)
+check("match with init", m, "abc")
+
+end -- PART 3
+
+-- ============================================================
+-- PART 4: string.gsub with patterns
+-- ============================================================
+print("\n--- gsub ---")
+do
+
+-- Basic pattern gsub
+dec r, n = string.gsub("hello world", "%w+", "X")
+check("gsub %w+ -> X", r, "X X")
+check("gsub %w+ count", n, 2)
+
+-- Capture substitution
+r, n = string.gsub("hello world", "(%w+)", "[%1]")
+check("gsub capture ref", r, "[hello] [world]")
+
+-- Max replacements
+r, n = string.gsub("aaa", "a", "b", 2)
+check("gsub max 2", r, "bba")
+check("gsub max 2 count", n, 2)
+
+-- Empty match substitution
+r = string.gsub("abc", "x*", "-")
+-- %x* matches empty string at every position
+-- Result: -a-b-c-
+check("gsub empty match", r, "-a-b-c-")
+
+-- Digit replacement
+r = string.gsub("phone: 123-456-7890", "%d", "#")
+check("gsub digits", r, "phone: ###-###-####")
+
+-- %0 whole match reference
+r = string.gsub("abc", "%a", "(%0)")
+check("gsub %0 ref", r, "(a)(b)(c)")
+
+-- Escaped % in replacement
+r = string.gsub("100", "%d+", "%%")
+check("gsub escaped %%", r, "%")
+
+-- Anchored gsub
+r, n = string.gsub("hello world", "^%w+", "X")
+check("gsub anchored", r, "X world")
+check("gsub anchored count", n, 1)
+
+end -- PART 4
+
+-- ============================================================
+-- PART 5: string.gmatch
+-- ============================================================
+print("\n--- gmatch ---")
+do
+
+-- Basic word extraction
+dec words = string.gmatch("one two three", "%w+")
+check("gmatch count", #words, 3)
+check("gmatch[0]", words[0], "one")
+check("gmatch[1]", words[1], "two")
+check("gmatch[2]", words[2], "three")
+
+-- Digit extraction
+dec nums = string.gmatch("x=10, y=20, z=30", "%d+")
+check("gmatch nums count", #nums, 3)
+check("gmatch nums[0]", nums[0], "10")
+check("gmatch nums[1]", nums[1], "20")
+check("gmatch nums[2]", nums[2], "30")
+
+-- Single capture gmatch
+dec caps = string.gmatch("key1=val1&key2=val2", "(%w+)=%w+")
+check("gmatch caps count", #caps, 2)
+check("gmatch caps[0]", caps[0], "key1")
+check("gmatch caps[1]", caps[1], "key2")
+
+-- No matches
+dec empty = string.gmatch("hello", "%d+")
+check("gmatch no matches", #empty, 0)
+
+end -- PART 5
+
+-- ============================================================
+-- PART 6: Back-references
+-- ============================================================
+print("\n--- back-references ---")
+do
+
+-- %1 back-reference
+dec m = string.match("abcabc", "(%w+)%1")
+check("backref %1", m, "abc")
+
+-- No backref match
+m = string.match("abcdef", "(%w+)%1")
+check("backref no match", m, nil)
+
+end -- PART 6
+
+-- ============================================================
+-- PART 7: %b balance
+-- ============================================================
+print("\n--- balance ---")
+do
+
+dec m = string.match("(hello (world))", "%b()")
+check("balance ()", m, "(hello (world))")
+
+m = string.match("{nested {braces}}", "%b{}")
+check("balance {}", m, "{nested {braces}}")
+
+end -- PART 7
+
+-- ============================================================
+-- PART 8: Escaped special chars
+-- ============================================================
+print("\n--- escapes ---")
+do
+
+-- Literal dot
+dec m = string.match("file.txt", "%.txt")
+check("escaped dot", m, ".txt")
+
+-- Literal brackets
+dec s = string.find("[test]", "%[test%]")
+check("escaped brackets", s, 0)
+
+-- Literal percent
+m = string.match("100%", "%d+%%")
+check("escaped percent", m, "100%")
+
+end -- PART 8
+
+-- ============================================================
+-- PART 9: Edge cases
+-- ============================================================
+print("\n--- edge cases ---")
+do
+
+-- Empty string
+dec m = string.match("", "%a+")
+check("empty string", m, nil)
+
+-- Pattern that matches everything
+m = string.match("hello", ".*")
+check("match .*", m, "hello")
+
+-- Single char
+m = string.match("a", ".")
+check("single char", m, "a")
+
+-- Repeated find with init
+dec s = string.find("aaaa", "a", 2)
+check("find with init 2", s, 2)
+
+end -- PART 9
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+print("\n============================================")
+print("  RESULTS: " .. pass .. "/" .. (pass + fail))
+if fail > 0 then
+    print("  FAILURES: " .. fail)
+end
+print("============================================")

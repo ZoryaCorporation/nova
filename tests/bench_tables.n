@@ -1,0 +1,608 @@
+-- ==========================================================
+-- bench_tables.n - DAGGER Hash Table Performance Analysis
+--
+-- Nova tables are backed by DAGGER (Dual-Action Guaranteed
+-- Grab Engine for Records) — Robin Hood hashing with Cuckoo
+-- fallback. This benchmark suite measures table performance
+-- at multiple scales and across access patterns:
+--
+--   1. Integer-key insert scaling (1K → 1M)
+--   2. String-key insert scaling (1K → 500K)
+--   3. Integer-key lookup scaling (1K → 1M)
+--   4. String-key lookup scaling (1K → 500K)
+--   5. Mixed-key patterns
+--   6. Table growth and rehash cost
+--   7. Nested table access chains
+--   8. table.insert / table.remove
+--   9. table.sort at multiple sizes
+--   10. table.concat at multiple sizes
+--   11. pairs() iteration
+--   12. ipairs() iteration
+--   13. Table construction patterns
+--   14. Hash collision resistance
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec TOTAL_START = os.clock()
+
+echo("================================================================")
+echo("  NOVA DAGGER TABLE PERFORMANCE ANALYSIS")
+echo("  " .. os.date())
+echo("================================================================")
+
+-- ── Helpers ──────────────────────────────────────────────
+
+dec function header(name)
+    printf("\n── %s ─────────────────────────────────────\n", name)
+end
+
+dec function row(label, elapsed, ops)
+    dec rate = ops / elapsed
+    if rate >= 1e6 then
+        printf("  %-42s %8.4f sec  %7.2f Mops/sec\n", label, elapsed, rate / 1e6)
+    elseif rate >= 1e3 then
+        printf("  %-42s %8.4f sec  %7.2f Kops/sec\n", label, elapsed, rate / 1e3)
+    else
+        printf("  %-42s %8.4f sec  %7.2f  ops/sec\n", label, elapsed, rate)
+    end
+end
+
+dec function sep()
+    echo("")
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("1. INTEGER-KEY INSERT SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({1000, 5000, 10000, 50000, 100000, 500000, 1000000}) do
+        dec t = {}
+        dec s = os.clock()
+        for i = 0, n - 1 do t[i] = i end
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or (n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n))
+        row(sprintf("int-key insert (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("2. STRING-KEY INSERT SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({1000, 5000, 10000, 50000, 100000, 500000}) do
+        dec t = {}
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            t[sprintf("key_%d", i)] = i
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("string-key insert (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("3. INTEGER-KEY LOOKUP SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({1000, 10000, 100000, 500000, 1000000}) do
+        -- Build table first
+        dec t = {}
+        for i = 0, n - 1 do t[i] = i end
+
+        -- Measure lookups
+        dec sum = 0
+        dec s = os.clock()
+        for i = 0, n - 1 do sum = sum + t[i] end
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        row(sprintf("int-key lookup (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("4. STRING-KEY LOOKUP SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({1000, 10000, 50000, 100000, 500000}) do
+        -- Build table with string keys
+        dec t = {}
+        dec keys = {}
+        for i = 0, n - 1 do
+            keys[i] = sprintf("key_%d", i)
+            t[keys[i]] = i
+        end
+
+        -- Measure lookups
+        dec sum = 0
+        dec s = os.clock()
+        for i = 0, n - 1 do sum = sum + t[keys[i]] end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("string-key lookup (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("5. MIXED-KEY PATTERNS")
+-- ═══════════════════════════════════════════════════════════
+
+-- Alternating int and string keys
+do
+    dec N = 100000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if i % 2 == 0 then
+            t[i] = i
+        else
+            t[sprintf("s%d", i)] = i
+        end
+    end
+    dec e = os.clock() - s
+    row("mixed int/string insert (100K)", e, N)
+end
+
+-- Struct-like table (small, fixed keys)
+do
+    dec N = 500000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec obj = { x = i, y = i + 1, z = i + 2, w = i + 3 }
+        dec sum = obj.x + obj.y + obj.z + obj.w
+    end
+    dec e = os.clock() - s
+    row("struct {x,y,z,w} create+read (500K)", e, N)
+end
+
+-- Config-like table (10 string keys)
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec cfg = {
+            host = "localhost",
+            port = 8080,
+            debug = true,
+            name = "nova",
+            version = "0.2.0",
+            workers = 4,
+            timeout = 30,
+            ssl = false,
+            log_level = "info",
+            max_conns = 1000
+        }
+        dec _ = cfg.host .. cfg.name .. cfg.version
+    end
+    dec e = os.clock() - s
+    row("10-key config create+read (100K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("6. TABLE GROWTH & REHASH COST")
+-- ═══════════════════════════════════════════════════════════
+
+-- Incremental growth from empty
+do
+    dec N = 500000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do t[i] = true end
+    dec e = os.clock() - s
+    row("grow from empty to 500K", e, N)
+end
+
+-- Pre-populated then overwrite (no growth)
+do
+    dec N = 500000
+    dec t = {}
+    for i = 0, N - 1 do t[i] = 0 end  -- pre-populate
+
+    dec s = os.clock()
+    for i = 0, N - 1 do t[i] = i * 2 end  -- overwrite
+    dec e = os.clock() - s
+    row("overwrite 500K (no growth)", e, N)
+end
+
+sep()
+
+-- Measure the cost of growth by comparing sequential insert
+-- at powers of 2 (where rehash occurs)
+do
+    printf("  %-42s %8s  %12s\n", "Sequential insert batch", "seconds", "batch rate")
+    printf("  %-42s %8s  %12s\n", string.rep("-", 42), "--------", "------------")
+    dec t = {}
+    dec prev_end = 0
+    for _, target in ipairs({128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536}) do
+        dec s = os.clock()
+        for i = prev_end, target - 1 do t[i] = i end
+        dec e = os.clock() - s
+        dec batch = target - prev_end
+        dec rate = batch / e
+        printf("  %-42s %8.6f  %10.0f/sec\n", sprintf("insert %d → %d (%d new)", prev_end, target, batch), e, rate)
+        prev_end = target
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("7. NESTED TABLE ACCESS")
+-- ═══════════════════════════════════════════════════════════
+
+-- 1-level deep
+do
+    dec N = 2000000
+    dec t = { val = 42 }
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + t.val end
+    dec e = os.clock() - s
+    row("1-level t.val (2M)", e, N)
+end
+
+-- 2-level deep
+do
+    dec N = 2000000
+    dec t = { inner = { val = 42 } }
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + t.inner.val end
+    dec e = os.clock() - s
+    row("2-level t.inner.val (2M)", e, N)
+end
+
+-- 3-level deep
+do
+    dec N = 2000000
+    dec t = { a = { b = { val = 42 } } }
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + t.a.b.val end
+    dec e = os.clock() - s
+    row("3-level t.a.b.val (2M)", e, N)
+end
+
+-- 4-level deep
+do
+    dec N = 1000000
+    dec t = { a = { b = { c = { val = 42 } } } }
+    dec sum = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do sum = sum + t.a.b.c.val end
+    dec e = os.clock() - s
+    row("4-level t.a.b.c.val (1M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("8. TABLE.INSERT / TABLE.REMOVE")
+-- ═══════════════════════════════════════════════════════════
+
+-- table.insert (append)
+do
+    for _, n in ipairs({10000, 50000, 100000, 500000}) do
+        dec t = {}
+        dec s = os.clock()
+        for i = 0, n - 1 do table.insert(t, i) end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("table.insert append (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- table.remove from end
+do
+    dec N = 100000
+    dec t = {}
+    for i = 0, N - 1 do t[i] = i end
+    dec s = os.clock()
+    for i = 0, N - 1 do table.remove(t) end
+    dec e = os.clock() - s
+    row("table.remove from end (100K)", e, N)
+end
+
+-- table.insert at position 0 (worst case: shifts all elements)
+do
+    dec N = 10000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do table.insert(t, 0, i) end
+    dec e = os.clock() - s
+    row("table.insert at pos 0 (10K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("9. TABLE.SORT SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    math.randomseed(12345)
+    for _, n in ipairs({1000, 5000, 10000, 50000, 100000}) do
+        -- Random data
+        dec t = {}
+        for i = 0, n - 1 do t[i] = math.random(1, 1000000) end
+
+        dec s = os.clock()
+        table.sort(t)
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("sort random ints (%s)", label), e, n)
+    end
+end
+
+sep()
+
+do
+    -- Already sorted (best case for some algorithms)
+    for _, n in ipairs({10000, 50000, 100000}) do
+        dec t = {}
+        for i = 0, n - 1 do t[i] = i end
+
+        dec s = os.clock()
+        table.sort(t)
+        dec e = os.clock() - s
+        dec label = sprintf("%.0fK", n/1e3)
+        row(sprintf("sort pre-sorted (%s)", label), e, n)
+    end
+end
+
+sep()
+
+do
+    -- Reverse sorted (worst case for naive quicksort)
+    for _, n in ipairs({10000, 50000, 100000}) do
+        dec t = {}
+        for i = 0, n - 1 do t[i] = n - i end
+
+        dec s = os.clock()
+        table.sort(t)
+        dec e = os.clock() - s
+        dec label = sprintf("%.0fK", n/1e3)
+        row(sprintf("sort reverse (%s)", label), e, n)
+    end
+end
+
+sep()
+
+do
+    -- Sort with custom comparator
+    dec N = 50000
+    dec t = {}
+    math.randomseed(54321)
+    for i = 0, N - 1 do t[i] = math.random(1, 1000000) end
+
+    dec s = os.clock()
+    table.sort(t, function(a, b) return a > b end)
+    dec e = os.clock() - s
+    row("sort with comparator fn (50K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("10. TABLE.CONCAT SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({100, 1000, 5000, 10000, 50000}) do
+        dec t = {}
+        for i = 0, n - 1 do t[i] = sprintf("item_%d", i) end
+
+        dec s = os.clock()
+        dec result = table.concat(t, ",")
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("table.concat (%s strings)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("11. PAIRS() ITERATION")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({1000, 10000, 50000, 100000, 500000}) do
+        -- Integer-keyed
+        dec t = {}
+        for i = 0, n - 1 do t[i] = i end
+
+        dec sum = 0
+        dec s = os.clock()
+        for k, v in pairs(t) do sum = sum + v end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("pairs() int-keys (%s)", label), e, n)
+    end
+end
+
+sep()
+
+do
+    for _, n in ipairs({1000, 10000, 50000, 100000}) do
+        -- String-keyed
+        dec t = {}
+        for i = 0, n - 1 do t[sprintf("k%d", i)] = i end
+
+        dec sum = 0
+        dec s = os.clock()
+        for k, v in pairs(t) do sum = sum + v end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("pairs() string-keys (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("12. IPAIRS() ITERATION")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({1000, 10000, 50000, 100000, 500000}) do
+        dec t = {}
+        for i = 0, n - 1 do t[i] = i end
+
+        dec sum = 0
+        dec s = os.clock()
+        for i, v in ipairs(t) do sum = sum + v end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("ipairs() (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- pairs vs ipairs vs numeric-for comparison
+do
+    dec N = 500000
+    dec t = {}
+    for i = 0, N - 1 do t[i] = i end
+
+    dec sum1 = 0
+    dec s1 = os.clock()
+    for k, v in pairs(t) do sum1 = sum1 + v end
+    dec t_pairs = os.clock() - s1
+
+    dec sum2 = 0
+    dec s2 = os.clock()
+    for i, v in ipairs(t) do sum2 = sum2 + v end
+    dec t_ipairs = os.clock() - s2
+
+    dec sum3 = 0
+    dec s3 = os.clock()
+    for i = 0, N - 1 do sum3 = sum3 + t[i] end
+    dec t_numfor = os.clock() - s3
+
+    row("pairs() 500K", t_pairs, N)
+    row("ipairs() 500K", t_ipairs, N)
+    row("numeric for + t[i] 500K", t_numfor, N)
+    printf("  %-42s pairs=%.2fx  ipairs=%.2fx\n", "vs numeric-for:", t_pairs / t_numfor, t_ipairs / t_numfor)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("13. TABLE CONSTRUCTION PATTERNS")
+-- ═══════════════════════════════════════════════════════════
+
+-- Empty table creation
+do
+    dec N = 1000000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec t = {}
+    end
+    dec e = os.clock() - s
+    row("empty table create (1M)", e, N)
+end
+
+-- Literal table (4 fields)
+do
+    dec N = 500000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec t = { a = 1, b = 2, c = 3, d = 4 }
+    end
+    dec e = os.clock() - s
+    row("literal {a,b,c,d} create (500K)", e, N)
+end
+
+-- Array literal
+do
+    dec N = 500000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec t = { 1, 2, 3, 4, 5, 6, 7, 8 }
+    end
+    dec e = os.clock() - s
+    row("array literal [8 elems] (500K)", e, N)
+end
+
+-- Table-of-tables (nested construction)
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec row_t = { x = i, y = i * 2, z = i * 3 }
+    end
+    dec e = os.clock() - s
+    row("table-of-tables build (100K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("14. HASH COLLISION STRESS")
+-- ═══════════════════════════════════════════════════════════
+
+-- Sequential integer keys (best case — dense array)
+do
+    dec N = 500000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do t[i] = true end
+    dec e = os.clock() - s
+    row("sequential int keys (500K)", e, N)
+end
+
+-- Strided integer keys (every 17th — sparse, tests hash distribution)
+do
+    dec N = 500000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do t[i * 17] = true end
+    dec e = os.clock() - s
+    row("strided int keys x17 (500K)", e, N)
+end
+
+-- Large integer keys (high bit range)
+do
+    dec N = 500000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do t[i * 1000000] = true end
+    dec e = os.clock() - s
+    row("large int keys x1M (500K)", e, N)
+end
+
+sep()
+
+-- Short string keys (1-3 chars)
+do
+    dec N = 100000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do t[sprintf("%d", i)] = true end
+    dec e = os.clock() - s
+    row("short string keys 1-5ch (100K)", e, N)
+end
+
+-- Medium string keys (10-20 chars)
+do
+    dec N = 100000
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do t[sprintf("medium_key_%06d", i)] = true end
+    dec e = os.clock() - s
+    row("medium string keys ~18ch (100K)", e, N)
+end
+
+-- Long string keys (50+ chars)
+do
+    dec N = 50000
+    dec t = {}
+    dec prefix = string.rep("x", 50)
+    dec s = os.clock()
+    for i = 0, N - 1 do t[prefix .. tostring(i)] = true end
+    dec e = os.clock() - s
+    row("long string keys ~55ch (50K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("SUMMARY")
+-- ═══════════════════════════════════════════════════════════
+
+dec TOTAL_ELAPSED = os.clock() - TOTAL_START
+printf("\n  Total benchmark time: %.4f sec\n", TOTAL_ELAPSED)
+echo("================================================================")
+echo("  DAGGER Table Performance Analysis COMPLETE")
+echo("================================================================")

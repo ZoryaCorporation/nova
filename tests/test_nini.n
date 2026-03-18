@@ -1,0 +1,330 @@
+#import nini
+
+-- ============================================================
+-- test_nini.n — NINI format codec tests
+--
+-- Tests: decode, encode, load/save, type inference, arrays,
+--        sections, nested sections, tasks, env keys,
+--        multi-line strings, inline arrays, interpolation,
+--        round-trip encode/decode.
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(label, condition)
+    if condition then
+        print("  PASS  " .. label)
+        pass = pass + 1
+    else
+        print("  FAIL  " .. label)
+        fail = fail + 1
+    end
+end
+
+print("=== NINI Codec Tests ===")
+print()
+
+-- ============================================================
+-- 1. Basic key = value with type inference
+-- ============================================================
+print("--- 1. Basic key=value types ---")
+
+dec basic_text = [[
+# Comment line
+; Another comment
+name = hello
+count = 42
+pi = 3.14
+enabled = true
+disabled = false
+nothing = nil
+quoted = "hello world"
+]]
+
+dec t = nini.decode(basic_text)
+
+check("string value", t.name == "hello")
+check("integer value", t.count == 42)
+check("float value", t.pi == 3.14)
+check("bool true", t.enabled == true)
+check("bool false", t.disabled == false)
+check("nil value", t.nothing == nil)
+check("quoted string", t.quoted == "hello world")
+
+print()
+
+-- ============================================================
+-- 2. Sections
+-- ============================================================
+print("--- 2. Sections ---")
+
+dec section_text = [[
+title = root
+
+[database]
+host = localhost
+port = 5432
+name = mydb
+
+[server]
+bind = 0.0.0.0
+workers = 4
+]]
+
+dec s = nini.decode(section_text)
+
+check("root key", s.title == "root")
+check("section exists", s.database != nil)
+check("section.host", s.database.host == "localhost")
+check("section.port", s.database.port == 5432)
+check("section.name", s.database.name == "mydb")
+check("server.bind", s.server.bind == "0.0.0.0")
+check("server.workers", s.server.workers == 4)
+
+print()
+
+-- ============================================================
+-- 3. Nested sections (dot notation)
+-- ============================================================
+print("--- 3. Nested sections ---")
+
+dec nested_text = [[
+[app.logging]
+level = debug
+file = /var/log/app.log
+
+[app.cache]
+driver = redis
+ttl = 3600
+]]
+
+dec n = nini.decode(nested_text)
+
+check("nested app exists", n.app != nil)
+check("nested logging exists", n.app.logging != nil)
+check("logging.level", n.app.logging.level == "debug")
+check("logging.file", n.app.logging.file == "/var/log/app.log")
+check("cache.driver", n.app.cache.driver == "redis")
+check("cache.ttl", n.app.cache.ttl == 3600)
+
+print()
+
+-- ============================================================
+-- 4. Array push (key[] = value)
+-- ============================================================
+print("--- 4. Array push ---")
+
+dec array_text = [[
+[build]
+sources[] = main.c
+sources[] = utils.c
+sources[] = parser.c
+flags[] = -Wall
+flags[] = -Wextra
+]]
+
+dec a = nini.decode(array_text)
+
+check("array exists", a.build != nil)
+check("sources exists", a.build.sources != nil)
+check("sources[0]", a.build.sources[0] == "main.c")
+check("sources[1]", a.build.sources[1] == "utils.c")
+check("sources[2]", a.build.sources[2] == "parser.c")
+check("flags[0]", a.build.flags[0] == "-Wall")
+check("flags[1]", a.build.flags[1] == "-Wextra")
+
+print()
+
+-- ============================================================
+-- 5. Inline arrays
+-- ============================================================
+print("--- 5. Inline arrays ---")
+
+dec inline_text = [[
+tags = [alpha, beta, gamma]
+numbers = [1, 2, 3]
+mixed = [hello, 42, true]
+]]
+
+dec il = nini.decode(inline_text)
+
+check("tags[0]", il.tags[0] == "alpha")
+check("tags[1]", il.tags[1] == "beta")
+check("tags[2]", il.tags[2] == "gamma")
+check("numbers[0]", il.numbers[0] == 1)
+check("numbers[1]", il.numbers[1] == 2)
+check("numbers[2]", il.numbers[2] == 3)
+check("mixed string", il.mixed[0] == "hello")
+check("mixed int", il.mixed[1] == 42)
+check("mixed bool", il.mixed[2] == true)
+
+print()
+
+-- ============================================================
+-- 6. Task sections
+-- ============================================================
+print("--- 6. Task sections ---")
+
+dec task_text = [[
+[task:build]
+command = make
+dir = ./src
+silent = false
+
+[task:test]
+command = make test
+depends = [build]
+
+[task:clean]
+command = make clean
+ignore_error = true
+]]
+
+dec tk = nini.decode(task_text)
+
+check("__tasks exists", tk.__tasks != nil)
+check("build task", tk.__tasks.build != nil)
+check("build.command", tk.__tasks.build.command == "make")
+check("build.dir", tk.__tasks.build.dir == "./src")
+check("build.silent", tk.__tasks.build.silent == false)
+check("test task", tk.__tasks.test != nil)
+check("test.command", tk.__tasks.test.command == "make test")
+check("test.depends[0]", tk.__tasks.test.depends[0] == "build")
+check("clean.ignore_error", tk.__tasks.clean.ignore_error == true)
+
+print()
+
+-- ============================================================
+-- 7. env.KEY pattern
+-- ============================================================
+print("--- 7. env.KEY ---")
+
+dec env_text = [[
+[task:deploy]
+command = ./deploy.sh
+env.NODE_ENV = production
+env.PORT = 8080
+env.DEBUG = false
+]]
+
+dec ev = nini.decode(env_text)
+
+check("env sub-table", ev.__tasks.deploy.env != nil)
+check("env.NODE_ENV", ev.__tasks.deploy.env.NODE_ENV == "production")
+check("env.PORT", ev.__tasks.deploy.env.PORT == 8080)
+check("env.DEBUG", ev.__tasks.deploy.env.DEBUG == false)
+
+print()
+
+-- ============================================================
+-- 8. Bool variants
+-- ============================================================
+print("--- 8. Bool variants ---")
+
+dec bool_text = [[
+a = yes
+b = no
+c = on
+d = off
+e = true
+f = false
+]]
+
+dec bv = nini.decode(bool_text)
+
+check("yes -> true", bv.a == true)
+check("no -> false", bv.b == false)
+check("on -> true", bv.c == true)
+check("off -> false", bv.d == false)
+check("true -> true", bv.e == true)
+check("false -> false", bv.f == false)
+
+print()
+
+-- ============================================================
+-- 9. Encode round-trip
+-- ============================================================
+print("--- 9. Encode round-trip ---")
+
+dec enc_text = nini.encode(s)  -- s from test 2 (sections)
+
+check("encode returns string", type(enc_text) == "string")
+check("encode not empty", #enc_text > 0)
+check("encode has header", string.find(enc_text, "Generated by Nova") != nil)
+
+-- Decode the encoded text and verify
+dec rt = nini.decode(enc_text)
+check("round-trip title", rt.title == "root")
+check("round-trip db.host", rt.database.host == "localhost")
+check("round-trip db.port", rt.database.port == 5432)
+check("round-trip srv.workers", rt.server.workers == 4)
+
+print()
+
+-- ============================================================
+-- 10. Encode with tasks
+-- ============================================================
+print("--- 10. Encode tasks ---")
+
+dec task_enc = nini.encode(tk)  -- tk from test 6
+
+check("task encode has [task:build]",
+      string.find(task_enc, "[task:build]", 1, true) != nil)
+check("task encode has command",
+      string.find(task_enc, "command = make") != nil)
+
+print()
+
+-- ============================================================
+-- 11. Multi-line strings
+-- ============================================================
+print("--- 11. Multi-line strings ---")
+
+dec ml_text = [==[
+description = """
+This is a multi-line
+string value
+"""
+]==]
+
+dec ml = nini.decode(ml_text)
+
+check("multi-line exists", ml.description != nil)
+check("multi-line has newline",
+      type(ml.description) == "string" and
+      string.find(ml.description, "\n") != nil)
+
+print()
+
+-- ============================================================
+-- 12. Variable interpolation
+-- ============================================================
+print("--- 12. Interpolation ---")
+
+dec interp_text = [[
+version = 2
+
+[paths]
+base = /opt/app
+config = ${paths.base}/config
+]]
+
+dec ip = nini.decode(interp_text)
+
+check("interpolation resolved",
+      ip.paths.config == "/opt/app/config")
+
+print()
+
+-- ============================================================
+-- Summary
+-- ============================================================
+print()
+print(string.format("=== NINI Tests: %d passed, %d failed ===",
+      pass, fail))
+if fail > 0 then
+    print("SOME TESTS FAILED")
+else
+    print("ALL TESTS PASSED")
+end

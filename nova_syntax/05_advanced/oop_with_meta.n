@@ -1,0 +1,239 @@
+-- ============================================================
+-- oop_with_meta.n — Object-Oriented Programming via Metatables
+--
+-- Nova supports OOP through metatables. This is more flexible
+-- than classical inheritance — you get prototype chains,
+-- operator overloading, and duck typing.
+--
+-- Run:  ./bin/nova nova_syntax/05_advanced/oop_with_meta.n
+-- ============================================================
+
+echo "=== OOP with Metatables ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Pattern 1: Simple Class with Operators
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Simple Class: Vector ---"
+
+dec Vector = {}
+Vector.__index = Vector
+
+function Vector.new(x, y)
+    return setmetatable({x = x, y = y}, Vector)
+end
+
+function Vector.length(v)
+    return math.sqrt(v.x * v.x + v.y * v.y)
+end
+
+function Vector.normalized(v)
+    dec len = Vector.length(v)
+    if len == 0 then return Vector.new(0, 0) end
+    return Vector.new(v.x / len, v.y / len)
+end
+
+-- Operator overloading via metamethods
+function Vector.__add(a, b)
+    return Vector.new(a.x + b.x, a.y + b.y)
+end
+
+function Vector.__sub(a, b)
+    return Vector.new(a.x - b.x, a.y - b.y)
+end
+
+function Vector.__mul(a, b)
+    if type(a) == "number" then
+        return Vector.new(a * b.x, a * b.y)
+    end
+    return Vector.new(a.x * b, a.y * b)
+end
+
+function Vector.__eq(a, b)
+    return a.x == b.x and a.y == b.y
+end
+
+function Vector.__tostring(v)
+    return sprintf("(%.1f, %.1f)", v.x, v.y)
+end
+
+dec a = Vector.new(3, 4)
+dec b = Vector.new(1, 2)
+
+printf("  a        = %s\n", tostring(a))
+printf("  b        = %s\n", tostring(b))
+printf("  a + b    = %s\n", tostring(a + b))
+printf("  a - b    = %s\n", tostring(a - b))
+printf("  a * 2    = %s\n", tostring(a * 2))
+printf("  |a|      = %.2f\n", Vector.length(a))
+printf("  norm(a)  = %s\n", tostring(Vector.normalized(a)))
+printf("  a == a   = %s\n", tostring(a == a))
+printf("  a == b   = %s\n", tostring(a == b))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Pattern 2: Prototype Object Factory
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Shape Factory ---"
+
+-- Circle factory
+dec function new_circle(radius)
+    dec self = {shape_type = "circle", radius = radius}
+    self.area = function()
+        return math.pi * radius * radius
+    end
+    self.perimeter = function()
+        return 2 * math.pi * radius
+    end
+    return self
+end
+
+-- Rectangle factory
+dec function new_rect(width, height)
+    dec self = {shape_type = "rectangle", width = width, height = height}
+    self.area = function()
+        return width * height
+    end
+    self.perimeter = function()
+        return 2 * (width + height)
+    end
+    return self
+end
+
+-- Build shapes
+dec shapes = {}
+table.insert(shapes, new_circle(5))
+table.insert(shapes, new_rect(4, 7))
+table.insert(shapes, new_circle(10))
+table.insert(shapes, new_rect(3, 3))
+
+printf("  %-12s %8s %10s\n", "Shape", "Area", "Perimeter")
+printf("  %-12s %8s %10s\n", "-----", "----", "---------")
+for i = 0, #shapes - 1 do
+    dec s = shapes[i]
+    printf("  %-12s %8.2f %10.2f\n",
+           s.shape_type, s.area(), s.perimeter())
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Pattern 3: Builder / Fluent API
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Builder Pattern ---"
+
+-- Builder using closures to chain operations
+dec function new_query()
+    dec q = {
+        _table  = "",
+        _wheres = {},
+        _limit  = nil,
+        _order  = nil,
+    }
+
+    q.from = function(tbl)
+        q._table = tbl
+        return q
+    end
+
+    q.where = function(condition)
+        table.insert(q._wheres, condition)
+        return q
+    end
+
+    q.order_by = function(field)
+        q._order = field
+        return q
+    end
+
+    q.limit = function(n)
+        q._limit = n
+        return q
+    end
+
+    q.build = function()
+        dec sql = "SELECT * FROM " .. q._table
+
+        if #q._wheres > 0 then
+            sql = sql .. " WHERE "
+            for i = 0, #q._wheres - 1 do
+                if i > 0 then sql = sql .. " AND " end
+                sql = sql .. q._wheres[i]
+            end
+        end
+
+        if q._order then
+            sql = sql .. " ORDER BY " .. q._order
+        end
+
+        if q._limit then
+            sql = sql .. sprintf(" LIMIT %d", q._limit)
+        end
+
+        return sql
+    end
+
+    return q
+end
+
+-- Fluent API in action
+dec sql = new_query()
+    .from("users")
+    .where("age > 18")
+    .where("active = 1")
+    .order_by("name")
+    .limit(10)
+    .build()
+
+printf("  %s\n", sql)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Pattern 4: Operator Overloading for Custom Types
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Operator Overloading: Matrix ---"
+
+dec function new_matrix(rows, cols, data)
+    dec m = {rows = rows, cols = cols, data = data or {}}
+    -- Fill with zeros if no data
+    if #m.data == 0 then
+        for i = 0, rows * cols - 1 do
+            m.data[i] = 0
+        end
+    end
+    return setmetatable(m, {
+        __add = function(a, b_mat)
+            dec result = {}
+            for i = 0, a.rows * a.cols - 1 do
+                result[i] = a.data[i] + b_mat.data[i]
+            end
+            return new_matrix(a.rows, a.cols, result)
+        end,
+
+        __tostring = function(mat)
+            dec lines = {}
+            for r = 0, mat.rows - 1 do
+                dec row = "    "
+                for c = 0, mat.cols - 1 do
+                    dec val = mat.data[r * mat.cols + c]
+                    if c > 0 then row = row .. "  " end
+                    row = row .. sprintf("%4d", val)
+                end
+                table.insert(lines, row)
+            end
+            return table.concat(lines, "\n")
+        end,
+    })
+end
+
+dec m1 = new_matrix(2, 2, {1, 2, 3, 4})
+dec m2 = new_matrix(2, 2, {5, 6, 7, 8})
+dec m3 = m1 + m2
+
+echo "  Matrix A:"
+echo(tostring(m1))
+echo "  Matrix B:"
+echo(tostring(m2))
+echo "  A + B:"
+echo(tostring(m3))
+
+echo "\nDone!"

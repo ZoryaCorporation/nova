@@ -1,0 +1,14 @@
+{
+    "project": "Nova",
+    "version": "0.9.0",
+    "author": "Anthony Taliento",
+    "organization": "Zorya Corporation",
+    "features": ["vm", "compiler", "gc", "coroutines", "async"],
+    "stats": {
+        "tests": 788,
+        "suites": 20,
+        "passing": true
+    },
+    "dependencies": [],
+    "license": "proprietary"
+}

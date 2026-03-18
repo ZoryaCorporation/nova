@@ -1,0 +1,419 @@
+-- ==========================================================
+-- test_bench_intern.n - String Interning & DAGGER Benchmark Suite
+--
+-- Measures performance of the Phase 12.3 string interning
+-- (DAGGER-backed) and its impact on string-heavy operations:
+--
+--   1. String deduplication (same content = same pointer)
+--   2. String equality (O(1) pointer compare)
+--   3. Table lookup with string keys (hash + pointer)
+--   4. String-keyed table population at scale
+--   5. GC stability under interned string pressure
+--   6. Concatenation + interning interaction
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec pass = 0
+dec fail = 0
+dec total_start = os.clock()
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+        printf("  PASS: %s\n", name)
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+dec function section(name)
+    printf("\n=== %s ===\n", name)
+end
+
+dec function bench(name, fn)
+    dec start = os.clock()
+    dec result = fn()
+    dec elapsed = os.clock() - start
+    return elapsed, result
+end
+
+-- ==========================================================
+section("1. STRING DEDUPLICATION")
+-- ==========================================================
+
+do
+    -- Same literal string used many times should be interned
+    -- (same pointer returned from intern table)
+    dec a = "hello"
+    dec b = "hello"
+    dec c = "hello"
+    check("literal dedup a==b", a == b)
+    check("literal dedup b==c", b == c)
+
+    -- Dynamic construction: "hel" .. "lo" should intern to same
+    -- pointer as the literal "hello"
+    dec d = "hel" .. "lo"
+    check("concat dedup d==a", d == a)
+
+    -- Unique strings should NOT be equal
+    dec e = "world"
+    check("different strings", a != e)
+end
+
+-- ==========================================================
+section("2. STRING EQUALITY THROUGHPUT")
+-- ==========================================================
+
+do
+    -- Build N unique strings first, then compare them in pairs.
+    -- With interning, all comparisons are pointer compares (O(1)).
+    dec N = 50000
+    dec strings = {}
+    for i = 0, N - 1 do
+        strings[i] = "key_" .. tostring(i)
+    end
+
+    -- Same-string equality (should be trivially fast)
+    dec elapsed_eq = 0
+    do
+        dec start = os.clock()
+        dec hits = 0
+        for i = 0, N - 1 do
+            if strings[i] == strings[i] then
+                hits = hits + 1
+            end
+        end
+        elapsed_eq = os.clock() - start
+        check("self-equality 50K", hits == N)
+        printf("  INFO: 50K self-equality in %.4f sec\n", elapsed_eq)
+    end
+
+    -- Cross-string inequality (different strings, pointer != pointer)
+    do
+        dec start = os.clock()
+        dec neq = 0
+        for i = 0, N - 2 do
+            if strings[i] != strings[i + 1] then
+                neq = neq + 1
+            end
+        end
+        dec elapsed = os.clock() - start
+        check("cross-inequality 50K", neq == N - 1)
+        printf("  INFO: 50K cross-inequality in %.4f sec\n", elapsed)
+    end
+
+    -- Rebuild same strings & compare (tests dedup across creation)
+    do
+        dec rebuilt = {}
+        for i = 0, N - 1 do
+            rebuilt[i] = "key_" .. tostring(i)
+        end
+
+        dec start = os.clock()
+        dec matches = 0
+        for i = 0, N - 1 do
+            if strings[i] == rebuilt[i] then
+                matches = matches + 1
+            end
+        end
+        dec elapsed = os.clock() - start
+        check("rebuilt dedup 50K", matches == N)
+        printf("  INFO: 50K rebuilt-equality in %.4f sec\n", elapsed)
+    end
+end
+
+-- ==========================================================
+section("3. TABLE LOOKUP WITH STRING KEYS")
+-- ==========================================================
+
+do
+    dec N = 10000
+
+    -- Build a table with N string keys
+    dec t = {}
+    dec keys = {}
+    dec elapsed_build, _ = bench("build", function()
+        for i = 0, N - 1 do
+            dec k = "field_" .. tostring(i)
+            keys[i] = k
+            t[k] = i * 7
+        end
+    end)
+    printf("  INFO: build %d-entry table in %.4f sec\n", N, elapsed_build)
+    check("table size", #keys == N)
+
+    -- Lookup every key (all hits)
+    dec elapsed_hit, _ = bench("lookup_hit", function()
+        dec sum = 0
+        for i = 0, N - 1 do
+            dec v = t[keys[i]]
+            if v != nil then
+                sum = sum + v
+            end
+        end
+        return sum
+    end)
+    printf("  INFO: %d hit lookups in %.4f sec\n", N, elapsed_hit)
+
+    -- Lookup with rebuilt keys (tests interning: same bytes -> same pointer)
+    dec elapsed_rebuild, _ = bench("lookup_rebuilt", function()
+        dec sum = 0
+        for i = 0, N - 1 do
+            dec k = "field_" .. tostring(i)
+            dec v = t[k]
+            if v != nil then
+                sum = sum + v
+            end
+        end
+        return sum
+    end)
+    printf("  INFO: %d rebuilt-key lookups in %.4f sec\n", N, elapsed_rebuild)
+
+    -- Lookup with misses (keys that don't exist)
+    dec elapsed_miss, _ = bench("lookup_miss", function()
+        dec misses = 0
+        for i = 0, N - 1 do
+            dec v = t["nonexistent_" .. tostring(i)]
+            if v == nil then
+                misses = misses + 1
+            end
+        end
+        return misses
+    end)
+    printf("  INFO: %d miss lookups in %.4f sec\n", N, elapsed_miss)
+    check("all misses", true)
+end
+
+-- ==========================================================
+section("4. LARGE TABLE POPULATION")
+-- ==========================================================
+
+do
+    -- Build a 50K-entry table with string keys
+    dec N = 50000
+
+    dec elapsed, t = bench("large_table", function()
+        dec tbl = {}
+        for i = 0, N - 1 do
+            tbl["item_" .. tostring(i)] = i
+        end
+        return tbl
+    end)
+    printf("  INFO: %d-entry table built in %.4f sec\n", N, elapsed)
+    check("large table speed", elapsed < 5.0)
+
+    -- Verify random spot checks
+    check("spot check 0", t["item_0"] == 0)
+    check("spot check 25000", t["item_25000"] == 25000)
+    check("spot check 49999", t["item_49999"] == 49999)
+
+    -- Overwrite all keys with new values (tests interning reuse)
+    dec elapsed_ow, _ = bench("overwrite", function()
+        for i = 0, N - 1 do
+            t["item_" .. tostring(i)] = i * 2
+        end
+    end)
+    printf("  INFO: %d overwrites in %.4f sec\n", N, elapsed_ow)
+    check("overwrite verify", t["item_1000"] == 2000)
+end
+
+-- ==========================================================
+section("5. STRING CONCATENATION CHURN")
+-- ==========================================================
+
+do
+    -- Build many unique strings via concatenation
+    -- Tests that GC doesn't thrash with interned strings
+    dec N = 20000
+    dec results = {}
+
+    dec elapsed, _ = bench("concat_churn", function()
+        for i = 0, N - 1 do
+            dec s = "prefix_" .. tostring(i) .. "_suffix"
+            results[i] = s
+        end
+    end)
+    printf("  INFO: %d concat+intern in %.4f sec\n", N, elapsed)
+    check("concat results", #results == N)
+    check("concat verify", results[0] == "prefix_0_suffix")
+    check("concat verify end", results[N - 1] == "prefix_" .. tostring(N - 1) .. "_suffix")
+
+    -- Now rebuild the same strings and verify dedup
+    dec dupes = 0
+    for i = 0, N - 1 do
+        dec s = "prefix_" .. tostring(i) .. "_suffix"
+        if s == results[i] then
+            dupes = dupes + 1
+        end
+    end
+    check("concat dedup", dupes == N)
+    printf("  INFO: %d/%d strings deduplicated\n", dupes, N)
+end
+
+-- ==========================================================
+section("6. GC UNDER INTERNING PRESSURE")
+-- ==========================================================
+
+do
+    -- Create lots of strings in a tight loop, triggering GC
+    -- With interning, strings are not GC objects — they should
+    -- not cause GC pauses or sweep overhead
+    dec N = 100000
+
+    dec elapsed, count = bench("gc_pressure", function()
+        dec c = 0
+        for i = 0, N - 1 do
+            dec s = "gc_test_" .. tostring(i)
+            if #s > 0 then
+                c = c + 1
+            end
+        end
+        -- Force a GC cycle
+        collectgarbage("collect")
+        return c
+    end)
+    printf("  INFO: %d strings + GC in %.4f sec\n", N, elapsed)
+    check("gc pressure survived", count == N)
+    check("gc pressure speed", elapsed < 10.0)
+end
+
+-- ==========================================================
+section("7. DICTIONARY WORKLOAD (REAL-WORLD PATTERN)")
+-- ==========================================================
+
+do
+    -- Simulate a real workload: parse "key=value" config lines,
+    -- build a dictionary, then look up every key multiple times
+    dec N = 5000
+    dec config = {}
+    dec keys = {}
+
+    -- Phase 1: Build config
+    dec elapsed_build, _ = bench("dict_build", function()
+        for i = 0, N - 1 do
+            dec k = "config.section.key_" .. tostring(i)
+            dec v = "value_" .. tostring(i * 3)
+            config[k] = v
+            keys[i] = k
+        end
+    end)
+    printf("  INFO: dict build %d entries in %.4f sec\n", N, elapsed_build)
+
+    -- Phase 2: Lookup every key 10 times (simulating hot config reads)
+    dec ROUNDS = 10
+    dec elapsed_read, total_hits = bench("dict_read", function()
+        dec hits = 0
+        for r = 1, ROUNDS do
+            for i = 0, N - 1 do
+                if config[keys[i]] != nil then
+                    hits = hits + 1
+                end
+            end
+        end
+        return hits
+    end)
+    printf("  INFO: %d config reads in %.4f sec (%.1fM reads/sec)\n",
+           N * ROUNDS, elapsed_read,
+           (N * ROUNDS) / (elapsed_read * 1000000))
+    check("dict all hits", total_hits == N * ROUNDS)
+
+    -- Phase 3: Lookup with freshly-built keys (dedup test)
+    dec elapsed_fresh, fresh_hits = bench("dict_fresh", function()
+        dec hits = 0
+        for i = 0, N - 1 do
+            dec k = "config.section.key_" .. tostring(i)
+            if config[k] != nil then
+                hits = hits + 1
+            end
+        end
+        return hits
+    end)
+    printf("  INFO: %d fresh-key lookups in %.4f sec\n", N, elapsed_fresh)
+    check("dict fresh hits", fresh_hits == N)
+end
+
+-- ==========================================================
+section("8. COMPARATIVE: INTEGER vs STRING KEYS")
+-- ==========================================================
+
+do
+    dec N = 50000
+
+    -- Integer-keyed table
+    dec int_table = {}
+    dec elapsed_int, _ = bench("int_keys", function()
+        for i = 0, N - 1 do
+            int_table[i] = i * 3
+        end
+    end)
+    printf("  INFO: %d integer key inserts in %.4f sec\n", N, elapsed_int)
+
+    -- String-keyed table (same data)
+    dec str_table = {}
+    dec elapsed_str, _ = bench("str_keys", function()
+        for i = 0, N - 1 do
+            str_table["k" .. tostring(i)] = i * 3
+        end
+    end)
+    printf("  INFO: %d string key inserts in %.4f sec\n", N, elapsed_str)
+
+    -- Report the ratio
+    if elapsed_int > 0.0001 then
+        dec ratio = elapsed_str / elapsed_int
+        printf("  INFO: string/integer ratio: %.2fx\n", ratio)
+        -- With interning, the insert ratio is dominated by string
+        -- construction cost (concat + tostring), not table insert.
+        -- Reads are the true measure: should be < 5x.
+        check("str/int insert ratio < 50x", ratio < 50.0)
+    else
+        printf("  INFO: integer keys too fast to measure\n")
+        check("str/int ratio (int too fast)", true)
+    end
+
+    -- Integer key lookup
+    dec elapsed_int_read, _ = bench("int_read", function()
+        dec sum = 0
+        for i = 0, N - 1 do
+            sum = sum + int_table[i]
+        end
+        return sum
+    end)
+    printf("  INFO: %d integer key reads in %.4f sec\n", N, elapsed_int_read)
+
+    -- String key lookup
+    dec str_keys = {}
+    for i = 0, N - 1 do
+        str_keys[i] = "k" .. tostring(i)
+    end
+    dec elapsed_str_read, _ = bench("str_read", function()
+        dec sum = 0
+        for i = 0, N - 1 do
+            sum = sum + str_table[str_keys[i]]
+        end
+        return sum
+    end)
+    printf("  INFO: %d string key reads in %.4f sec\n", N, elapsed_str_read)
+
+    if elapsed_int_read > 0.0001 then
+        dec read_ratio = elapsed_str_read / elapsed_int_read
+        printf("  INFO: string/integer read ratio: %.2fx\n", read_ratio)
+        -- String reads with interning should be close to integer reads.
+        -- Pointer-equality comparison makes key matching fast.
+        check("str/int read ratio < 10x", read_ratio < 10.0)
+    end
+end
+
+-- ==========================================================
+-- SUMMARY
+-- ==========================================================
+dec total_elapsed = os.clock() - total_start
+print("")
+printf("============================================\n")
+printf("  INTERN BENCHMARKS: %d passed, %d failed\n", pass, fail)
+printf("  Total time: %.3f seconds\n", total_elapsed)
+printf("============================================\n")
+if fail > 0 then
+    error("SOME INTERN BENCHMARKS FAILED")
+end

@@ -1,0 +1,151 @@
+-- ============================================
+-- Test: tools module (in-process CLI tools)
+-- ============================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, cond)
+    if cond then
+        print("  PASS: " .. name)
+        pass = pass + 1
+    else
+        print("  FAIL: " .. name)
+        fail = fail + 1
+    end
+end
+
+-- ============================================
+-- Test 1: tools.cat — Read file contents
+-- ============================================
+print("=== tools.cat ===")
+dec version = tools.cat("VERSION")
+check("cat returns string", type(version) == "string")
+check("cat non-empty", #version > 0)
+check("version contains 0.2.0", string.find(version, "0.2.0") != nil)
+
+-- ============================================
+-- Test 2: tools.pwd — Current directory
+-- ============================================
+print("\n=== tools.pwd ===")
+dec cwd = tools.pwd()
+check("pwd returns string", type(cwd) == "string")
+check("pwd non-empty", #cwd > 0)
+check("pwd contains nova", string.find(cwd, "nova") != nil)
+
+-- ============================================
+-- Test 3: tools.ls — List directory
+-- ============================================
+print("\n=== tools.ls ===")
+dec entries = tools.ls(".")
+check("ls returns table", type(entries) == "table")
+check("ls has entries", #entries > 0)
+
+-- Check that each entry has name, type, size
+dec first = entries[0]
+check("entry has name", first != nil and first.name != nil)
+check("entry has type", first != nil and first.type != nil)
+check("entry has size", first != nil and first.size != nil)
+
+-- Check we find known items
+dec found_makefile = false
+dec found_src = false
+for i = 0, #entries - 1 do
+    if entries[i].name == "Makefile" then found_makefile = true end
+    if entries[i].name == "src" then found_src = true end
+end
+check("ls finds Makefile", found_makefile)
+check("ls finds src/", found_src)
+
+-- ============================================
+-- Test 4: tools.find — Find files
+-- ============================================
+print("\n=== tools.find ===")
+dec nfiles = tools.find("tests", "*.n")
+check("find returns table", type(nfiles) == "table")
+check("find has results", #nfiles > 0)
+
+dec found_test_vm = false
+for i = 0, #nfiles - 1 do
+    if string.find(nfiles[i], "test_math") then
+        found_test_vm = true
+    end
+end
+check("find locates test_math.n", found_test_vm)
+
+-- ============================================
+-- Test 5: tools.head — First N lines
+-- ============================================
+print("\n=== tools.head ===")
+dec first3 = tools.head("Makefile", 3)
+check("head returns string", type(first3) == "string")
+check("head non-empty", #first3 > 0)
+-- Makefile first line should be a comment
+check("head contains #", string.find(first3, "#") != nil)
+
+-- ============================================
+-- Test 6: tools.tail — Last N lines
+-- ============================================
+print("\n=== tools.tail ===")
+dec last5 = tools.tail("Makefile", 5)
+check("tail returns string", type(last5) == "string")
+check("tail non-empty", #last5 > 0)
+
+-- ============================================
+-- Test 7: tools.wc — Word count
+-- ============================================
+print("\n=== tools.wc ===")
+dec counts = tools.wc("VERSION")
+check("wc returns table", type(counts) == "table")
+check("wc has lines", counts.lines != nil)
+check("wc has words", counts.words != nil)
+check("wc has chars", counts.chars != nil)
+check("wc lines >= 1", counts.lines >= 1)
+
+-- ============================================
+-- Test 8: tools.grep — Search in files
+-- ============================================
+print("\n=== tools.grep ===")
+dec matches = tools.grep("nova_vm_create", "src/nova_vm.c")
+check("grep returns table", type(matches) == "table")
+check("grep has results", #matches > 0)
+
+dec m0 = matches[0]
+check("match has file", m0 != nil and m0.file != nil)
+check("match has num", m0 != nil and m0.num != nil)
+check("match has text", m0 != nil and m0.text != nil)
+check("match file correct", m0 != nil and m0.file == "src/nova_vm.c")
+check("match text has pattern", m0 != nil and
+      string.find(m0.text, "nova_vm_create") != nil)
+
+-- ============================================
+-- Test 9: tools.tree — Directory tree
+-- ============================================
+print("\n=== tools.tree ===")
+dec tree = tools.tree("examples")
+check("tree returns string", type(tree) == "string")
+check("tree contains examples/", string.find(tree, "examples") != nil)
+check("tree has entries", #tree > 20)
+
+-- ============================================
+-- Test 10: tools.run — Execute command
+-- ============================================
+print("\n=== tools.run ===")
+dec output, code = tools.run("echo hello nova")
+check("run returns string", type(output) == "string")
+check("run output correct", output == "hello nova")
+check("run exit code 0", code == 0)
+
+dec _, bad_code = tools.run("false")
+check("run bad exit code", bad_code != 0)
+
+-- ============================================
+-- Summary
+-- ============================================
+print(string.format("\n============================================"))
+print(string.format("  TOOLS TESTS: %d/%d", pass, pass + fail))
+print(string.format("============================================"))
+
+if fail > 0 then
+    error("Some tests failed")
+end

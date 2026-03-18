@@ -1,0 +1,53 @@
+-- geometry.n  --  Example using #include
+-- Demonstrates preprocessor integration
+
+#include "math_utils.m"
+
+#define DEBUG 1
+
+#ifdef DEBUG
+    #define LOG(msg) print("[DEBUG] " .. msg)
+#else
+    #define LOG(msg)
+#endif
+
+-- Circle operations using macros from math_utils.m
+
+function circle_area(radius)
+    return PI * radius * radius
+end
+
+function circle_circumference(radius)
+    return TAU * radius
+end
+
+function polar_to_cartesian(r, theta_deg)
+    dec theta = DEG2RAD(theta_deg)
+    dec x = r * math.cos(theta)
+    dec y = r * math.sin(theta)
+    return x, y
+end
+
+-- Main
+dec r = 5.0
+LOG("Computing circle with radius " .. tostring(r))
+
+dec area = circle_area(r)
+dec circ = circle_circumference(r)
+
+printf("Circle (r=%.1f):\n", r)
+printf("  Area:          %.6f\n", area)
+printf("  Circumference: %.6f\n", circ)
+
+-- Polar conversion
+dec x, y = polar_to_cartesian(10, 45)
+printf("Polar(10, 45deg) -> Cartesian(%.4f, %.4f)\n", x, y)
+
+-- Test approximate equality
+dec a = 0.1 + 0.2
+dec b = 0.3
+if APPROX_EQ(a, b) then
+    print("0.1 + 0.2 == 0.3 (within epsilon)")
+else
+    print("0.1 + 0.2 != 0.3 (floating point!)")
+end

@@ -1,0 +1,458 @@
+-- ============================================================
+-- Nova FS Library Test Suite (Phase 15.1)
+-- Tests: exists, isfile, isdir, islink, size, mtime, stat,
+--        read, write, append, lines, mkdir, mkdirs, rmdir,
+--        remove, list, walk, copy, move, touch, chmod,
+--        glob, find, join, basename, dirname, ext, stem,
+--        abspath, realpath, normalize, tempdir, sep
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+-- Helper: check that value is truthy (not nil and not false)
+dec function check_truthy(name, val)
+    if val then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(val) .. ", expected truthy)")
+    end
+end
+
+print("=== FS LIBRARY TESTS ===")
+
+-- Create a temp directory for our tests
+dec test_dir = fs.tempdir() .. "/nova_test_fs_" .. tostring(os.time())
+dec ok = fs.mkdirs(test_dir)
+check("mkdirs creates test dir", ok, true)
+check("test dir exists", fs.exists(test_dir), true)
+check("test dir isdir", fs.isdir(test_dir), true)
+
+-- ============================================================
+-- MODULE STRUCTURE
+-- ============================================================
+print("\n-- module structure --")
+
+check("fs is table", type(fs), "table")
+check("fs.sep is string", type(fs.sep), "string")
+check("fs.sep is /", fs.sep, "/")
+check("fs.exists is function", type(fs.exists), "function")
+check("fs.isfile is function", type(fs.isfile), "function")
+check("fs.isdir is function", type(fs.isdir), "function")
+check("fs.islink is function", type(fs.islink), "function")
+check("fs.size is function", type(fs.size), "function")
+check("fs.mtime is function", type(fs.mtime), "function")
+check("fs.stat is function", type(fs.stat), "function")
+check("fs.read is function", type(fs.read), "function")
+check("fs.write is function", type(fs.write), "function")
+check("fs.append is function", type(fs.append), "function")
+check("fs.lines is function", type(fs.lines), "function")
+check("fs.mkdir is function", type(fs.mkdir), "function")
+check("fs.mkdirs is function", type(fs.mkdirs), "function")
+check("fs.rmdir is function", type(fs.rmdir), "function")
+check("fs.remove is function", type(fs.remove), "function")
+check("fs.list is function", type(fs.list), "function")
+check("fs.walk is function", type(fs.walk), "function")
+check("fs.copy is function", type(fs.copy), "function")
+check("fs.move is function", type(fs.move), "function")
+check("fs.touch is function", type(fs.touch), "function")
+check("fs.chmod is function", type(fs.chmod), "function")
+check("fs.glob is function", type(fs.glob), "function")
+check("fs.find is function", type(fs.find), "function")
+check("fs.join is function", type(fs.join), "function")
+check("fs.basename is function", type(fs.basename), "function")
+check("fs.dirname is function", type(fs.dirname), "function")
+check("fs.ext is function", type(fs.ext), "function")
+check("fs.stem is function", type(fs.stem), "function")
+check("fs.abspath is function", type(fs.abspath), "function")
+check("fs.realpath is function", type(fs.realpath), "function")
+check("fs.normalize is function", type(fs.normalize), "function")
+check("fs.tempdir is function", type(fs.tempdir), "function")
+
+-- ============================================================
+-- PATH UTILITIES
+-- ============================================================
+print("\n-- path utilities --")
+
+-- fs.join
+check("join two segments", fs.join("src", "main.c"), "src/main.c")
+check("join three segments", fs.join("usr", "local", "bin"), "usr/local/bin")
+check("join with empty", fs.join("", "file.txt"), "file.txt")
+check("join absolute resets", fs.join("rel", "/abs"), "/abs")
+
+-- fs.basename
+check("basename simple", fs.basename("file.txt"), "file.txt")
+check("basename with path", fs.basename("/home/user/file.txt"), "file.txt")
+check("basename dir with slash", fs.basename("/home/user/"), "user")
+
+-- fs.dirname
+check("dirname simple", fs.dirname("/home/user/file.txt"), "/home/user")
+check("dirname root", fs.dirname("/file.txt"), "/")
+check("dirname no dir", fs.dirname("file.txt"), ".")
+
+-- fs.ext
+check("ext simple", fs.ext("file.txt"), ".txt")
+check("ext double", fs.ext("archive.tar.gz"), ".gz")
+check("ext none", fs.ext("Makefile"), "")
+check("ext dotfile", fs.ext(".gitignore"), "")
+
+-- fs.stem
+check("stem simple", fs.stem("file.txt"), "file")
+check("stem with path", fs.stem("/path/to/file.txt"), "file")
+check("stem no ext", fs.stem("Makefile"), "Makefile")
+check("stem double ext", fs.stem("archive.tar.gz"), "archive.tar")
+
+-- fs.normalize
+check("normalize double slash", fs.normalize("src//nova///vm.c"), "src/nova/vm.c")
+check("normalize trailing slash", fs.normalize("src/nova/"), "src/nova")
+check("normalize backslash", fs.normalize("src\\nova\\vm.c"), "src/nova/vm.c")
+
+-- fs.abspath
+dec abs = fs.abspath("src")
+check("abspath is absolute", string.sub(abs, 0, 0), "/")
+check("abspath already absolute", fs.abspath("/usr/bin"), "/usr/bin")
+
+-- fs.realpath
+dec rp = fs.realpath(".")
+check("realpath not nil", rp != nil, true)
+
+-- fs.tempdir
+dec td = fs.tempdir()
+check("tempdir not empty", #td > 0, true)
+check("tempdir exists", fs.isdir(td), true)
+
+-- ============================================================
+-- EXISTENCE & TYPE CHECKS (on known project files)
+-- ============================================================
+print("\n-- existence checks --")
+
+check("exists Makefile", fs.exists("Makefile"), true)
+check("exists src/", fs.exists("src"), true)
+check("exists nonexistent", fs.exists("__nonexistent_xyz__"), false)
+check("isfile Makefile", fs.isfile("Makefile"), true)
+check("isfile src (not file)", fs.isfile("src"), false)
+check("isdir src", fs.isdir("src"), true)
+check("isdir Makefile (not dir)", fs.isdir("Makefile"), false)
+check("islink Makefile (not link)", fs.islink("Makefile"), false)
+
+-- ============================================================
+-- FILE METADATA
+-- ============================================================
+print("\n-- file metadata --")
+
+dec sz = fs.size("Makefile")
+check("size returns integer", type(sz), "integer")
+check("size > 0", sz > 0, true)
+
+dec mt = fs.mtime("Makefile")
+check("mtime returns integer", type(mt), "integer")
+check("mtime > 2020 epoch", mt > 1577836800, true)
+
+dec st = fs.stat("Makefile")
+check("stat returns table", type(st), "table")
+check("stat.size matches", st.size, sz)
+check("stat.mtime matches", st.mtime, mt)
+check("stat.type is file", st.type, "file")
+check_truthy("stat.mode exists", st.mode)
+check_truthy("stat.atime exists", st.atime)
+
+dec dstat = fs.stat("src")
+check("stat dir type", dstat.type, "directory")
+
+-- stat on nonexistent file returns nil
+dec nstat = fs.stat("__nonexistent_xyz__")
+check("stat nonexistent nil", nstat, "nil")
+
+-- ============================================================
+-- READ / WRITE / APPEND
+-- ============================================================
+print("\n-- read/write/append --")
+
+dec test_file = test_dir .. "/test_rw.txt"
+
+-- Write
+dec wok = fs.write(test_file, "Hello, Nova!\n")
+check("write succeeds", wok, true)
+check("written file exists", fs.exists(test_file), true)
+
+-- Read
+dec content = fs.read(test_file)
+check("read matches write", content, "Hello, Nova!\n")
+
+-- Append
+dec aok = fs.append(test_file, "Line 2\n")
+check("append succeeds", aok, true)
+
+dec content2 = fs.read(test_file)
+check("append content correct", content2, "Hello, Nova!\nLine 2\n")
+
+-- Read nonexistent file → nil
+dec bad_read = fs.read("/tmp/nova_nonexistent_xyz_12345")
+check("read nonexistent nil", bad_read, "nil")
+
+-- ============================================================
+-- LINES
+-- ============================================================
+print("\n-- lines --")
+
+dec lines_file = test_dir .. "/test_lines.txt"
+fs.write(lines_file, "alpha\nbeta\ngamma\ndelta\n")
+
+dec lines = fs.lines(lines_file)
+check("lines returns table", type(lines), "table")
+check("lines count", #lines, 4)
+check("lines[0]", lines[0], "alpha")
+check("lines[1]", lines[1], "beta")
+check("lines[2]", lines[2], "gamma")
+check("lines[3]", lines[3], "delta")
+
+-- ============================================================
+-- DIRECTORY OPERATIONS
+-- ============================================================
+print("\n-- directory operations --")
+
+-- mkdir
+dec subdir = test_dir .. "/subdir1"
+dec mok = fs.mkdir(subdir)
+check("mkdir succeeds", mok, true)
+check("mkdir dir exists", fs.isdir(subdir), true)
+
+-- mkdir duplicate fails
+dec mok2 = fs.mkdir(subdir)
+check("mkdir duplicate fails", mok2, "nil")
+
+-- mkdirs (recursive)
+dec deep = test_dir .. "/a/b/c/d"
+dec mdok = fs.mkdirs(deep)
+check("mkdirs succeeds", mdok, true)
+check("mkdirs deep exists", fs.isdir(deep), true)
+check("mkdirs parent exists", fs.isdir(test_dir .. "/a/b/c"), true)
+check("mkdirs grandparent exists", fs.isdir(test_dir .. "/a/b"), true)
+
+-- rmdir
+dec rmdir_test = test_dir .. "/rmdir_test"
+fs.mkdir(rmdir_test)
+dec rdok = fs.rmdir(rmdir_test)
+check("rmdir succeeds", rdok, true)
+check("rmdir dir gone", fs.exists(rmdir_test), false)
+
+-- rmdir on non-empty fails
+fs.mkdir(test_dir .. "/nonempty")
+fs.write(test_dir .. "/nonempty/file.txt", "data")
+dec rdfail = fs.rmdir(test_dir .. "/nonempty")
+check("rmdir nonempty fails", rdfail, "nil")
+
+-- remove file
+fs.remove(test_dir .. "/nonempty/file.txt")
+fs.rmdir(test_dir .. "/nonempty")
+
+-- ============================================================
+-- LIST
+-- ============================================================
+print("\n-- list --")
+
+-- Create some files in subdir
+fs.write(subdir .. "/a.txt", "aaa")
+fs.write(subdir .. "/b.txt", "bbb")
+fs.mkdir(subdir .. "/child")
+
+dec entries = fs.list(subdir)
+check("list returns table", type(entries), "table")
+check("list has 3 entries", #entries, 3)
+
+-- Check entries (order may vary, just check we got them all)
+dec found_a = false
+dec found_b = false
+dec found_child = false
+for i = 0, #entries - 1 do
+    if entries[i] == "a.txt" then found_a = true end
+    if entries[i] == "b.txt" then found_b = true end
+    if entries[i] == "child/" then found_child = true end
+end
+check("list has a.txt", found_a, true)
+check("list has b.txt", found_b, true)
+check("list has child/ (dir marker)", found_child, true)
+
+-- List on nonexistent returns empty table
+dec empty = fs.list("/tmp/nova_nonexistent_dir_12345")
+check("list nonexistent empty", #empty, 0)
+
+-- ============================================================
+-- WALK
+-- ============================================================
+print("\n-- walk --")
+
+-- Create deeper structure for walk test
+dec walk_dir = test_dir .. "/walk_root"
+fs.mkdirs(walk_dir .. "/level1/level2")
+fs.write(walk_dir .. "/root.txt", "root")
+fs.write(walk_dir .. "/level1/mid.txt", "mid")
+fs.write(walk_dir .. "/level1/level2/deep.txt", "deep")
+
+dec walked = fs.walk(walk_dir)
+check("walk returns table", type(walked), "table")
+check("walk found entries", #walked >= 5, true)  -- 3 files + 2 dirs
+
+-- Check some expected entries
+dec walk_found_root = false
+dec walk_found_deep = false
+for i = 0, #walked - 1 do
+    if walked[i] == "root.txt" then walk_found_root = true end
+    if walked[i] == "level1/level2/deep.txt" then walk_found_deep = true end
+end
+check("walk has root.txt", walk_found_root, true)
+check("walk has deep relative path", walk_found_deep, true)
+
+-- ============================================================
+-- COPY
+-- ============================================================
+print("\n-- copy --")
+
+dec src_file = test_dir .. "/copy_src.txt"
+dec dst_file = test_dir .. "/copy_dst.txt"
+fs.write(src_file, "copy me please")
+
+dec cok = fs.copy(src_file, dst_file)
+check("copy succeeds", cok, true)
+check("copy dst exists", fs.exists(dst_file), true)
+check("copy content matches", fs.read(dst_file), "copy me please")
+-- Source still exists
+check("copy src still exists", fs.exists(src_file), true)
+
+-- ============================================================
+-- MOVE
+-- ============================================================
+print("\n-- move --")
+
+dec move_src = test_dir .. "/move_src.txt"
+dec move_dst = test_dir .. "/move_dst.txt"
+fs.write(move_src, "move me")
+
+dec mvok = fs.move(move_src, move_dst)
+check("move succeeds", mvok, true)
+check("move dst exists", fs.exists(move_dst), true)
+check("move src gone", fs.exists(move_src), false)
+check("move content matches", fs.read(move_dst), "move me")
+
+-- ============================================================
+-- TOUCH
+-- ============================================================
+print("\n-- touch --")
+
+dec touch_file = test_dir .. "/touched.txt"
+dec tok = fs.touch(touch_file)
+check("touch succeeds", tok, true)
+check("touch file exists", fs.exists(touch_file), true)
+
+-- Touch existing file (update mtime)
+dec mt_before = fs.mtime(touch_file)
+fs.touch(touch_file)
+dec mt_after = fs.mtime(touch_file)
+check("touch updates mtime", mt_after >= mt_before, true)
+
+-- ============================================================
+-- CHMOD
+-- ============================================================
+print("\n-- chmod --")
+
+dec chmod_file = test_dir .. "/chmod_test.txt"
+fs.write(chmod_file, "test")
+
+-- Make executable (755 = 493)
+dec chok = fs.chmod(chmod_file, 493)
+check("chmod succeeds", chok, true)
+
+-- Verify permissions changed via stat
+dec cst = fs.stat(chmod_file)
+check_truthy("chmod stat mode exists", cst.mode)
+
+-- ============================================================
+-- GLOB
+-- ============================================================
+print("\n-- glob --")
+
+-- Use glob on our test directory
+dec globs = fs.glob(test_dir .. "/*.txt")
+check("glob returns table", type(globs), "table")
+check("glob found txt files", #globs > 0, true)
+
+-- Glob for .n files in tests/
+dec test_globs = fs.glob("tests/test_*.n")
+check("glob test files", #test_globs > 0, true)
+
+-- ============================================================
+-- FIND
+-- ============================================================
+print("\n-- find --")
+
+-- Find all .txt files under walk_root
+dec found = fs.find(walk_dir, "*.txt")
+check("find returns table", type(found), "table")
+check("find found 3 txt files", #found, 3)
+
+-- Find with no matches
+dec nfound = fs.find(test_dir, "*.xyz_nope")
+check("find no matches empty", #nfound, 0)
+
+-- ============================================================
+-- REMOVE (file cleanup)
+-- ============================================================
+print("\n-- remove --")
+
+dec rm_file = test_dir .. "/rm_test.txt"
+fs.write(rm_file, "to be removed")
+check("remove file exists before", fs.exists(rm_file), true)
+
+dec rmok = fs.remove(rm_file)
+check("remove succeeds", rmok, true)
+check("remove file gone", fs.exists(rm_file), false)
+
+-- Remove nonexistent
+dec rm_bad = fs.remove("/tmp/nova_nonexistent_file_99999")
+check("remove nonexistent fails", rm_bad, "nil")
+
+-- ============================================================
+-- CLEANUP: Remove test directory tree
+-- ============================================================
+print("\n-- cleanup --")
+
+-- Recursive cleanup: walk, remove files, then directories
+dec all = fs.walk(test_dir)
+-- Remove files first (reverse order to handle depth)
+for i = #all - 1, 0, -1 do
+    dec path = test_dir .. "/" .. all[i]
+    if fs.isfile(path) then
+        fs.remove(path)
+    end
+end
+-- Then remove directories (reverse for depth-first)
+for i = #all - 1, 0, -1 do
+    dec path = test_dir .. "/" .. all[i]
+    if fs.isdir(path) then
+        fs.rmdir(path)
+    end
+end
+fs.rmdir(test_dir)
+check("cleanup test dir gone", fs.exists(test_dir), false)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  FS TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("FS: " .. fail .. " test(s) FAILED")
+end

@@ -1,0 +1,119 @@
+-- ============================================================
+-- conditionals.n — if / elseif / else Patterns
+--
+-- Run:  ./bin/nova nova_syntax/03_control_flow/conditionals.n
+-- ============================================================
+
+echo "=== Conditionals ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Basic if/else
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Grading System ---"
+
+dec function letter_grade(score)
+    if score >= 90 then
+        return "A"
+    elseif score >= 80 then
+        return "B"
+    elseif score >= 70 then
+        return "C"
+    elseif score >= 60 then
+        return "D"
+    else
+        return "F"
+    end
+end
+
+dec scores = {95, 82, 71, 55, 88, 63}
+for i = 0, #scores - 1 do
+    printf("  Score %3d -> %s\n", scores[i], letter_grade(scores[i]))
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Truthiness
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Truthiness Guards ---"
+
+-- Only nil and false are falsy. 0, "", and {} are truthy!
+dec function describe(val)
+    if val then
+        return "truthy"
+    else
+        return "falsy"
+    end
+end
+
+printf("  nil:   %s\n", describe(nil))
+printf("  false: %s\n", describe(false))
+printf("  0:     %s\n", describe(0))
+printf("  '':    %s\n", describe(""))
+printf("  true:  %s\n", describe(true))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Guard Clauses (early return)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Guard Clauses ---"
+
+dec function process_order(order)
+    -- Guard: validate early, return early
+    if order == nil then
+        return nil, "no order provided"
+    end
+    if order.items == nil or #order.items == 0 then
+        return nil, "order has no items"
+    end
+    if order.total <= 0 then
+        return nil, "invalid total"
+    end
+
+    -- If we get here, the order is valid
+    return true, nil
+end
+
+dec test_orders = {
+    nil,
+    {items = {}, total = 0},
+    {items = {"widget"}, total = -5},
+    {items = {"widget", "gadget"}, total = 29.99},
+}
+
+for i = 0, #test_orders - 1 do
+    dec ok, err = process_order(test_orders[i])
+    if ok then
+        printf("  Order %d: VALID\n", i)
+    else
+        printf("  Order %d: REJECTED (%s)\n", i, err)
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Logical Operators as Control Flow
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Logical Operators ---"
+
+-- 'and' returns first falsy value or last value
+-- 'or' returns first truthy value or last value
+
+dec name = nil
+dec display = name or "Anonymous"
+printf("  name or 'Anonymous' = %s\n", display)
+
+dec x = 10
+dec label = (x > 5) and "big" or "small"
+printf("  x=%d -> %s\n", x, label)
+
+-- Default values pattern
+dec function greet(name)
+    name = name or "World"
+    echo `  Hello, ${name}!`
+end
+
+greet("Nova")
+greet(nil)
+
+echo "\nDone!"

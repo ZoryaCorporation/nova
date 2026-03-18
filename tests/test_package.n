@@ -1,0 +1,86 @@
+-- ============================================================
+-- Nova Package/Require Test Suite (Phase 10.1)
+-- Tests: require(), package.loaded, package.path,
+--        error on missing module
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== PACKAGE/REQUIRE TESTS ===")
+
+-- ============================================================
+-- package table exists
+-- ============================================================
+print("\n-- package table --")
+
+check("package is table", type(package), "table")
+check("package.path is string", type(package.path), "string")
+check("package.loaded is table", type(package.loaded), "table")
+
+-- package.path contains ?
+check("package.path has ?", string.find(package.path, "?") != nil, true)
+
+-- ============================================================
+-- require() loads a module
+-- ============================================================
+print("\n-- require --")
+
+dec mod = require("lib/test_module")
+check("require returns table", type(mod), "table")
+check("mod.greeting", mod.greeting, "hello from module")
+check("mod.version", mod.version, 42)
+check("mod.add(3,4)", mod.add(3, 4), 7)
+check("mod.greet('Nova')", mod.greet("Nova"), "Hello, Nova!")
+
+-- ============================================================
+-- Caching: second require returns same object
+-- ============================================================
+print("\n-- caching --")
+
+dec mod2 = require("lib/test_module")
+check("cached: same object", mod == mod2, true)
+
+-- Check it's in package.loaded
+dec loaded = package.loaded["lib/test_module"]
+check("package.loaded has module", loaded != nil, true)
+if loaded then
+    check("package.loaded same object", loaded == mod, true)
+end
+
+-- ============================================================
+-- require() math_utils module
+-- ============================================================
+print("\n-- require math_utils --")
+
+dec mu = require("lib/math_utils")
+check("math_utils loaded", type(mu), "table")
+
+-- ============================================================
+-- Error on missing module
+-- ============================================================
+print("\n-- missing module --")
+
+dec ok, err = pcall(require, "nonexistent_module_xyz")
+check("missing module: pcall fails", ok, false)
+check("missing module: has error msg", err != nil, true)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  PACKAGE TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("PACKAGE: " .. fail .. " test(s) FAILED")
+end

@@ -1,0 +1,146 @@
+-- ============================================================
+-- dictionaries.n — Key-Value Tables
+--
+-- Tables with string keys act as dictionaries/maps/records.
+-- Access fields with dot notation or bracket notation.
+--
+-- Run:  ./bin/nova nova_syntax/02_collections/dictionaries.n
+-- ============================================================
+
+echo "=== Dictionaries ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Creating Dictionaries
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Basic Dictionary ---"
+
+dec player = {
+    name   = "Zorya",
+    hp     = 100,
+    mp     = 50,
+    level  = 7,
+    alive  = true,
+}
+
+-- Dot syntax (most common)
+printf("  Name:  %s\n", player.name)
+printf("  HP:    %d\n", player.hp)
+printf("  Level: %d\n", player.level)
+
+-- Bracket syntax (for dynamic keys)
+dec field = "mp"
+printf("  %s:    %d\n", field, player[field])
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Modifying Entries
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Modifying ---"
+
+player.hp = 80                 -- update existing
+player.xp = 1500              -- add new field
+player.alive = player.hp > 0  -- computed update
+
+printf("  HP after damage: %d\n", player.hp)
+printf("  XP (new field):  %d\n", player.xp)
+printf("  Still alive:     %s\n", tostring(player.alive))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Iterating with pairs()
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Iterating (pairs) ---"
+
+dec config = {
+    host    = "localhost",
+    port    = 8080,
+    workers = 4,
+    debug   = false,
+}
+
+for key, val in pairs(config) do
+    printf("  %-10s = %s\n", key, tostring(val))
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Nested Dictionaries
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Nested Dictionaries ---"
+
+dec server = {
+    name = "Nova-Web",
+    address = {
+        host = "0.0.0.0",
+        port = 3000,
+    },
+    features = {
+        cors    = true,
+        gzip    = true,
+        logging = false,
+    },
+}
+
+printf("  Server: %s\n", server.name)
+printf("  Listen: %s:%d\n", server.address.host, server.address.port)
+printf("  CORS:   %s\n", tostring(server.features.cors))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Building a Lookup Table
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Lookup Table ---"
+
+dec status_codes = {
+    ok        = 200,
+    created   = 201,
+    not_found = 404,
+    forbidden = 403,
+    error     = 500,
+}
+
+dec labels = {"ok", "created", "not_found", "forbidden", "error"}
+for i = 0, #labels - 1 do
+    dec name = labels[i]
+    printf("  %-12s -> %d\n", name, status_codes[name])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Dictionary as a Simple Database
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Phone Book ---"
+
+dec phone_book = {}
+
+-- Helper to add entries
+dec function add_contact(book, name, number)
+    book[name] = number
+end
+
+-- Helper to look up
+dec function lookup(book, name)
+    dec num = book[name]
+    if num then
+        return num
+    end
+    return nil, "not found"
+end
+
+add_contact(phone_book, "Alice",   "555-0101")
+add_contact(phone_book, "Bob",     "555-0102")
+add_contact(phone_book, "Charlie", "555-0103")
+
+echo "  Looking up contacts:"
+dec names = {"Alice", "Bob", "Dave"}
+for i = 0, #names - 1 do
+    dec num, err = lookup(phone_book, names[i])
+    if num then
+        printf("    %-10s -> %s\n", names[i], num)
+    else
+        printf("    %-10s -> (%s)\n", names[i], err)
+    end
+end
+
+echo "\nDone!"

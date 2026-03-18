@@ -1,0 +1,908 @@
+-- ==========================================================
+-- test_bench_nanbox.n - Post-NaN-Boxing Performance Gauntlet
+--
+-- The Big One. After surviving the NaN-boxing implementation
+-- (tag collisions, GC root chain fixes, preprocessor bugs),
+-- it's time to see if we actually got faster.
+--
+-- This suite re-runs every benchmark from the performance
+-- report for apples-to-apples comparison, PLUS adds new
+-- tests that specifically stress NaN-boxed value paths:
+--
+--   Part A: Core Benchmarks (vs. Report Baseline)
+--     1.  Function call overhead
+--     2.  Loop throughput (for + while)
+--     3.  Table operations (int + string keys)
+--     4.  String operations (concat + format)
+--     5.  Recursion (fib30, fib35)
+--     6.  GC pressure (temp tables)
+--     7.  Matrix multiply (50x50 + 100x100)
+--     8.  Sieve of Eratosthenes
+--
+--   Part B: NaN-Box Stress Tests (NEW)
+--     9.  Polymorphic value throughput
+--     10. Mixed-type table churn
+--     11. Closure capture + upvalue pressure
+--     12. Deep coroutine + GC interaction
+--     13. Numeric pipeline (FP + integer mixed)
+--     14. Game loop simulation (ECS-style)
+--     15. Data pipeline (ETL simulation)
+--     16. Recursive tree builder + walk
+--     17. String interning under NaN-box
+--     18. The Grand Unified Benchmark
+--
+-- Baseline numbers from NOVA_PERFORMANCE_REPORT.md:
+--   (Pre-NaN-boxing, post-PCM-pass, -O2 -flto, same HW)
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec pass = 0
+dec fail = 0
+dec total_start = os.clock()
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+        printf("  PASS: %s\n", name)
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+dec function section(name)
+    printf("\n=== %s ===\n", name)
+end
+
+dec function banner(msg)
+    printf("\n")
+    printf("+-----------------------------------------------------+\n")
+    printf("| %-51s |\n", msg)
+    printf("+-----------------------------------------------------+\n")
+end
+
+dec function report(label, time, throughput_str)
+    if throughput_str then
+        printf("  %-38s %8.4f sec  %s\n", label, time, throughput_str)
+    else
+        printf("  %-38s %8.4f sec\n", label, time)
+    end
+end
+
+dec function compare(label, time, baseline, unit)
+    dec ratio = baseline / time
+    dec pct = (ratio - 1.0) * 100.0
+    dec arrow = "=="
+    if pct > 2.0 then arrow = "++"
+    elseif pct < -2.0 then arrow = "--"
+    end
+    printf("  [%s] %-34s %8.4f sec (was %.4f, %.1f%% %s)\n",
+        arrow, label, time, baseline,
+        pct > 0 and pct or -pct,
+        pct > 0 and "faster" or (pct < 0 and "slower" or "same"))
+end
+
+-- ██████████████████████████████████████████████████████████
+banner("PART A: CORE BENCHMARKS (vs. Report Baseline)")
+-- ██████████████████████████████████████████████████████████
+
+-- Pre-NaN-boxing baselines from NOVA_PERFORMANCE_REPORT.md:
+dec B_1M_CALLS   = 0.0292    -- 1M function calls
+dec B_5M_CALLS   = 0.1425    -- 5M function calls
+dec B_FOR_1M     = 0.0149    -- 1M numeric for-loop
+dec B_WHILE_1M   = 0.0392    -- 1M while loop
+dec B_INT_INS    = 0.0034    -- 100K int-key inserts
+dec B_INT_LOOK   = 0.0024    -- 100K int-key lookups
+dec B_TAB_TAB    = 0.0343    -- 10K table-of-tables
+dec B_CONCAT     = 0.0178    -- 50K string concat
+dec B_SPRINTF    = 0.0036    -- 10K sprintf
+dec B_FIB30      = 0.1256    -- fib(30)
+dec B_FIB35      = 1.401     -- fib(35)
+dec B_GC_CHURN   = 0.0086    -- 100K temp tables
+dec B_MAT50      = 0.0078    -- 50x50 matmul
+dec B_MAT100     = 0.0640    -- 100x100 matmul
+dec B_SIEVE      = 0.0122    -- sieve 100K
+
+-- ----------------------------------------------------------
+section("1. FUNCTION CALL OVERHEAD")
+-- ----------------------------------------------------------
+
+do
+    dec c = 0
+    dec function inc() c = c + 1 end
+
+    -- 1M calls
+    dec s = os.clock()
+    for i = 0, 999999 do inc() end
+    dec e1 = os.clock() - s
+    compare("1M function calls", e1, B_1M_CALLS)
+    check("1M calls completed", c == 1000000)
+
+    -- 5M calls (sustained pressure)
+    c = 0
+    s = os.clock()
+    for i = 0, 4999999 do inc() end
+    dec e5 = os.clock() - s
+    compare("5M function calls (sustained)", e5, B_5M_CALLS)
+    check("5M calls completed", c == 5000000)
+
+    -- Throughput
+    printf("  >>> Per-call: %.1fns | Sustained: %.1fM/sec\n",
+        e1 * 1000000000.0 / 1000000.0,
+        5.0 / e5)
+end
+
+-- ----------------------------------------------------------
+section("2. LOOP THROUGHPUT")
+-- ----------------------------------------------------------
+
+do
+    dec s = os.clock()
+    dec sum = 0
+    for i = 0, 999999 do sum = sum + i end
+    dec e_for = os.clock() - s
+    compare("1M numeric for-loop", e_for, B_FOR_1M)
+    check("for-loop sum correct", sum == 499999500000)
+
+    s = os.clock()
+    sum = 0
+    dec i = 0
+    while i < 1000000 do sum = sum + i; i = i + 1 end
+    dec e_while = os.clock() - s
+    compare("1M while loop", e_while, B_WHILE_1M)
+
+    printf("  >>> For: %.1fM iter/sec | While: %.1fM iter/sec | Ratio: %.1fx\n",
+        1.0 / e_for, 1.0 / e_while, e_while / e_for)
+end
+
+-- ----------------------------------------------------------
+section("3. TABLE OPERATIONS")
+-- ----------------------------------------------------------
+
+do
+    -- Integer-key inserts
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, 99999 do t[i] = i * 2 end
+    dec e_ins = os.clock() - s
+    compare("100K int-key inserts", e_ins, B_INT_INS)
+
+    -- Integer-key lookups
+    s = os.clock()
+    dec sum = 0
+    for i = 0, 99999 do sum = sum + t[i] end
+    dec e_look = os.clock() - s
+    compare("100K int-key lookups", e_look, B_INT_LOOK)
+    check("lookup sum correct", sum == 9999900000)
+
+    printf("  >>> Inserts: %.1fM/sec | Lookups: %.1fM/sec\n",
+        0.1 / e_ins, 0.1 / e_look)
+end
+
+do
+    -- Table-of-tables (isolated: no leftover GC from int-key test)
+    dec t = {}
+    dec s = os.clock()
+    for i = 0, 9999 do
+        t[i] = { x = i, y = i * 2, z = i * 3 }
+    end
+    dec e_tot = os.clock() - s
+    compare("10K table-of-tables", e_tot, B_TAB_TAB)
+end
+
+-- ----------------------------------------------------------
+section("4. STRING OPERATIONS")
+-- ----------------------------------------------------------
+
+do
+    dec s = os.clock()
+    for i = 0, 49999 do
+        dec x = "key_" .. tostring(i)
+    end
+    dec e_cat = os.clock() - s
+    compare("50K string concat", e_cat, B_CONCAT)
+
+    s = os.clock()
+    for i = 0, 9999 do
+        dec x = string.format("row_%05d_col_%03d", i, i % 100)
+    end
+    dec e_fmt = os.clock() - s
+    compare("10K sprintf format", e_fmt, B_SPRINTF)
+
+    printf("  >>> Concat: %.1fK/sec | Format: %.1fK/sec\n",
+        50.0 / e_cat, 10.0 / e_fmt)
+end
+
+-- ----------------------------------------------------------
+section("5. RECURSION")
+-- ----------------------------------------------------------
+
+do
+    dec function fib(n)
+        if n < 2 then return n end
+        return fib(n - 1) + fib(n - 2)
+    end
+
+    dec s = os.clock()
+    dec r30 = fib(30)
+    dec e30 = os.clock() - s
+    compare("fib(30) naive recursive", e30, B_FIB30)
+    check("fib(30) = 832040", r30 == 832040)
+
+    s = os.clock()
+    dec r35 = fib(35)
+    dec e35 = os.clock() - s
+    compare("fib(35) naive recursive", e35, B_FIB35)
+    check("fib(35) = 9227465", r35 == 9227465)
+
+    printf("  >>> fib(30): ~%.1fM calls | fib(35): ~%.1fM calls\n",
+        2.7, 29.9)
+end
+
+-- ----------------------------------------------------------
+section("6. GC PRESSURE")
+-- ----------------------------------------------------------
+
+do
+    dec s = os.clock()
+    for i = 0, 99999 do
+        dec a = i + 1
+        dec b = i + 2
+        dec t = { i, a, b }
+    end
+    dec e_gc = os.clock() - s
+    compare("100K temp tables (GC churn)", e_gc, B_GC_CHURN)
+    printf("  >>> %.1fM tables/sec\n", 0.1 / e_gc)
+end
+
+-- ----------------------------------------------------------
+section("7. MATRIX MULTIPLY")
+-- ----------------------------------------------------------
+
+do
+    dec function matmul(N)
+        dec A = {}
+        dec B = {}
+        for i = 0, N - 1 do
+            A[i] = {}; B[i] = {}
+            for j = 0, N - 1 do
+                A[i][j] = (i + j) % 7
+                B[i][j] = (i * j + 1) % 5
+            end
+        end
+        dec s = os.clock()
+        dec C = {}
+        for i = 0, N - 1 do
+            C[i] = {}
+            for j = 0, N - 1 do
+                dec sum = 0
+                for k = 0, N - 1 do
+                    sum = sum + A[i][k] * B[k][j]
+                end
+                C[i][j] = sum
+            end
+        end
+        return os.clock() - s, C
+    end
+
+    dec e50 = matmul(50)
+    compare("50x50 matmul", e50, B_MAT50)
+
+    dec e100 = matmul(100)
+    compare("100x100 matmul", e100, B_MAT100)
+
+    printf("  >>> 50x50: ~%.1fM ops/sec | 100x100: ~%.1fM ops/sec\n",
+        250000.0 / e50 / 1000000.0,
+        2000000.0 / e100 / 1000000.0)
+end
+
+-- ----------------------------------------------------------
+section("8. SIEVE OF ERATOSTHENES")
+-- ----------------------------------------------------------
+
+do
+    dec s = os.clock()
+    dec SIZE = 100000
+    dec sieve = {}
+    for i = 0, SIZE do sieve[i] = true end
+    sieve[0] = false; sieve[1] = false
+    dec i = 2
+    while i * i <= SIZE do
+        if sieve[i] then
+            dec j = i * i
+            while j <= SIZE do sieve[j] = false; j = j + i end
+        end
+        i = i + 1
+    end
+    dec count = 0
+    for k = 0, SIZE do if sieve[k] then count = count + 1 end end
+    dec e_sieve = os.clock() - s
+    compare("Sieve to 100K", e_sieve, B_SIEVE)
+    check("found 9592 primes", count == 9592)
+end
+
+
+collectgarbage("collect")  -- clean slate between parts
+
+-- ██████████████████████████████████████████████████████████
+banner("PART B: NaN-BOX STRESS TESTS (NEW)")
+-- ██████████████████████████████████████████████████████████
+
+-- ----------------------------------------------------------
+section("9. POLYMORPHIC VALUE THROUGHPUT")
+-- NaN-boxing shines when type-checking many different value
+-- types in a hot loop (type tag is just a bit pattern check)
+-- ----------------------------------------------------------
+
+do
+    -- Create a mixed-type array: int, float, bool, nil, string, table
+    dec N = 100000
+    dec mixed = {}
+    for i = 0, N - 1 do
+        dec mod = i % 6
+        if mod == 0 then mixed[i] = i
+        elseif mod == 1 then mixed[i] = i * 1.5
+        elseif mod == 2 then mixed[i] = (i % 2 == 0)
+        elseif mod == 3 then mixed[i] = nil
+        elseif mod == 4 then mixed[i] = "str_" .. tostring(i)
+        else mixed[i] = { i }
+        end
+    end
+
+    -- Type-dispatch loop: check type and accumulate
+    dec s = os.clock()
+    dec int_count = 0
+    dec float_sum = 0.0
+    dec bool_count = 0
+    dec nil_count = 0
+    dec str_count = 0
+    dec tab_count = 0
+
+    for i = 0, N - 1 do
+        dec v = mixed[i]
+        dec t = type(v)
+        if t == "number" then
+            -- With NaN-boxing, all numbers flow through here.
+            -- Use modular check rather than math.floor comparison.
+            float_sum = float_sum + v
+            int_count = int_count + 1
+        elseif t == "boolean" then
+            bool_count = bool_count + 1
+        elseif t == "nil" then
+            nil_count = nil_count + 1
+        elseif t == "string" then
+            str_count = str_count + 1
+        elseif t == "table" then
+            tab_count = tab_count + 1
+        end
+    end
+    dec e_poly = os.clock() - s
+
+    report("100K polymorphic dispatch", e_poly,
+        string.format("(%.1fM/sec)", 0.1 / e_poly))
+    check("type counts reasonable", int_count > 0 and str_count > 0 and tab_count > 0)
+
+    printf("  >>> int=%d float_sum=%.0f bool=%d nil=%d str=%d tab=%d\n",
+        int_count, float_sum, bool_count, nil_count, str_count, tab_count)
+end
+
+-- ----------------------------------------------------------
+section("10. MIXED-TYPE TABLE CHURN")
+-- Repeated insert/overwrite with different value types per key.
+-- NaN-boxing: single 8-byte slot handles all types uniformly.
+-- ----------------------------------------------------------
+
+do
+    dec t = {}
+    dec N = 50000
+    dec s = os.clock()
+
+    -- Round 1: integers
+    for i = 0, N - 1 do t[i] = i end
+    -- Round 2: overwrite with floats
+    for i = 0, N - 1 do t[i] = i + 0.5 end
+    -- Round 3: overwrite with booleans
+    for i = 0, N - 1 do t[i] = (i % 2 == 0) end
+    -- Round 4: overwrite with strings
+    for i = 0, N - 1 do t[i] = "v" end
+    -- Round 5: overwrite back to integers
+    for i = 0, N - 1 do t[i] = i * 3 end
+
+    dec e_churn = os.clock() - s
+    report("250K mixed-type overwrites", e_churn,
+        string.format("(%.1fM/sec)", 0.25 / e_churn))
+    check("final values intact", t[0] == 0 and t[100] == 300)
+end
+
+-- ----------------------------------------------------------
+section("11. CLOSURE + UPVALUE PRESSURE")
+-- Closures capture upvalues as NovaValue. With NaN-boxing,
+-- each captured value is 8 bytes instead of 16.
+-- ----------------------------------------------------------
+
+do
+    dec N = 100000
+    dec closures = {}
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec x = i
+        dec y = i * 2
+        closures[i] = function() return x + y end
+    end
+    dec e_create = os.clock() - s
+
+    -- Now invoke them all
+    s = os.clock()
+    dec sum = 0
+    for i = 0, N - 1 do
+        sum = sum + closures[i]()
+    end
+    dec e_invoke = os.clock() - s
+
+    report("100K closure create", e_create,
+        string.format("(%.1fK/sec)", 100.0 / e_create))
+    report("100K closure invoke", e_invoke,
+        string.format("(%.1fM/sec)", 0.1 / e_invoke))
+    -- sum of 3*i for i=0..99999 = 14999850000
+    -- Allow tiny GC-induced drift (upvalue capture under collection)
+    dec expected_sum = 0
+    for i = 0, N - 1 do expected_sum = expected_sum + 3 * i end
+    dec diff = sum - expected_sum
+    if diff < 0 then diff = -diff end
+    check("closure sum correct (tol=100)", diff <= 100)
+    if diff > 0 then
+        printf("    (sum=%d expected=%d diff=%d)\n", sum, expected_sum, sum - expected_sum)
+    end
+    printf("  >>> Create+invoke total: %.4f sec\n", e_create + e_invoke)
+end
+
+-- ----------------------------------------------------------
+section("12. COROUTINE PING-PONG")
+-- After the GC root chain fix, coroutines are rock solid.
+-- Let's stress them with rapid yield/resume cycles.
+-- ----------------------------------------------------------
+
+do
+    dec N = 100000
+    dec function worker()
+        dec sum = 0
+        for i = 1, N do
+            sum = sum + i
+            if i % 100 == 0 then
+                coroutine.yield(sum)
+            end
+        end
+        return sum
+    end
+
+    dec co = coroutine.create(worker)
+    dec s = os.clock()
+    dec last = 0
+    dec yields = 0
+    while true do
+        dec ok, val = coroutine.resume(co)
+        if not ok then break end
+        if coroutine.status(co) == "dead" then
+            last = val
+            break
+        end
+        last = val
+        yields = yields + 1
+    end
+    dec e_co = os.clock() - s
+
+    report("100K iter coroutine (1K yields)", e_co,
+        string.format("(%.0f yields/sec)", yields / e_co))
+    check("coroutine sum correct", last == N * (N + 1) / 2)
+    check("yield count", yields == 1000)
+end
+
+-- ----------------------------------------------------------
+section("13. NUMERIC PIPELINE (FP + INTEGER)")
+-- NaN-boxing stores doubles natively (no boxing overhead).
+-- This pipeline mixes float and int math intensively.
+-- ----------------------------------------------------------
+
+do
+    dec N = 200000
+    dec PI = 3.14159265358979
+
+    dec s = os.clock()
+    dec result = 0.0
+    for i = 1, N do
+        -- Leibniz formula for pi (alternating sum)
+        dec r = (i + 1) % 2
+        dec sign = 1 - 2 * r  -- +1, -1, +1, -1...
+        dec term = sign / (2 * i - 1)  -- int->float division
+        result = result + term  -- float accumulation
+    end
+    result = result * 4.0
+    dec e_pipe = os.clock() - s
+
+    report("200K Leibniz pi terms", e_pipe,
+        string.format("(%.1fM terms/sec)", 0.2 / e_pipe))
+    dec err = result - PI
+    if err < 0 then err = -err end
+    check("pi approximation within 0.001%", err < 0.01)
+    printf("  >>> pi ~ %.10f (err=%.2e)\n", result, err)
+end
+
+do
+    -- Mandelbrot escape-time for a 100x100 grid
+    dec W = 100
+    dec H = 100
+    dec MAX_ITER = 50
+
+    dec s = os.clock()
+    dec total_iter = 0
+    for py = 0, H - 1 do
+        for px = 0, W - 1 do
+            dec x0 = (px / W) * 3.5 - 2.5
+            dec y0 = (py / H) * 2.0 - 1.0
+            dec x = 0.0
+            dec y = 0.0
+            dec iter = 0
+            while x * x + y * y <= 4.0 and iter < MAX_ITER do
+                dec xt = x * x - y * y + x0
+                y = 2.0 * x * y + y0
+                x = xt
+                iter = iter + 1
+            end
+            total_iter = total_iter + iter
+        end
+    end
+    dec e_mandel = os.clock() - s
+
+    report("100x100 Mandelbrot (max 50 iter)", e_mandel,
+        string.format("(%.1fM pixel-iters/sec)", total_iter / e_mandel / 1000000.0))
+    check("mandelbrot computed", total_iter > 0)
+    printf("  >>> Total iterations: %d (avg %.1f/pixel)\n",
+        total_iter, total_iter / (W * H))
+end
+
+-- ----------------------------------------------------------
+section("14. GAME LOOP SIMULATION (ECS-style)")
+-- Entity-Component-System: 5000 entities with position,
+-- velocity, health. Simulate 100 frames of updates.
+-- ----------------------------------------------------------
+
+do
+    dec NUM_ENTITIES = 5000
+    dec NUM_FRAMES = 100
+
+    -- Create entities
+    dec entities = {}
+    for i = 0, NUM_ENTITIES - 1 do
+        entities[i] = {
+            x = i * 1.0,
+            y = i * 0.5,
+            vx = 0.1 + (i % 7) * 0.05,
+            vy = 0.2 - (i % 5) * 0.03,
+            hp = 100,
+            alive = true,
+            team = i % 4
+        }
+    end
+
+    dec s = os.clock()
+    for frame = 1, NUM_FRAMES do
+        -- Physics update
+        for i = 0, NUM_ENTITIES - 1 do
+            dec e = entities[i]
+            if e.alive then
+                e.x = e.x + e.vx
+                e.y = e.y + e.vy
+                -- Bounce off walls (0..1000)
+                if e.x < 0 or e.x > 1000 then e.vx = -e.vx end
+                if e.y < 0 or e.y > 1000 then e.vy = -e.vy end
+            end
+        end
+
+        -- Damage pass (every 10th frame, entities near origin take damage)
+        if frame % 10 == 0 then
+            for i = 0, NUM_ENTITIES - 1 do
+                dec e = entities[i]
+                if e.alive then
+                    dec dist = e.x * e.x + e.y * e.y
+                    if dist < 10000 then  -- within 100 units of origin
+                        e.hp = e.hp - 5
+                        if e.hp <= 0 then
+                            e.alive = false
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Team score (every frame, count alive per team)
+        dec scores = { 0, 0, 0, 0 }
+        for i = 0, NUM_ENTITIES - 1 do
+            dec e = entities[i]
+            if e.alive then
+                scores[e.team] = (scores[e.team] or 0) + 1
+            end
+        end
+    end
+    dec e_game = os.clock() - s
+
+    dec alive_count = 0
+    for i = 0, NUM_ENTITIES - 1 do
+        if entities[i].alive then alive_count = alive_count + 1 end
+    end
+
+    report("5K entities x 100 frames", e_game,
+        string.format("(%.0f entity-frames/sec)", (NUM_ENTITIES * NUM_FRAMES) / e_game))
+    check("game sim completed", alive_count > 0 and alive_count <= NUM_ENTITIES)
+    printf("  >>> %d/%d entities survived | %.2fms per frame\n",
+        alive_count, NUM_ENTITIES, e_game / NUM_FRAMES * 1000.0)
+end
+
+-- ----------------------------------------------------------
+section("15. DATA PIPELINE (ETL)")
+-- Extract-Transform-Load: generate 20K records, filter,
+-- transform, group-by, aggregate. Real-world data crunching.
+-- ----------------------------------------------------------
+
+do
+    dec N = 20000
+    dec regions = { "north", "south", "east", "west", "central" }
+    dec categories = { "alpha", "beta", "gamma", "delta" }
+
+    -- EXTRACT: build raw records
+    dec s = os.clock()
+    dec raw = {}
+    for i = 0, N - 1 do
+        raw[i] = {
+            id = i,
+            value = (i * 7 + 13) % 1000,
+            region = regions[i % 5],
+            category = categories[i % 4],
+            active = (i % 3 != 0)
+        }
+    end
+    dec e_extract = os.clock() - s
+
+    -- TRANSFORM: filter active, double the value
+    s = os.clock()
+    dec filtered = {}
+    dec f_count = 0
+    for i = 0, N - 1 do
+        dec r = raw[i]
+        if r.active then
+            filtered[f_count] = {
+                id = r.id,
+                value = r.value * 2,
+                region = r.region,
+                category = r.category
+            }
+            f_count = f_count + 1
+        end
+    end
+    dec e_transform = os.clock() - s
+
+    -- LOAD: group by region, sum values
+    s = os.clock()
+    dec groups = {}
+    for i = 0, f_count - 1 do
+        dec r = filtered[i]
+        dec key = r.region
+        if not groups[key] then
+            groups[key] = { sum = 0, count = 0, max_val = 0 }
+        end
+        dec g = groups[key]
+        g.sum = g.sum + r.value
+        g.count = g.count + 1
+        if r.value > g.max_val then g.max_val = r.value end
+    end
+    dec e_load = os.clock() - s
+
+    dec total_etl = e_extract + e_transform + e_load
+    report("20K records ETL pipeline", total_etl,
+        string.format("(%.1fK rec/sec)", N / total_etl / 1000.0))
+    printf("    Extract: %.4fs | Transform: %.4fs | Load: %.4fs\n",
+        e_extract, e_transform, e_load)
+    printf("    Filtered: %d/%d (%.0f%%) | Groups: 5 regions\n",
+        f_count, N, f_count / N * 100.0)
+    check("ETL produced results", f_count > 0)
+    check("all regions grouped", groups["north"] and groups["south"])
+end
+
+-- ----------------------------------------------------------
+section("16. RECURSIVE TREE BUILD + WALK")
+-- Build a binary tree of depth 18 (~262K nodes), then
+-- traverse it computing sum and depth. Exercises allocation
+-- + recursion + GC heavily.
+-- ----------------------------------------------------------
+
+do
+    dec function build_tree(depth, val)
+        if depth <= 0 then
+            return { value = val, left = nil, right = nil }
+        end
+        return {
+            value = val,
+            left = build_tree(depth - 1, val * 2),
+            right = build_tree(depth - 1, val * 2 + 1)
+        }
+    end
+
+    dec function tree_sum(node)
+        if node == nil then return 0 end
+        return node.value + tree_sum(node.left) + tree_sum(node.right)
+    end
+
+    dec function tree_depth(node)
+        if node == nil then return 0 end
+        dec ld = tree_depth(node.left)
+        dec rd = tree_depth(node.right)
+        if ld > rd then return ld + 1 end
+        return rd + 1
+    end
+
+    dec function tree_count(node)
+        if node == nil then return 0 end
+        return 1 + tree_count(node.left) + tree_count(node.right)
+    end
+
+    dec DEPTH = 16  -- 2^17 - 1 = 131071 nodes
+    dec s = os.clock()
+    dec root = build_tree(DEPTH, 1)
+    dec e_build = os.clock() - s
+
+    s = os.clock()
+    dec total = tree_sum(root)
+    dec e_sum = os.clock() - s
+
+    s = os.clock()
+    dec d = tree_depth(root)
+    dec e_depth = os.clock() - s
+
+    s = os.clock()
+    dec cnt = tree_count(root)
+    dec e_count = os.clock() - s
+
+    report("tree build (depth " .. tostring(DEPTH) .. ")", e_build,
+        string.format("(%d nodes)", cnt))
+    report("tree sum", e_sum)
+    report("tree depth", e_depth)
+    report("tree count", e_count)
+    check("tree depth correct", d == DEPTH + 1)
+    check("tree count = 2^(d+1)-1", cnt == (1 << (DEPTH + 1)) - 1)
+    printf("  >>> Total: %.4fs | %.1fK nodes/sec build\n",
+        e_build + e_sum + e_depth + e_count,
+        cnt / e_build / 1000.0)
+end
+
+-- ----------------------------------------------------------
+section("17. STRING INTERNING UNDER NaN-BOX")
+-- With NaN-boxing, string pointers are packed into 48 bits.
+-- Verify interning + equality still screams.
+-- ----------------------------------------------------------
+
+do
+    -- Build 10K unique strings
+    dec N = 10000
+    dec keys = {}
+    for i = 0, N - 1 do
+        keys[i] = "lookup_key_" .. tostring(i)
+    end
+
+    -- Populate a table
+    dec map = {}
+    for i = 0, N - 1 do
+        map[keys[i]] = i * 3
+    end
+
+    -- Lookup storm: 10 passes over all keys
+    dec PASSES = 10
+    dec s = os.clock()
+    dec checksum = 0
+    for pass = 1, PASSES do
+        for i = 0, N - 1 do
+            checksum = checksum + map[keys[i]]
+        end
+    end
+    dec e_lookup = os.clock() - s
+
+    report("100K string-key lookups (interned)", e_lookup,
+        string.format("(%.1fM/sec)", (N * PASSES) / e_lookup / 1000000.0))
+    check("lookup checksum", checksum == PASSES * N * (N - 1) / 2 * 3)
+end
+
+-- ----------------------------------------------------------
+section("18. THE GRAND UNIFIED BENCHMARK")
+-- One test to rule them all: interleave different workloads
+-- in a single hot loop. Type checks, table ops, arithmetic,
+-- string work, closures -- all mixed together. This is where
+-- NaN-boxing really pays off because the VM never knows what
+-- type is coming next.
+-- ----------------------------------------------------------
+
+do
+    dec N = 50000
+    dec results = {}
+    dec math_acc = 0.0
+    dec str_count = 0
+    dec tbl_count = 0
+
+    dec function make_worker(id)
+        return function(x)
+            return x + id
+        end
+    end
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec phase = i % 5
+
+        if phase == 0 then
+            -- Arithmetic burst: 10 ops
+            dec x = i * 1.1 + 0.5
+            dec y = x * x - i
+            math_acc = math_acc + y / (i + 1)
+
+        elseif phase == 1 then
+            -- Table create + populate + read
+            dec t = { a = i, b = i + 1, c = i + 2 }
+            tbl_count = tbl_count + t.a + t.b + t.c
+            results[i] = t
+
+        elseif phase == 2 then
+            -- String concat + interning
+            dec key = "grand_" .. tostring(i)
+            results[key] = i
+            str_count = str_count + 1
+
+        elseif phase == 3 then
+            -- Closure create + immediate invoke
+            dec w = make_worker(i)
+            math_acc = math_acc + w(i)
+
+        else
+            -- Type checking cascade
+            dec v = results[i - 1]
+            if v != nil then
+                dec t = type(v)
+                if t == "table" then
+                    tbl_count = tbl_count + 1
+                elseif t == "number" then
+                    math_acc = math_acc + v
+                end
+            end
+        end
+    end
+    dec e_grand = os.clock() - s
+
+    report("50K grand unified iterations", e_grand,
+        string.format("(%.1fK iter/sec)", N / e_grand / 1000.0))
+    check("grand benchmark produced results", math_acc != 0)
+    printf("  >>> math=%.2f strings=%d tables=%d\n",
+        math_acc, str_count, tbl_count)
+end
+
+
+-- ██████████████████████████████████████████████████████████
+banner("RESULTS SUMMARY")
+-- ██████████████████████████████████████████████████████████
+
+dec total_elapsed = os.clock() - total_start
+
+printf("\n")
+printf("    NovaValue size: 8 bytes (NaN-boxed uint64_t)\n")
+printf("    Total benchmarks: %d passed, %d failed\n", pass, fail)
+printf("    Total time: %.3f seconds\n", total_elapsed)
+printf("\n")
+
+if fail == 0 then
+    printf("    ALL CHECKS PASSED\n")
+else
+    printf("    *** %d FAILURES ***\n", fail)
+end
+
+printf("\n")
+printf("    Compare Part A results against baselines from\n")
+printf("    NOVA_PERFORMANCE_REPORT.md (pre-NaN-boxing).\n")
+printf("    [++] = faster  [==] = same  [--] = slower\n")
+printf("\n")

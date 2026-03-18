@@ -1,0 +1,274 @@
+-- ============================================================
+-- test_sql.n — SQL Library Test Suite
+--
+-- Tests the SQLite3 database module (#import sql).
+-- Uses an in-memory database for all tests.
+--
+-- Author: Anthony Taliento
+-- Copyright (c) 2026 Zorya Corporation
+-- ============================================================
+#import sql
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+print("=== SQL LIBRARY TEST SUITE ===")
+
+-- ----------------------------------------------------------
+-- 1. Open/close in-memory database
+-- ----------------------------------------------------------
+print("\n--- 1. Open/Close ---")
+do
+    dec db = sql.open(":memory:")
+    check("sql.open returns handle", type(db) == "integer")
+    check("sql.open handle >= 0", db >= 0)
+
+    dec ok = sql.close(db)
+    check("sql.close returns true", ok == true)
+end
+
+-- ----------------------------------------------------------
+-- 2. CREATE TABLE + INSERT + SELECT
+-- ----------------------------------------------------------
+print("\n--- 2. Basic CRUD ---")
+do
+    dec db = sql.open(":memory:")
+
+    -- CREATE TABLE
+    sql.exec(db, "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, age INTEGER, score REAL)")
+    dec tables = sql.tables(db)
+    check("table created", #tables == 1)
+    check("table name", tables[0] == "users")
+
+    -- INSERT via exec
+    sql.exec(db, "INSERT INTO users (name, age, score) VALUES ('Alice', 30, 95.5)")
+    sql.exec(db, "INSERT INTO users (name, age, score) VALUES ('Bob', 25, 87.2)")
+
+    -- SELECT
+    dec rows = sql.query(db, "SELECT * FROM users ORDER BY id")
+    check("query returns 2 rows", #rows == 2)
+    check("row 0 name", rows[0].name == "Alice")
+    check("row 0 age", rows[0].age == 30)
+    check("row 0 score type", type(rows[0].score) == "number")
+    check("row 1 name", rows[1].name == "Bob")
+    check("row 1 age", rows[1].age == 25)
+
+    -- UPDATE
+    sql.exec(db, "UPDATE users SET age = 31 WHERE name = 'Alice'")
+    dec updated = sql.query(db, "SELECT age FROM users WHERE name = 'Alice'")
+    check("update works", updated[0].age == 31)
+
+    -- DELETE
+    sql.exec(db, "DELETE FROM users WHERE name = 'Bob'")
+    dec remaining = sql.query(db, "SELECT * FROM users")
+    check("delete works", #remaining == 1)
+
+    sql.close(db)
+end
+
+-- ----------------------------------------------------------
+-- 3. sql.insert convenience
+-- ----------------------------------------------------------
+print("\n--- 3. sql.insert ---")
+do
+    dec db = sql.open(":memory:")
+    sql.exec(db, "CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price REAL, in_stock INTEGER)")
+
+    dec id1 = sql.insert(db, "products", {name = "Widget", price = 9.99, in_stock = 100})
+    check("insert returns rowid", id1 == 1)
+
+    dec id2 = sql.insert(db, "products", {name = "Gadget", price = 19.99, in_stock = 50})
+    check("insert second row", id2 == 2)
+
+    dec rows = sql.query(db, "SELECT * FROM products ORDER BY id")
+    check("inserted 2 products", #rows == 2)
+    check("product 1 name", rows[0].name == "Widget")
+    check("product 1 price", rows[0].price == 9.99)
+    check("product 2 name", rows[1].name == "Gadget")
+
+    sql.close(db)
+end
+
+-- ----------------------------------------------------------
+-- 4. Schema introspection
+-- ----------------------------------------------------------
+print("\n--- 4. Schema Introspection ---")
+do
+    dec db = sql.open(":memory:")
+    sql.exec(db, "CREATE TABLE t1 (a INTEGER PRIMARY KEY, b TEXT NOT NULL, c REAL)")
+    sql.exec(db, "CREATE TABLE t2 (x INTEGER, y TEXT)")
+
+    -- List tables
+    dec tables = sql.tables(db)
+    check("two tables", #tables == 2)
+
+    -- Column info
+    dec cols = sql.columns(db, "t1")
+    check("t1 has 3 columns", #cols == 3)
+    check("col 0 name", cols[0].name == "a")
+    check("col 0 type", cols[0].type == "INTEGER")
+    check("col 0 pk", cols[0].pk == true)
+    check("col 1 name", cols[1].name == "b")
+    check("col 1 notnull", cols[1].notnull == true)
+
+    sql.close(db)
+end
+
+-- ----------------------------------------------------------
+-- 5. Transactions
+-- ----------------------------------------------------------
+print("\n--- 5. Transactions ---")
+do
+    dec db = sql.open(":memory:")
+    sql.exec(db, "CREATE TABLE ledger (amount INTEGER)")
+
+    -- Commit path
+    sql.begin(db)
+    sql.exec(db, "INSERT INTO ledger VALUES (100)")
+    sql.exec(db, "INSERT INTO ledger VALUES (200)")
+    sql.commit(db)
+
+    dec rows = sql.query(db, "SELECT * FROM ledger")
+    check("committed 2 rows", #rows == 2)
+
+    -- Rollback path
+    sql.begin(db)
+    sql.exec(db, "INSERT INTO ledger VALUES (300)")
+    sql.rollback(db)
+
+    rows = sql.query(db, "SELECT * FROM ledger")
+    check("rollback kept 2 rows", #rows == 2)
+
+    sql.close(db)
+end
+
+-- ----------------------------------------------------------
+-- 6. last_insert_id + changes
+-- ----------------------------------------------------------
+print("\n--- 6. Metadata ---")
+do
+    dec db = sql.open(":memory:")
+    sql.exec(db, "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, val TEXT)")
+
+    sql.exec(db, "INSERT INTO items (val) VALUES ('first')")
+    dec lid = sql.last_insert_id(db)
+    check("last_insert_id = 1", lid == 1)
+
+    sql.exec(db, "INSERT INTO items (val) VALUES ('second')")
+    lid = sql.last_insert_id(db)
+    check("last_insert_id = 2", lid == 2)
+
+    sql.exec(db, "DELETE FROM items")
+    dec ch = sql.changes(db)
+    check("changes = 2", ch == 2)
+
+    sql.close(db)
+end
+
+-- ----------------------------------------------------------
+-- 7. sql.escape
+-- ----------------------------------------------------------
+print("\n--- 7. Escape ---")
+do
+    dec escaped = sql.escape("it's a test")
+    check("escape single quote", escaped == "it''s a test")
+
+    escaped = sql.escape("no quotes here")
+    check("escape no change", escaped == "no quotes here")
+
+    escaped = sql.escape("a'b'c")
+    check("escape multiple", escaped == "a''b''c")
+end
+
+-- ----------------------------------------------------------
+-- 8. NULL handling
+-- ----------------------------------------------------------
+print("\n--- 8. NULL handling ---")
+do
+    dec db = sql.open(":memory:")
+    sql.exec(db, "CREATE TABLE nulltest (a TEXT, b INTEGER)")
+    sql.exec(db, "INSERT INTO nulltest VALUES (NULL, 42)")
+
+    dec rows = sql.query(db, "SELECT * FROM nulltest")
+    check("null column is nil", rows[0].a == nil)
+    check("non-null column", rows[0].b == 42)
+
+    sql.close(db)
+end
+
+-- ----------------------------------------------------------
+-- 9. Multiple databases
+-- ----------------------------------------------------------
+print("\n--- 9. Multiple DBs ---")
+do
+    dec db1 = sql.open(":memory:")
+    dec db2 = sql.open(":memory:")
+    check("different handles", db1 != db2)
+
+    sql.exec(db1, "CREATE TABLE t (x INTEGER)")
+    sql.exec(db2, "CREATE TABLE t (y TEXT)")
+
+    sql.exec(db1, "INSERT INTO t VALUES (42)")
+    sql.exec(db2, "INSERT INTO t VALUES ('hello')")
+
+    dec r1 = sql.query(db1, "SELECT * FROM t")
+    dec r2 = sql.query(db2, "SELECT * FROM t")
+
+    check("db1 has x=42", r1[0].x == 42)
+    check("db2 has y=hello", r2[0].y == "hello")
+
+    sql.close(db1)
+    sql.close(db2)
+end
+
+-- ----------------------------------------------------------
+-- 10. Stress test: bulk insert + query
+-- ----------------------------------------------------------
+print("\n--- 10. Bulk Operations ---")
+do
+    dec db = sql.open(":memory:")
+    sql.exec(db, "CREATE TABLE stress (id INTEGER PRIMARY KEY, val INTEGER)")
+
+    dec s = os.clock()
+    sql.begin(db)
+    for i = 0, 999 do
+        sql.exec(db, sprintf("INSERT INTO stress VALUES (%d, %d)", i, i * i))
+    end
+    sql.commit(db)
+    dec insert_time = os.clock() - s
+
+    s = os.clock()
+    dec rows = sql.query(db, "SELECT * FROM stress ORDER BY id")
+    dec query_time = os.clock() - s
+
+    check("bulk inserted 1000", #rows == 1000)
+    check("first row", rows[0] != nil and rows[0].val == 0)
+    check("row 500", rows[500] != nil and rows[500].val == 500 * 500)
+
+    printf("  1000 inserts: %.4f sec\n", insert_time)
+    printf("  1000-row query: %.4f sec\n", query_time)
+
+    sql.close(db)
+end
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+print("\n============================================")
+printf("  SQL TESTS: %d/%d\n", pass, pass + fail)
+print("============================================")
+
+if fail > 0 then
+    printf("  *** %d TESTS FAILED ***\n", fail)
+    os.exit(1)
+end
+print("  ALL SQL TESTS PASSED")

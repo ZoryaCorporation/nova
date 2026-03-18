@@ -1,0 +1,288 @@
+-- ============================================================
+-- type_declarations.n — Enums, Structs & Type Aliases
+--
+-- Nova's type declaration system bridges the gap between
+-- scripting convenience and systems-level data modeling.
+-- Define your data structures at module scope, use them
+-- everywhere — typed, self-describing, and composable.
+--
+-- Run:  ./bin/nova nova_syntax/05_advanced/type_declarations.n
+-- ============================================================
+
+echo "=== Type Declarations in Nova ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 1. Typedec Enum — Named Constants with Metadata
+--
+-- Like C enums but with runtime type info. Perfect for
+-- protocol codes, state machines, and classification.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Enums: HTTP Status Codes ---"
+
+typedec enum HttpStatus {
+    OK                  = 200,
+    CREATED             = 201,
+    NO_CONTENT          = 204,
+    BAD_REQUEST         = 400,
+    UNAUTHORIZED        = 401,
+    FORBIDDEN           = 403,
+    NOT_FOUND           = 404,
+    INTERNAL_ERROR      = 500,
+    SERVICE_UNAVAILABLE = 503
+}
+
+-- Enums are tables — use them like constants
+dec function status_class(code)
+    if code >= 500 then return "SERVER ERROR" end
+    if code >= 400 then return "CLIENT ERROR" end
+    if code >= 200 then return "SUCCESS" end
+    return "UNKNOWN"
+end
+
+printf("  %d %s → %s\n", HttpStatus.OK,
+    "OK", status_class(HttpStatus.OK))
+printf("  %d %s → %s\n", HttpStatus.NOT_FOUND,
+    "NOT_FOUND", status_class(HttpStatus.NOT_FOUND))
+printf("  %d %s → %s\n", HttpStatus.INTERNAL_ERROR,
+    "INTERNAL_ERROR", status_class(HttpStatus.INTERNAL_ERROR))
+printf("  Type: %s  Base: %s\n",
+    HttpStatus.__type, HttpStatus.__base)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 2. Typedec Enum — State Machine
+--
+-- Auto-numbered enums are ideal for state machines.
+-- The compiler assigns 0, 1, 2, 3... automatically.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Enums: Connection State Machine ---"
+
+typedec enum ConnState {
+    IDLE,
+    CONNECTING,
+    CONNECTED,
+    CLOSING,
+    ERROR
+}
+
+dec state_names = {"IDLE", "CONNECTING", "CONNECTED", "CLOSING", "ERROR"}
+
+dec function state_name(s)
+    return state_names[s] or "UNKNOWN"
+end
+
+-- Simulate a connection lifecycle
+dec function transition(from, to)
+    printf("  %s → %s\n", state_name(from), state_name(to))
+end
+
+transition(ConnState.IDLE,       ConnState.CONNECTING)
+transition(ConnState.CONNECTING, ConnState.CONNECTED)
+transition(ConnState.CONNECTED,  ConnState.CLOSING)
+transition(ConnState.CLOSING,    ConnState.IDLE)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 3. Typedec Struct — Typed Record Constructors
+--
+-- Structs create constructor functions that produce tables
+-- with named fields, defaults, and type metadata.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Structs: Request/Response Modeling ---"
+
+typedec struct HttpRequest {
+    method = "GET",
+    path   = "/",
+    body   = nil
+}
+
+typedec struct HttpResponse {
+    status = 200,
+    body   = "",
+    headers = nil
+}
+
+-- Build requests with defaults or overrides
+dec req1 = HttpRequest()
+dec req2 = HttpRequest("POST", "/api/users", '{"name":"Nova"}')
+
+printf("  Request 1: %s %s\n", req1.method, req1.path)
+printf("  Request 2: %s %s  body=%s\n", req2.method, req2.path, req2.body)
+
+-- Build responses
+dec resp = HttpResponse(HttpStatus.CREATED, '{"id":42}')
+printf("  Response:  %d  body=%s\n", resp.status, resp.body)
+printf("  Type: %s  Base: %s\n", resp.__type, resp.__base)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 4. Enum + Struct Composition — Real Data Modeling
+--
+-- The real power: enums define vocabulary, structs define
+-- shape. Together they model domains the way systems
+-- languages do — but with scripting convenience.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Composition: Log System ---"
+
+typedec enum LogLevel {
+    TRACE,
+    DEBUG,
+    INFO,
+    WARN,
+    ERROR,
+    FATAL
+}
+
+typedec struct LogEntry {
+    level   = 0,
+    message = "",
+    source  = "unknown"
+}
+
+dec level_tags = {"TRACE", "DEBUG", "INFO ", "WARN ", "ERROR", "FATAL"}
+
+dec function log_format(entry)
+    dec tag = level_tags[entry.level] or "???"
+    return sprintf("[%s] (%s) %s", tag, entry.source, entry.message)
+end
+
+-- Create log entries using enum values
+dec logs = {}
+table.insert(logs, LogEntry(LogLevel.INFO,  "Server started",        "main"))
+table.insert(logs, LogEntry(LogLevel.DEBUG, "Loading config",         "config"))
+table.insert(logs, LogEntry(LogLevel.WARN,  "Deprecated API called",  "router"))
+table.insert(logs, LogEntry(LogLevel.ERROR, "Connection refused",     "db"))
+
+for i = 0, #logs - 1 do
+    printf("  %s\n", log_format(logs[i]))
+end
+
+-- Filter by severity
+echo "\n  Errors and above:"
+for i = 0, #logs - 1 do
+    if logs[i].level >= LogLevel.ERROR then
+        printf("    %s\n", log_format(logs[i]))
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 5. Hex Enums — Systems Programming
+--
+-- Hex values map directly to hardware registers, protocol
+-- fields, and bytecode opcodes. Nova handles them natively.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Hex Enums: Opcode Groups ---"
+
+typedec enum OpcodeGroup {
+    DATA_MOVE  = 0x00,
+    TABLE_OPS  = 0x10,
+    ARITHMETIC = 0x30,
+    BITWISE    = 0x40,
+    CONTROL    = 0x70,
+    CLOSURES   = 0x90
+}
+
+dec function show_opcode(name, value)
+    printf("  %-12s %5d  0x%02X\n", name, value, value)
+end
+
+printf("  %-12s %5s %6s\n", "Group", "Dec", "Hex")
+printf("  %-12s %5s %6s\n", "-----", "---", "---")
+show_opcode("DATA_MOVE",  OpcodeGroup.DATA_MOVE)
+show_opcode("TABLE_OPS",  OpcodeGroup.TABLE_OPS)
+show_opcode("ARITHMETIC", OpcodeGroup.ARITHMETIC)
+show_opcode("BITWISE",    OpcodeGroup.BITWISE)
+show_opcode("CONTROL",    OpcodeGroup.CONTROL)
+show_opcode("CLOSURES",   OpcodeGroup.CLOSURES)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 6. Typedec Aliases — Domain Semantics
+--
+-- Wrap primitives with meaning. A UserId isn't just a number,
+-- it's a type boundary that documents intent.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Type Aliases: Domain Modeling ---"
+
+typedec UserId = integer
+typedec Email  = string
+
+dec user = UserId(1001)
+dec mail = Email("nova@zorya.dev")
+
+printf("  user: %d (%s / %s)\n",
+    user.value, user.__type, user.__base)
+printf("  mail: %s (%s / %s)\n",
+    mail.value, mail.__type, mail.__base)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- 7. Bringing It All Together
+--
+-- A mini domain model: a task tracker with typed enums for
+-- status and priority, structs for tasks, and constructors
+-- that compose them cleanly.
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Full Example: Task Tracker ---"
+
+typedec enum TaskStatus {
+    TODO,
+    IN_PROGRESS,
+    REVIEW,
+    DONE
+}
+
+typedec enum TaskPriority {
+    LOW,
+    MEDIUM,
+    HIGH,
+    CRITICAL
+}
+
+dec status_labels = {"TODO", "IN PROGRESS", "REVIEW", "DONE"}
+dec priority_labels = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+dec function make_task(title, priority)
+    return {
+        title    = title,
+        status   = TaskStatus.TODO,
+        priority = priority or TaskPriority.MEDIUM,
+    }
+end
+
+dec function advance_task(task)
+    if task.status < TaskStatus.DONE then
+        task.status = task.status + 1
+    end
+end
+
+-- Create a backlog
+dec backlog = {}
+table.insert(backlog, make_task("Implement type declarations", TaskPriority.CRITICAL))
+table.insert(backlog, make_task("Write documentation",         TaskPriority.HIGH))
+table.insert(backlog, make_task("Add hex literal support",     TaskPriority.MEDIUM))
+table.insert(backlog, make_task("Polish syntax examples",      TaskPriority.LOW))
+
+-- Advance some tasks
+advance_task(backlog[0])  -- TODO → IN_PROGRESS
+advance_task(backlog[0])  -- IN_PROGRESS → REVIEW
+advance_task(backlog[0])  -- REVIEW → DONE
+advance_task(backlog[1])  -- TODO → IN_PROGRESS
+
+-- Display
+printf("\n  %-35s %-14s %s\n", "Task", "Status", "Priority")
+printf("  %-35s %-14s %s\n",
+    "-----------------------------------",
+    "-----------", "--------")
+
+for i = 0, #backlog - 1 do
+    dec t = backlog[i]
+    printf("  %-35s %-14s %s\n",
+        t.title,
+        status_labels[t.status],
+        priority_labels[t.priority])
+end
+
+echo "\n=== Done ==="

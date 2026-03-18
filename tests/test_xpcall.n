@@ -1,0 +1,120 @@
+-- =================================================
+-- XPCALL TEST SUITE
+-- Tests for xpcall(f, handler, ...) implementation
+-- =================================================
+
+print("=== XPCALL TEST SUITE ===")
+print("")
+
+-- Test 1: xpcall success path (should behave like pcall on success)
+print("Test 1: Success path")
+dec function add(a, b) return a + b end
+dec function handler(err) return "handled: " .. tostring(err) end
+
+dec ok, result = xpcall(add, handler, 10, 20)
+assert(ok == true, "xpcall should return true on success")
+assert(result == 30, "should return function result")
+print("  success: OK (result = " .. tostring(result) .. ")")
+
+-- Test 2: xpcall error path with handler
+print("Test 2: Error with handler")
+dec function bad_func()
+    error("something broke")
+end
+dec function my_handler(err)
+    return "CAUGHT: " .. tostring(err)
+end
+
+dec ok2, msg2 = xpcall(bad_func, my_handler)
+assert(ok2 == false, "xpcall should return false on error")
+assert(type(msg2) == "string", "handler result should be string")
+print("  error handled: " .. tostring(msg2))
+print("  error path: OK")
+
+-- Test 3: Handler transforms the error
+print("Test 3: Handler transforms error")
+dec function crasher()
+    error("raw error")
+end
+dec function uppercase_handler(err)
+    -- In a real scenario this would call string.upper
+    return "ERROR: " .. tostring(err)
+end
+
+dec ok3, msg3 = xpcall(crasher, uppercase_handler)
+assert(ok3 == false, "should return false")
+assert(type(msg3) == "string", "transformed error should be string")
+print("  transformed: " .. tostring(msg3))
+print("  transform: OK")
+
+-- Test 4: xpcall with no extra args
+print("Test 4: No extra args")
+dec function no_args()
+    return 42
+end
+dec ok4, v4 = xpcall(no_args, handler)
+assert(ok4 == true, "should succeed")
+assert(v4 == 42, "should return 42")
+print("  no args: OK")
+
+-- Test 5: xpcall with multiple return values
+print("Test 5: Multiple return values")
+dec function multi_ret(a, b)
+    return a, b, a + b
+end
+dec ok5, r1, r2, r3 = xpcall(multi_ret, handler, 3, 7)
+assert(ok5 == true, "should succeed")
+assert(r1 == 3, "first return should be 3")
+assert(r2 == 7, "second return should be 7")
+assert(r3 == 10, "third return should be 10")
+print("  multi return: OK (" .. tostring(r1) .. ", " .. tostring(r2) .. ", " .. tostring(r3) .. ")")
+
+-- Test 6: Handler that returns nil
+print("Test 6: Handler returns nil")
+dec function nil_handler(err)
+    return nil
+end
+dec ok6, msg6 = xpcall(bad_func, nil_handler)
+assert(ok6 == false, "should return false")
+assert(msg6 == nil, "handler returned nil")
+print("  nil handler: OK")
+
+-- Test 7: Handler that returns multiple values (only first used)
+print("Test 7: Handler returns value")
+dec function rich_handler(err)
+    return "enriched: " .. tostring(err)
+end
+dec ok7, msg7 = xpcall(bad_func, rich_handler)
+assert(ok7 == false, "should return false")
+print("  rich handler: " .. tostring(msg7))
+print("  rich handler: OK")
+
+-- Test 8: xpcall with coroutine interaction
+print("Test 8: xpcall inside coroutine")
+dec function co_xpcall()
+    dec ok, v = xpcall(function()
+        return 99
+    end, handler)
+    coroutine.yield(ok, v)
+
+    dec ok2, v2 = xpcall(function()
+        error("inside co")
+    end, my_handler)
+    return ok2, v2
+end
+
+dec co = coroutine.create(co_xpcall)
+dec cok1, cv1, cv2 = coroutine.resume(co)
+assert(cok1 == true, "resume should succeed")
+assert(cv1 == true, "xpcall in coroutine should succeed")
+assert(cv2 == 99, "should get 99")
+print("  coroutine success: OK")
+
+dec cok2, cv3, cv4 = coroutine.resume(co)
+assert(cok2 == true, "second resume should succeed")
+assert(cv3 == false, "xpcall error in coroutine")
+print("  coroutine error: " .. tostring(cv4))
+print("  coroutine xpcall: OK")
+
+print("")
+print("=== ALL XPCALL TESTS PASSED ===")

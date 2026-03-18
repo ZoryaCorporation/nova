@@ -1,0 +1,222 @@
+-- ============================================================
+-- nlp_analysis.n - Text Analysis Demo
+--
+-- Demonstrates the Nova NLP library by performing a full
+-- literary analysis on a passage of writing.
+-- Author: Anthony Taliento
+-- Date: 2026-02-18
+-- ============================================================
+
+dec text = [[
+The steel mills of Pittsburgh once painted the sky orange at dusk,
+their furnaces breathing fire into the night like ancient dragons
+guarding a kingdom of iron. Workers poured through the gates each
+morning, lunch pails in hand, faces already streaked with soot
+before the first whistle blew. They built bridges and railroads
+and skyscrapers that scraped the heavens, yet their own homes
+sagged under the weight of mortgages they could never quite pay
+off. The river ran thick with slag and ambition in equal measure.
+
+When the mills finally closed, silence settled over the valley
+like a funeral shroud. Grass pushed through cracked concrete.
+Rust consumed what fire had forged. The children of steelworkers
+became nurses and programmers and teachers, carrying forward a
+stubborn resilience inherited from men and women who bent metal
+for a living. They did not forget the furnaces. They simply
+learned to carry different fires.
+]]
+
+dec divider = string.rep("=", 60)
+dec thin    = string.rep("-", 60)
+
+-- ============================================================
+-- 1. BASIC STATISTICS
+-- ============================================================
+print(divider)
+print("  NOVA NLP TEXT ANALYSIS")
+print(divider)
+
+dec wc = nlp.wordcount(text)
+dec sents = nlp.sentences(text)
+dec toks  = nlp.tokenize(text)
+
+print("\n[1] BASIC STATISTICS")
+print(thin)
+printf("  Words:          %d\n", wc)
+printf("  Sentences:      %d\n", #sents)
+printf("  Tokens:         %d\n", #toks)
+printf("  Avg words/sent: %.1f\n", wc / #sents)
+printf("  Characters:     %d\n", #text)
+
+-- ============================================================
+-- 2. VOCABULARY RICHNESS
+-- ============================================================
+print("\n[2] VOCABULARY RICHNESS")
+print(thin)
+
+dec uniq = nlp.unique(text)
+printf("  Total words (lowered): %d\n", wc)
+printf("  Unique words:          %d\n", #uniq)
+printf("  Lexical diversity:     %.2f%%\n", (#uniq / wc) * 100)
+
+-- Show some unique words
+dec sample = ""
+dec limit = 10
+if #uniq < limit then limit = #uniq end
+for i = 0, limit - 1 do
+    if i > 0 then sample = sample .. ", " end
+    sample = sample .. uniq[i]
+end
+printf("  Sample vocabulary:     %s ...\n", sample)
+
+-- ============================================================
+-- 3. TOP TERM FREQUENCIES (stopwords filtered)
+-- ============================================================
+print("\n[3] TOP TERM FREQUENCIES")
+print(thin)
+
+dec top_words = nlp.freq(text, 12)
+for i = 0, #top_words - 1 do
+    dec entry = top_words[i]
+    dec bar = string.rep("#", entry.count)
+    printf("  %-14s %2d  %s\n", entry.word, entry.count, bar)
+end
+
+-- ============================================================
+-- 4. BIGRAMS & TRIGRAMS
+-- ============================================================
+print("\n[4] TOP BIGRAMS")
+print(thin)
+
+dec bigrams = nlp.ngrams(text, 2, 8)
+for i = 0, #bigrams - 1 do
+    dec g = bigrams[i]
+    printf("  %-28s %d\n", '"' .. g.gram .. '"', g.count)
+end
+
+print("\n[5] TOP TRIGRAMS")
+print(thin)
+
+dec trigrams = nlp.ngrams(text, 3, 6)
+for i = 0, #trigrams - 1 do
+    dec g = trigrams[i]
+    printf("  %-36s %d\n", '"' .. g.gram .. '"', g.count)
+end
+
+-- ============================================================
+-- 5. STEMMING ANALYSIS
+-- ============================================================
+print("\n[6] STEMMING ANALYSIS")
+print(thin)
+print("  Original -> Stem")
+print("  " .. string.rep("-", 34))
+
+dec interesting = {
+    "furnaces", "breathing", "guarding", "workers",
+    "bridges", "railroads", "skyscrapers", "mortgages",
+    "settled", "inherited", "resilience", "programmers",
+    "steelworkers", "consumed", "forged"
+}
+for i = 0, #interesting - 1 do
+    dec w = interesting[i]
+    dec s = nlp.stem(w)
+    if w != s then
+        printf("  %-16s -> %s\n", w, s)
+    end
+end
+
+-- ============================================================
+-- 6. KEY WORD IN CONTEXT (KWIC)
+-- ============================================================
+print("\n[7] KEY WORD IN CONTEXT")
+print(thin)
+
+dec keywords = {"fire", "mills", "river", "silence"}
+for k = 0, #keywords - 1 do
+    dec kw = keywords[k]
+    dec hits = nlp.kwic(text, kw, 35)
+    if #hits > 0 then
+        printf("\n  Keyword: \"%s\" (%d occurrence%s)\n",
+               kw, #hits, #hits > 1 and "s" or "")
+        for i = 0, #hits - 1 do
+            dec h = hits[i]
+            printf("    ...%s [%s] %s...\n", h.left, h.keyword, h.right)
+        end
+    else
+        printf("\n  Keyword: \"%s\" - not found\n", kw)
+    end
+end
+
+-- ============================================================
+-- 7. SENTENCE BREAKDOWN
+-- ============================================================
+print("\n[8] SENTENCE BREAKDOWN")
+print(thin)
+
+for i = 0, #sents - 1 do
+    dec s = sents[i]
+    -- Trim it for display
+    dec display = s
+    if #s > 65 then
+        display = string.sub(s, 0, 62) .. "..."
+    end
+    dec swc = nlp.wordcount(s)
+    printf("  S%02d (%2d words): %s\n", i + 1, swc, display)
+end
+
+-- ============================================================
+-- 8. EXTRACTIVE SUMMARY
+-- ============================================================
+print("\n[9] EXTRACTIVE SUMMARY (top 3 sentences)")
+print(thin)
+
+dec summary = nlp.summarize(text, 3)
+for i = 0, #summary - 1 do
+    dec s = summary[i]
+    if #s > 72 then
+        s = string.sub(s, 0, 69) .. "..."
+    end
+    printf("  [%d] %s\n", i + 1, s)
+end
+
+-- ============================================================
+-- 9. FUZZY SEARCH
+-- ============================================================
+print("\n[10] FUZZY SEARCH")
+print(thin)
+
+dec queries = {"furnases", "bridgez", "workerz", "resiliance"}
+for i = 0, #queries - 1 do
+    dec q = queries[i]
+    dec matches = nlp.fuzzy(text, q, 0.55)
+    if #matches > 0 then
+        -- Find the best match (highest score)
+        dec best = matches[0]
+        for j = 1, #matches - 1 do
+            if matches[j].score > best.score then
+                best = matches[j]
+            end
+        end
+        printf("  \"%s\" -> found \"%s\" (score: %.2f)\n",
+               q, best.match, best.score)
+    else
+        printf("  \"%s\" -> no match\n", q)
+    end
+end
+
+-- ============================================================
+-- 10. NORMALIZED TEXT PREVIEW
+-- ============================================================
+print("\n[11] NORMALIZED TEXT (first 200 chars)")
+print(thin)
+
+dec norm = nlp.normalize(text)
+dec preview = string.sub(norm, 0, 200)
+print("  " .. preview .. "...")
+
+-- ============================================================
+-- DONE
+-- ============================================================
+print("\n" .. divider)
+print("  ANALYSIS COMPLETE")
+print(divider)

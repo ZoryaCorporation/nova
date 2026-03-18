@@ -1,0 +1,191 @@
+-- ============================================================
+-- Nova Math Library Test Suite (Phase 10.1)
+-- Tests: trig, exp/log, rounding, min/max, random, type,
+--        tointeger, constants
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+-- Approximate float comparison
+dec function check_approx(name, got, expected, tol)
+    tol = tol or 1e-9
+    dec g = tonumber(got)
+    dec e = tonumber(expected)
+    if g != nil and e != nil then
+        dec diff = g - e
+        if diff < 0 then diff = -diff end
+        if diff < tol then
+            pass = pass + 1
+            print("  PASS: " .. name)
+        else
+            fail = fail + 1
+            print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected ~" .. tostring(expected) .. ")")
+        end
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", not a number)")
+    end
+end
+
+print("=== MATH LIBRARY TESTS ===")
+
+-- ============================================================
+-- Constants
+-- ============================================================
+print("\n-- constants --")
+
+check_approx("math.pi", math.pi, 3.14159265358979, 1e-10)
+check("math.huge is inf", math.huge > 1e300, true)
+check("math.maxinteger > 0", math.maxinteger > 0, true)
+check("math.mininteger < 0", math.mininteger < 0, true)
+
+-- ============================================================
+-- Trigonometric functions
+-- ============================================================
+print("\n-- trig --")
+
+check_approx("sin(0)", math.sin(0), 0)
+check_approx("sin(pi/2)", math.sin(math.pi / 2), 1.0)
+check_approx("sin(pi)", math.sin(math.pi), 0, 1e-14)
+
+check_approx("cos(0)", math.cos(0), 1.0)
+check_approx("cos(pi)", math.cos(math.pi), -1.0)
+check_approx("cos(pi/2)", math.cos(math.pi / 2), 0, 1e-14)
+
+check_approx("tan(0)", math.tan(0), 0)
+check_approx("tan(pi/4)", math.tan(math.pi / 4), 1.0)
+
+-- Inverse trig
+check_approx("asin(0)", math.asin(0), 0)
+check_approx("asin(1)", math.asin(1), math.pi / 2)
+
+check_approx("acos(1)", math.acos(1), 0)
+check_approx("acos(0)", math.acos(0), math.pi / 2)
+
+check_approx("atan(0)", math.atan(0), 0)
+check_approx("atan(1)", math.atan(1), math.pi / 4)
+
+-- ============================================================
+-- Exponential / Logarithmic
+-- ============================================================
+print("\n-- exp/log --")
+
+check_approx("exp(0)", math.exp(0), 1.0)
+check_approx("exp(1)", math.exp(1), 2.71828182845905, 1e-10)
+
+check_approx("log(1)", math.log(1), 0)
+check_approx("log(e)", math.log(math.exp(1)), 1.0, 1e-10)
+
+-- ============================================================
+-- Power / Square root
+-- ============================================================
+print("\n-- pow/sqrt --")
+
+check_approx("pow(2, 10)", math.pow(2, 10), 1024)
+check_approx("pow(3, 0)", math.pow(3, 0), 1)
+check_approx("pow(5, 1)", math.pow(5, 1), 5)
+
+check_approx("sqrt(4)", math.sqrt(4), 2.0)
+check_approx("sqrt(9)", math.sqrt(9), 3.0)
+check_approx("sqrt(2)", math.sqrt(2), 1.41421356237310, 1e-10)
+check_approx("sqrt(0)", math.sqrt(0), 0)
+
+-- ============================================================
+-- Rounding / Absolute / Modulo
+-- ============================================================
+print("\n-- floor/ceil/abs/fmod --")
+
+check("floor(3.7)", math.floor(3.7), 3)
+check("floor(-3.7)", math.floor(-3.7), -4)
+check("floor(5)", math.floor(5), 5)
+
+check("ceil(3.2)", math.ceil(3.2), 4)
+check("ceil(-3.2)", math.ceil(-3.2), -3)
+check("ceil(5)", math.ceil(5), 5)
+
+check("abs(5)", math.abs(5), 5)
+check("abs(-5)", math.abs(-5), 5)
+check("abs(0)", math.abs(0), 0)
+check_approx("abs(-3.14)", math.abs(-3.14), 3.14)
+
+check_approx("fmod(7, 3)", math.fmod(7, 3), 1.0)
+check_approx("fmod(10, 5)", math.fmod(10, 5), 0.0)
+check_approx("fmod(7.5, 2)", math.fmod(7.5, 2), 1.5)
+
+-- ============================================================
+-- Min / Max
+-- ============================================================
+print("\n-- min/max --")
+
+check("max(1,2,3)", math.max(1, 2, 3), 3)
+check("max(3,2,1)", math.max(3, 2, 1), 3)
+check("max(5)", math.max(5), 5)
+check("max(-1,-2,-3)", math.max(-1, -2, -3), -1)
+
+check("min(1,2,3)", math.min(1, 2, 3), 1)
+check("min(3,2,1)", math.min(3, 2, 1), 1)
+check("min(5)", math.min(5), 5)
+check("min(-1,-2,-3)", math.min(-1, -2, -3), -3)
+
+-- ============================================================
+-- Random
+-- ============================================================
+print("\n-- random --")
+
+math.randomseed(42)
+dec r1 = math.random()
+check("random() is number", type(r1), "number")
+check("random() >= 0", r1 >= 0, true)
+check("random() < 1", r1 < 1, true)
+
+dec r2 = math.random(10)
+check("random(10) is integer", math.type(r2), "integer")
+check("random(10) >= 1", r2 >= 1, true)
+check("random(10) <= 10", r2 <= 10, true)
+
+dec r3 = math.random(5, 15)
+check("random(5,15) >= 5", r3 >= 5, true)
+check("random(5,15) <= 15", r3 <= 15, true)
+
+-- ============================================================
+-- math.type
+-- ============================================================
+print("\n-- math.type --")
+
+check("type(42)", math.type(42), "integer")
+check("type(3.14)", math.type(3.14), "float")
+check("type('hello')", math.type("hello"), "false")
+check("type(nil)", math.type(nil), "false")
+check("type(true)", math.type(true), "false")
+
+-- ============================================================
+-- math.tointeger
+-- ============================================================
+print("\n-- math.tointeger --")
+
+check("tointeger(5)", math.tointeger(5), 5)
+check("tointeger(5.0)", math.tointeger(5.0), 5)
+-- tointeger of non-integral float should return nil
+dec ti_bad = math.tointeger(5.5)
+check("tointeger(5.5) is nil", ti_bad == nil, true)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  MATH TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("MATH: " .. fail .. " test(s) FAILED")
+end

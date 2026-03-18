@@ -1,0 +1,140 @@
+-- test_gc.n: Garbage collector stress tests
+-- Exercises incremental mark-sweep GC under allocation pressure.
+
+print("=== GC TEST SUITE ===")
+print("")
+
+-- Test 1: collectgarbage API
+print("Test 1: collectgarbage API")
+dec running = collectgarbage("isrunning")
+assert(running == true, "GC should be running by default")
+print("  isrunning =", running)
+
+dec kb, bytes = collectgarbage("count")
+print("  memory =", kb, "KB +", bytes, "bytes")
+assert(kb > 0, "memory should be positive")
+
+collectgarbage("collect")
+print("  manual collect: OK")
+
+-- Test 2: collectgarbage setpause / setstepmul
+print("Test 2: GC tuning")
+dec old_pause = collectgarbage("setpause", 300)
+print("  old pause =", old_pause)
+assert(old_pause == 200, "default pause should be 200")
+
+dec old_mul = collectgarbage("setstepmul", 400)
+print("  old stepmul =", old_mul)
+assert(old_mul == 200, "default stepmul should be 200")
+
+-- Restore defaults
+collectgarbage("setpause", 200)
+collectgarbage("setstepmul", 200)
+print("  tuning: OK")
+
+-- Test 3: String allocation stress
+print("Test 3: String stress (10000 temporary strings)")
+dec before_kb = collectgarbage("count")
+for i = 1, 10000 do
+    dec s = "temporary_string_" .. tostring(i)
+    -- s goes out of scope each iteration (no more references)
+end
+collectgarbage("collect")
+dec after_kb = collectgarbage("count")
+print("  before:", before_kb, "KB  after:", after_kb, "KB")
+-- Memory shouldn't have grown much since strings are dead
+print("  string stress: OK")
+
+-- Test 4: Table allocation stress
+print("Test 4: Table stress (5000 temporary tables)")
+for i = 1, 5000 do
+    dec t = {x = i, y = i * 2, z = "hello"}
+    -- t goes out of scope each iteration
+end
+collectgarbage("collect")
+dec after_tables = collectgarbage("count")
+print("  after table stress:", after_tables, "KB")
+print("  table stress: OK")
+
+-- Test 5: Nested tables (GC must traverse children)
+print("Test 5: Nested table traversal")
+dec root = {}
+for i = 1, 100 do
+    root[i] = {value = i, child = {inner = i * 10}}
+end
+collectgarbage("collect")
+-- Verify data is still alive
+assert(root[50].value == 50, "nested tables should survive GC")
+assert(root[50].child.inner == 500, "nested children should survive")
+print("  nested tables: OK")
+
+-- Test 6: Closures with upvalues survive GC
+print("Test 6: Closures survive GC")
+dec function make_counter(start)
+    dec count = start
+    return function()
+        count = count + 1
+        return count
+    end
+end
+
+dec counter = make_counter(100)
+collectgarbage("collect")
+dec v1 = counter()
+dec v2 = counter()
+assert(v1 == 101, "closure upvalue should survive GC")
+assert(v2 == 102, "closure upvalue should persist")
+print("  closures: OK (v1=" .. tostring(v1) .. " v2=" .. tostring(v2) .. ")")
+
+-- Test 7: Metatables survive GC
+print("Test 7: Metatables survive GC")
+dec mt = {
+    __index = function(t, k)
+        return "meta:" .. k
+    end
+}
+dec obj = setmetatable({}, mt)
+collectgarbage("collect")
+dec val = obj.test
+assert(val == "meta:test", "metatable __index should survive GC")
+print("  metatables: OK (val=" .. tostring(val) .. ")")
+
+-- Test 8: Stop/restart GC
+print("Test 8: Stop/restart")
+collectgarbage("stop")
+dec stopped = collectgarbage("isrunning")
+assert(stopped == false, "GC should be stopped")
+collectgarbage("restart")
+dec restarted = collectgarbage("isrunning")
+assert(restarted == true, "GC should be restarted")
+print("  stop/restart: OK")
+
+-- Test 9: GC step
+print("Test 9: Incremental step")
+dec finished = collectgarbage("step", 1)
+print("  step finished =", finished)
+print("  step: OK")
+
+-- Test 10: Heavy allocation loop - ensure no crash
+print("Test 10: Heavy allocation (50000 iterations)")
+dec alive = {}
+for i = 1, 50000 do
+    if i % 1000 == 0 then
+        -- Keep every 1000th alive (0-based append: t[#t] = val)
+        alive[#alive] = {id = i, data = tostring(i)}
+    else
+        -- Create garbage
+        dec garbage = {a = i, b = "str" .. tostring(i)}
+    end
+end
+collectgarbage("collect")
+assert(#alive == 50, "should have 50 alive entries")
+assert(alive[24].id == 25000, "alive entries should be correct")
+print("  heavy alloc: OK (" .. tostring(#alive) .. " alive)")
+
+-- Final memory report
+dec final_kb, final_b = collectgarbage("count")
+print("")
+print("Final memory: " .. tostring(final_kb) .. " KB + " .. tostring(final_b) .. " bytes")
+print("")
+print("=== ALL GC TESTS PASSED ===")

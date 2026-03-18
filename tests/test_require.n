@@ -1,0 +1,88 @@
+-- ==========================================================
+-- test_require.n - #require Directive Test Suite
+--
+-- Tests the #require preprocessor directive which provides
+-- clean module loading at the top of files.
+--
+-- Syntax:
+--   #require <module_path>             -- auto-bind
+--   #require <module_path> as <name>   -- explicit alias
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+#require lib/test_module
+#require lib/math_utils as mu
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+        printf("  PASS: %s\n", name)
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+-- ==========================================================
+-- PART 1: Basic #require (auto-bind to last segment)
+-- ==========================================================
+print("=== #require: Basic Loading ===")
+
+check("module loaded (not nil)", test_module != nil)
+check("module is table", type(test_module) == "table")
+check("module field string", test_module.greeting == "hello from module")
+check("module field number", test_module.version == 42)
+check("module function add", test_module.add(3, 4) == 7)
+check("module function add neg", test_module.add(-10, 5) == -5)
+check("module function greet", test_module.greet("Nova") == "Hello, Nova!")
+
+-- ==========================================================
+-- PART 2: #require with 'as' alias
+-- ==========================================================
+print("=== #require: Alias Binding ===")
+
+check("alias loaded (not nil)", mu != nil)
+check("alias is table", type(mu) == "table")
+check("alias field pi", mu.pi_approx == 3.14)
+check("alias func square", mu.square(5) == 25)
+check("alias func double", mu.double(7) == 14)
+check("alias func square 0", mu.square(0) == 0)
+
+-- ==========================================================
+-- PART 3: Cached modules (same object identity)
+-- ==========================================================
+print("=== #require: Caching ===")
+
+do
+    -- Require the same module again with a different name.
+    -- Since #require emits `dec tm2 = __require__("...")`,
+    -- the require function should return the cached table.
+    dec tm2 = __require__("lib.test_module")
+    check("cached same object", tm2 == test_module)
+    check("cached field match", tm2.greeting == test_module.greeting)
+    check("cached func match", tm2.add(1, 2) == test_module.add(1, 2))
+end
+
+-- ==========================================================
+-- PART 4: Module isolation
+-- ==========================================================
+print("=== #require: Isolation ===")
+
+check("different modules different", test_module != mu)
+check("test_module has greeting", test_module.greeting != nil)
+check("mu has pi_approx", mu.pi_approx != nil)
+check("test_module no square", test_module.square == nil)
+check("mu no greeting", mu.greeting == nil)
+
+-- ==========================================================
+-- SUMMARY
+-- ==========================================================
+printf("\n=== #require Tests: %d passed, %d failed ===\n", pass, fail)
+if fail > 0 then
+    printf("FAILURE: %d tests failed!\n", fail)
+    error("test suite failed")
+end

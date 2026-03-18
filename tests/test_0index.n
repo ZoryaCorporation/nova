@@ -1,0 +1,204 @@
+-- Nova 0-Index Test Suite
+-- Validates that all array operations use 0-based indexing
+-- Item 5 of NOVA_DESIGN.md
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+-- ============================================================
+-- Test 1: Table constructor - first element at index 0
+-- ============================================================
+print("\n-- Test 1: Table constructor indexing --")
+dec t = {10, 20, 30}
+check("t[0] == 10", t[0], 10)
+check("t[1] == 20", t[1], 20)
+check("t[2] == 30", t[2], 30)
+check("#t == 3", #t, 3)
+
+-- ============================================================
+-- Test 2: Direct assignment with integer keys
+-- ============================================================
+print("\n-- Test 2: Direct integer key assignment --")
+dec t2 = {}
+t2[0] = "first"
+t2[1] = "second"
+t2[2] = "third"
+check("t2[0] == first", t2[0], "first")
+check("t2[1] == second", t2[1], "second")
+check("t2[2] == third", t2[2], "third")
+
+-- ============================================================
+-- Test 3: ipairs - starts at 0
+-- ============================================================
+print("\n-- Test 3: ipairs iteration --")
+dec t3 = {100, 200, 300}
+dec keys = ""
+dec vals = ""
+for i, v in ipairs(t3) do
+    keys = keys .. tostring(i) .. " "
+    vals = vals .. tostring(v) .. " "
+end
+check("ipairs keys", keys, "0 1 2 ")
+check("ipairs vals", vals, "100 200 300 ")
+
+-- ============================================================
+-- Test 4: rawget/rawset with 0-based keys
+-- ============================================================
+print("\n-- Test 4: rawget/rawset --")
+dec t4 = {5, 10, 15}
+check("rawget(t4, 0) == 5", rawget(t4, 0), 5)
+check("rawget(t4, 1) == 10", rawget(t4, 1), 10)
+check("rawget(t4, 2) == 15", rawget(t4, 2), 15)
+
+rawset(t4, 3, 20)
+check("rawset at index 3", rawget(t4, 3), 20)
+
+-- ============================================================
+-- Test 5: rawlen returns count (unchanged)
+-- ============================================================
+print("\n-- Test 5: rawlen --")
+dec t5 = {1, 2, 3, 4, 5}
+check("rawlen == 5", rawlen(t5), 5)
+
+-- ============================================================
+-- Test 6: unpack - 0-based default
+-- ============================================================
+print("\n-- Test 6: unpack --")
+dec a, b, c = unpack({10, 20, 30})
+check("unpack first", a, 10)
+check("unpack second", b, 20)
+check("unpack third", c, 30)
+
+-- unpack with explicit range
+dec x, y = unpack({10, 20, 30, 40}, 1, 2)
+check("unpack(t, 1, 2) first", x, 20)
+check("unpack(t, 1, 2) second", y, 30)
+
+-- ============================================================
+-- Test 7: table.insert - append and positional
+-- ============================================================
+print("\n-- Test 7: table.insert --")
+dec t7 = {1, 2, 3}
+table.insert(t7, 4)
+check("insert append: t7[3] == 4", t7[3], 4)
+check("insert append: #t7 == 4", #t7, 4)
+
+table.insert(t7, 0, 0)
+check("insert at 0: t7[0] == 0", t7[0], 0)
+check("insert at 0: t7[1] == 1", t7[1], 1)
+check("insert at 0: #t7 == 5", #t7, 5)
+
+-- ============================================================
+-- Test 8: table.remove
+-- ============================================================
+print("\n-- Test 8: table.remove --")
+dec t8 = {10, 20, 30, 40}
+dec removed = table.remove(t8)
+check("remove last value", removed, 40)
+check("remove last: #t8 == 3", #t8, 3)
+
+dec removed2 = table.remove(t8, 0)
+check("remove at 0", removed2, 10)
+check("after remove(0): t8[0] == 20", t8[0], 20)
+check("after remove(0): #t8 == 2", #t8, 2)
+
+-- ============================================================
+-- Test 9: table.concat
+-- ============================================================
+print("\n-- Test 9: table.concat --")
+dec t9 = {"a", "b", "c"}
+dec joined = table.concat(t9, "-")
+check("concat", joined, "a-b-c")
+
+dec joined2 = table.concat(t9, ",", 1, 2)
+check("concat range", joined2, "b,c")
+
+-- ============================================================
+-- Test 10: table.pack
+-- ============================================================
+print("\n-- Test 10: table.pack --")
+dec packed = table.pack("x", "y", "z")
+check("pack[0]", packed[0], "x")
+check("pack[1]", packed[1], "y")
+check("pack[2]", packed[2], "z")
+
+-- ============================================================
+-- Test 11: select (0-based)
+-- ============================================================
+print("\n-- Test 11: select --")
+dec s1 = select(0, "a", "b", "c")
+check("select(0,...) first", s1, "a")
+
+dec s2, s3 = select(1, "a", "b", "c")
+check("select(1,...) first", s2, "b")
+check("select(1,...) second", s3, "c")
+
+dec count = select("#", "a", "b", "c")
+check("select('#',...)", count, 3)
+
+-- ============================================================
+-- Test 12: string.sub (0-based)
+-- ============================================================
+print("\n-- Test 12: string.sub --")
+dec str = "hello"
+check("sub(0,4)", string.sub(str, 0, 4), "hello")
+check("sub(0,0)", string.sub(str, 0, 0), "h")
+check("sub(1,3)", string.sub(str, 1, 3), "ell")
+check("sub(-3,-1)", string.sub(str, -3, -1), "llo")
+
+-- ============================================================
+-- Test 13: string.byte (0-based)
+-- ============================================================
+print("\n-- Test 13: string.byte --")
+check("byte('A',0)", string.byte("ABC", 0), 65)
+check("byte('A',1)", string.byte("ABC", 1), 66)
+check("byte default", string.byte("Z"), 90)
+
+-- ============================================================
+-- Test 14: string.find (0-based)
+-- ============================================================
+print("\n-- Test 14: string.find --")
+dec s, e = string.find("hello world", "world")
+check("find start", s, 6)
+check("find end", e, 10)
+
+dec s2, e2 = string.find("abcabc", "bc", 2)
+check("find with init", s2, 4)
+
+-- ============================================================
+-- Test 15: next() with 0-based keys
+-- ============================================================
+print("\n-- Test 15: next --")
+dec t15 = {10, 20, 30}
+dec k, v = next(t15)
+check("next first key", k, 0)
+check("next first val", v, 10)
+
+-- ============================================================
+-- Test 16: Mixed array + hash table
+-- ============================================================
+print("\n-- Test 16: Mixed table --")
+dec t16 = {100, 200, name = "test"}
+check("mixed t16[0]", t16[0], 100)
+check("mixed t16[1]", t16[1], 200)
+check("mixed t16.name", t16.name, "test")
+
+-- ============================================================
+-- SUMMARY
+-- ============================================================
+print("\n============================================")
+printf("0-INDEX TESTS: %d passed, %d failed\n", pass, fail)
+print("============================================")
+if fail > 0 then
+    error("SOME TESTS FAILED")
+end

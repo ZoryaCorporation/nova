@@ -1,0 +1,129 @@
+-- test_interpolation.n
+-- String Interpolation (Backtick Strings) Test Suite
+-- Tests for Item 4: `hello ${expr} world` syntax
+
+dec passed = 0
+dec failed = 0
+
+dec function check(name, got, expected)
+    if got == expected then
+        passed = passed + 1
+        print("  PASS: " .. name)
+    else
+        failed = failed + 1
+        print("  FAIL: " .. name)
+        print("    expected: " .. tostring(expected))
+        print("    got:      " .. tostring(got))
+    end
+end
+
+print("=== String Interpolation Tests ===")
+
+-- Test 1: Simple variable interpolation
+print("\n-- Test 1: Simple variable interpolation")
+dec name = "Nova"
+dec msg = `Hello, ${name}!`
+check("simple variable", msg, "Hello, Nova!")
+
+-- Test 2: Multiple interpolations
+print("\n-- Test 2: Multiple interpolations")
+dec first = "John"
+dec last = "Doe"
+dec greeting = `Welcome, ${first} ${last}!`
+check("multiple vars", greeting, "Welcome, John Doe!")
+
+-- Test 3: Expression interpolation (arithmetic)
+print("\n-- Test 3: Expression interpolation")
+dec x = 10
+dec y = 20
+dec result = `Sum: ${x + y}`
+check("arithmetic expr", result, "Sum: 30")
+
+-- Test 4: No interpolation (plain backtick string)
+print("\n-- Test 4: Plain backtick string")
+dec plain = `Hello, World!`
+check("plain string", plain, "Hello, World!")
+
+-- Test 5: Empty string
+print("\n-- Test 5: Empty backtick string")
+dec empty = ``
+check("empty string", empty, "")
+
+-- Test 6: Only expression
+print("\n-- Test 6: Expression only")
+dec val = 42
+dec only = `${val}`
+check("expression only", only, "42")
+
+-- Test 7: Integer coercion
+print("\n-- Test 7: Integer coercion")
+dec num = 42
+dec s = `The answer is ${num}`
+check("int coercion", s, "The answer is 42")
+
+-- Test 8: Float coercion
+print("\n-- Test 8: Float coercion")
+dec f = 3.14
+dec fs = `Pi is ${f}`
+check("float coercion", fs, "Pi is 3.14")
+
+-- Test 9: Nested function call
+print("\n-- Test 9: Function call in interpolation")
+dec function double(n)
+    return n * 2
+end
+dec r = `double(5) = ${double(5)}`
+check("function call", r, "double(5) = 10")
+
+-- Test 10: String concatenation with ..
+print("\n-- Test 10: Interpolation used with concat")
+dec a = "hello"
+dec b = `${a} world`
+dec c = b .. "!"
+check("interp + concat", c, "hello world!")
+
+-- Test 11: Multi-line interpolation
+print("\n-- Test 11: Multi-line backtick string")
+dec title = "Test"
+dec body = "Content"
+dec html = `<h1>${title}</h1>
+<p>${body}</p>`
+check("multi-line", html, "<h1>Test</h1>\n<p>Content</p>")
+
+-- Test 12: Consecutive interpolations (no text between)
+print("\n-- Test 12: Consecutive interpolations")
+dec p1 = "A"
+dec p2 = "B"
+dec p3 = "C"
+dec concat = `${p1}${p2}${p3}`
+check("consecutive", concat, "ABC")
+
+-- Test 13: Table field access in interpolation
+print("\n-- Test 13: Table field access")
+dec t = {name = "Nova", version = "0.1.0"}
+dec info = `${t.name} v${t.version}`
+check("table field", info, "Nova v0.1.0")
+
+-- Test 14: Method call in interpolation
+print("\n-- Test 14: String method in interpolation")
+dec s14 = `length = ${string.len("hello")}`
+check("method call", s14, "length = 5")
+
+-- Test 15: Escape sequences in backtick strings
+print("\n-- Test 15: Escape sequences")
+dec esc = `tab\there\nnewline`
+check("escapes", esc, "tab\there\nnewline")
+
+-- Test 16: Nested braces in expression (table constructor)
+print("\n-- Test 16: Nested braces in expression")
+dec tbl = `count = ${#{10, 20, 30}}`
+check("nested braces", tbl, "count = 3")
+
+-- Summary
+print("\n=== Results ===")
+print(passed .. " passed, " .. failed .. " failed")
+if failed > 0 then
+    print("SOME TESTS FAILED!")
+    os.exit(1)
+end
+print("ALL INTERPOLATION TESTS PASSED")

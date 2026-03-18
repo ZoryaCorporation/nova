@@ -1,0 +1,298 @@
+-- ============================================================
+-- Nova OS Library Test Suite (Phase 10.1)
+-- Tests: clock, time, date, difftime, getenv, execute,
+--        remove, rename, tmpname
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== OS LIBRARY TESTS ===")
+
+-- ============================================================
+-- os.clock
+-- ============================================================
+print("\n-- os.clock --")
+
+dec c = os.clock()
+check("clock returns number", type(c) == "number" or type(c) == "integer", true)
+check("clock >= 0", c >= 0, true)
+
+-- ============================================================
+-- os.time
+-- ============================================================
+print("\n-- os.time --")
+
+dec t = os.time()
+check("time not nil", t != nil, true)
+check("time > 0", t > 0, true)
+-- Sanity: should be after year 2020 (epoch > 1577836800)
+check("time after 2020", t > 1577836800, true)
+
+-- ============================================================
+-- os.date
+-- ============================================================
+print("\n-- os.date --")
+
+dec d = os.date("%Y-%m-%d")
+check("date not nil", d != nil, true)
+check("date has dashes", string.find(d, "-") != nil, true)
+-- Year should be 2025+
+check("date starts with 20", string.sub(d, 0, 1), "20")
+
+dec d2 = os.date("%H:%M")
+check("date time format", string.find(d2, ":") != nil, true)
+
+-- ============================================================
+-- os.difftime
+-- ============================================================
+print("\n-- os.difftime --")
+
+dec t1 = os.time()
+dec diff = os.difftime(t1 + 100, t1)
+check("difftime", diff, 100)
+
+dec diff0 = os.difftime(t1, t1)
+check("difftime zero", diff0, 0)
+
+-- ============================================================
+-- os.getenv
+-- ============================================================
+print("\n-- os.getenv --")
+
+-- HOME should exist on Linux
+dec home = os.getenv("HOME")
+check("getenv HOME exists", home != nil, true)
+if home then
+    check("getenv HOME starts with /", string.sub(home, 0, 0), "/")
+end
+
+-- Non-existent env var
+dec missing = os.getenv("NOVA_NONEXISTENT_VAR_12345")
+check("getenv missing returns nil", missing, "nil")
+
+-- PATH should exist
+dec path = os.getenv("PATH")
+check("getenv PATH exists", path != nil, true)
+
+-- ============================================================
+-- os.execute
+-- ============================================================
+print("\n-- os.execute --")
+
+dec ok = os.execute("true")
+check("execute true", ok, true)
+
+dec bad = os.execute("false")
+check("execute false", bad != 0, true)
+
+-- ============================================================
+-- os.tmpname
+-- ============================================================
+print("\n-- os.tmpname --")
+
+dec tmp = os.tmpname()
+check("tmpname not nil", tmp != nil, true)
+check("tmpname is string", type(tmp), "string")
+if tmp then
+    check("tmpname has path", #tmp > 0, true)
+    os.remove(tmp)
+end
+
+-- ============================================================
+-- os.remove / os.rename
+-- ============================================================
+print("\n-- os.remove/rename --")
+
+-- Create a temp file to test remove/rename
+dec tmpf = os.tmpname()
+dec fh = io.open(tmpf, "w")
+if fh then
+    io.write(fh, "test data")
+    io.close(fh)
+
+    -- Rename
+    dec tmpf2 = tmpf .. ".renamed"
+    dec rok = os.rename(tmpf, tmpf2)
+    check("rename succeeds", rok, true)
+
+    -- Verify renamed file exists
+    dec fh2 = io.open(tmpf2, "r")
+    check("renamed file readable", fh2 != nil, true)
+    if fh2 then
+        io.close(fh2)
+    end
+
+    -- Remove renamed file
+    dec rmok = os.remove(tmpf2)
+    check("remove succeeds", rmok, true)
+
+    -- Verify removed
+    dec fh3 = io.open(tmpf2, "r")
+    check("removed file gone", fh3, "nil")
+else
+    print("  SKIP: could not create temp file")
+end
+
+-- Remove non-existent file
+dec rm_bad = os.remove("/tmp/nova_nonexistent_file_99999")
+check("remove nonexistent fails", rm_bad != 0, true)
+
+-- ============================================================
+-- os.platform (Phase 15)
+-- ============================================================
+print("\n-- os.platform --")
+
+dec plat = os.platform()
+check("platform not nil", plat != nil, true)
+check("platform is string", type(plat), "string")
+-- On Linux, should return "linux"
+check("platform is linux", plat, "linux")
+
+-- ============================================================
+-- os.arch
+-- ============================================================
+print("\n-- os.arch --")
+
+dec arch = os.arch()
+check("arch not nil", arch != nil, true)
+check("arch is string", type(arch), "string")
+check("arch length > 0", #arch > 0, true)
+
+-- ============================================================
+-- os.hostname
+-- ============================================================
+print("\n-- os.hostname --")
+
+dec hn = os.hostname()
+check("hostname not nil", hn != nil, true)
+check("hostname is string", type(hn), "string")
+check("hostname length > 0", #hn > 0, true)
+
+-- ============================================================
+-- os.cwd / os.chdir
+-- ============================================================
+print("\n-- os.cwd/chdir --")
+
+dec cwd = os.cwd()
+check("cwd not nil", cwd != nil, true)
+check("cwd is string", type(cwd), "string")
+check("cwd starts with /", string.sub(cwd, 0, 0), "/")
+
+-- chdir to /tmp and back
+dec old_cwd = os.cwd()
+dec chok = os.chdir("/tmp")
+check("chdir succeeds", chok, true)
+dec new_cwd = os.cwd()
+check("cwd changed to /tmp", new_cwd, "/tmp")
+os.chdir(old_cwd)
+check("chdir back succeeds", os.cwd(), old_cwd)
+
+-- ============================================================
+-- os.homedir
+-- ============================================================
+print("\n-- os.homedir --")
+
+dec hd = os.homedir()
+check("homedir not nil", hd != nil, true)
+check("homedir is string", type(hd), "string")
+check("homedir starts with /", string.sub(hd, 0, 0), "/")
+
+-- ============================================================
+-- os.tmpdir
+-- ============================================================
+print("\n-- os.tmpdir --")
+
+dec td = os.tmpdir()
+check("tmpdir not nil", td != nil, true)
+check("tmpdir is string", type(td), "string")
+
+-- ============================================================
+-- os.setenv / os.unsetenv / os.env
+-- ============================================================
+print("\n-- os.setenv/unsetenv/env --")
+
+dec sek = os.setenv("NOVA_TEST_VAR", "hello123")
+check("setenv succeeds", sek, true)
+dec ev = os.getenv("NOVA_TEST_VAR")
+check("setenv value readable", ev, "hello123")
+
+dec uek = os.unsetenv("NOVA_TEST_VAR")
+check("unsetenv succeeds", uek, true)
+dec ev2 = os.getenv("NOVA_TEST_VAR")
+check("unsetenv removes var", ev2, "nil")
+
+dec env = os.env()
+check("env returns table", type(env), "table")
+
+-- ============================================================
+-- os.pid
+-- ============================================================
+print("\n-- os.pid --")
+
+dec pid = os.pid()
+check("pid is integer", type(pid), "integer")
+check("pid > 0", pid > 0, true)
+
+-- ============================================================
+-- os.sleep
+-- ============================================================
+print("\n-- os.sleep --")
+
+check("sleep is function", type(os.sleep), "function")
+dec t1 = os.clock()
+os.sleep(0.01)
+dec t2 = os.clock()
+check("sleep elapsed >= 0", t2 >= t1, true)
+
+-- ============================================================
+-- os.which
+-- ============================================================
+print("\n-- os.which --")
+
+dec ls_path = os.which("ls")
+check("which ls found", ls_path != nil, true)
+if ls_path then
+    check("which ls path starts /", string.sub(ls_path, 0, 0), "/")
+end
+
+dec nope = os.which("__nonexistent_cmd_xyz__")
+check("which nonexistent nil", nope, "nil")
+
+-- ============================================================
+-- os.capture
+-- ============================================================
+print("\n-- os.capture --")
+
+dec out = os.capture("echo hello")
+check("capture echo", out, "hello")
+
+dec out2 = os.capture("echo -n nova")
+check("capture echo -n", out2, "nova")
+
+-- ============================================================
+-- os.sep
+-- ============================================================
+print("\n-- os.sep --")
+
+check("os.sep is /", os.sep, "/")
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  OS TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("OS: " .. fail .. " test(s) FAILED")
+end

@@ -1,0 +1,158 @@
+-- ============================================================
+-- nested_tables.n — Tables Inside Tables
+--
+-- Tables are Nova's universal data structure. Nest them
+-- to model any complex data.
+--
+-- Run:  ./bin/nova nova_syntax/02_collections/nested_tables.n
+-- ============================================================
+
+echo "=== Nested Tables ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Array of Records
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Team Roster ---"
+
+dec team = {
+    {name = "Alice",   role = "Engineer",  years = 5},
+    {name = "Bob",     role = "Designer",  years = 3},
+    {name = "Charlie", role = "Engineer",  years = 8},
+    {name = "Diana",   role = "Manager",   years = 12},
+    {name = "Eve",     role = "Engineer",  years = 2},
+}
+
+echo "  Full roster:"
+printf("  %-10s %-12s %s\n", "Name", "Role", "Years")
+printf("  %-10s %-12s %s\n", "----", "----", "-----")
+for i = 0, #team - 1 do
+    dec m = team[i]
+    printf("  %-10s %-12s %d\n", m.name, m.role, m.years)
+end
+
+-- Filter: engineers only
+echo "\n  Engineers:"
+for i = 0, #team - 1 do
+    if team[i].role == "Engineer" then
+        printf("    %s (%d years)\n", team[i].name, team[i].years)
+    end
+end
+
+-- Total experience
+dec total_years = 0
+for i = 0, #team - 1 do
+    total_years = total_years + team[i].years
+end
+printf("\n  Total team experience: %d years\n", total_years)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Table of Tables (2D Grid)
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Tic-Tac-Toe Board ---"
+
+dec board = {
+    {"X", "O", "X"},
+    {"O", "X", " "},
+    {" ", "O", "X"},
+}
+
+for row = 0, 2 do
+    dec cells = ""
+    for col = 0, 2 do
+        if col > 0 then cells = cells .. " | " end
+        cells = cells .. board[row][col]
+    end
+    printf("  %s\n", cells)
+    if row < 2 then echo "  ---------" end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Nested Config
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- App Config ---"
+
+dec app = {
+    name = "NovaApp",
+    version = "1.0.0",
+    database = {
+        host = "db.example.com",
+        port = 5432,
+        credentials = {
+            user = "admin",
+            pass = "********",
+        },
+    },
+    features = {"auth", "logging", "cache"},
+}
+
+printf("  App: %s v%s\n", app.name, app.version)
+printf("  DB:  %s@%s:%d\n",
+       app.database.credentials.user,
+       app.database.host,
+       app.database.port)
+
+echo "  Features:"
+for i = 0, #app.features - 1 do
+    printf("    - %s\n", app.features[i])
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Building Complex Structures
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Student Gradebook ---"
+
+dec students = {}
+
+dec function add_student(name)
+    dec student = {
+        name = name,
+        grades = {},
+    }
+    table.insert(students, student)
+    return student
+end
+
+dec function add_grade(student, subject, score)
+    table.insert(student.grades, {
+        subject = subject,
+        score = score,
+    })
+end
+
+dec function student_average(student)
+    if #student.grades == 0 then return 0 end
+    dec total = 0
+    for i = 0, #student.grades - 1 do
+        total = total + student.grades[i].score
+    end
+    return total / #student.grades
+end
+
+-- Build the gradebook
+dec alice = add_student("Alice")
+add_grade(alice, "Math", 95)
+add_grade(alice, "Science", 88)
+add_grade(alice, "English", 92)
+
+dec bob = add_student("Bob")
+add_grade(bob, "Math", 78)
+add_grade(bob, "Science", 85)
+add_grade(bob, "English", 72)
+
+-- Display
+for i = 0, #students - 1 do
+    dec s = students[i]
+    printf("  %s:\n", s.name)
+    for j = 0, #s.grades - 1 do
+        dec g = s.grades[j]
+        printf("    %-10s %d\n", g.subject, g.score)
+    end
+    printf("    %-10s %.1f\n", "Average:", student_average(s))
+    echo ""
+end
+
+echo "Done!"

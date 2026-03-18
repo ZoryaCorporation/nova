@@ -1,0 +1,118 @@
+-- ============================================================
+-- Nova IO Library Test Suite (Phase 10.1)
+-- Tests: open/close, read, write, type, tmpfile, flush
+-- NOTE: File handles are integer slots (not tables).
+--       Method syntax (f:write) requires 9.5 File Handle Methods.
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+print("=== IO LIBRARY TESTS ===")
+
+-- ============================================================
+-- io.open / io.close / io.write / io.read
+-- ============================================================
+print("\n-- open/write/read/close --")
+
+dec tmppath = os.tmpname()
+
+-- Write a temp file
+dec fh = io.open(tmppath, "w")
+check("open for write", fh != nil, true)
+check("handle is integer", type(fh), "integer")
+
+if fh then
+    io.write(fh, "hello world\n")
+    io.write(fh, "line two\n")
+    io.write(fh, "line three\n")
+    io.close(fh)
+end
+
+-- Read back with *a (all)
+dec fh2 = io.open(tmppath, "r")
+check("open for read", fh2 != nil, true)
+if fh2 then
+    dec content = io.read(fh2, "*a")
+    check("read *a not nil", content != nil, true)
+    if content then
+        check("read *a has content", #content > 0, true)
+        check("read *a contains hello", string.find(content, "hello") != nil, true)
+    end
+    io.close(fh2)
+end
+
+-- Read line by line with *l
+dec fh3 = io.open(tmppath, "r")
+if fh3 then
+    dec line1 = io.read(fh3, "*l")
+    check("read *l line 1", line1, "hello world")
+
+    dec line2 = io.read(fh3, "*l")
+    check("read *l line 2", line2, "line two")
+
+    dec line3 = io.read(fh3, "*l")
+    check("read *l line 3", line3, "line three")
+
+    dec line4 = io.read(fh3, "*l")
+    check("read *l EOF", line4, "nil")
+
+    io.close(fh3)
+end
+
+-- Read N bytes
+dec fh4 = io.open(tmppath, "r")
+if fh4 then
+    dec chunk = io.read(fh4, 5)
+    check("read 5 bytes", chunk, "hello")
+    io.close(fh4)
+end
+
+-- ============================================================
+-- io.type
+-- ============================================================
+print("\n-- io.type --")
+
+dec tf = io.open(tmppath, "r")
+if tf then
+    check("io.type open file", io.type(tf), "file")
+    io.close(tf)
+    check("io.type closed file", io.type(tf), "closed file")
+end
+check("io.type non-file string", io.type("hello"), "false")
+check("io.type number 999", io.type(999), "closed file")
+
+-- ============================================================
+-- io.flush / io.write (stdout)
+-- ============================================================
+print("\n-- io.flush/write --")
+
+io.write("")
+io.flush()
+check("io.write empty string", true, true)
+check("io.flush stdout", true, true)
+
+-- ============================================================
+-- Cleanup
+-- ============================================================
+os.remove(tmppath)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  IO TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("IO: " .. fail .. " test(s) FAILED")
+end

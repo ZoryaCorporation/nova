@@ -1,0 +1,16 @@
+-- tests/lib/math_utils.n
+-- Second helper module for #require testing (nested path)
+
+dec U = {}
+
+function U.square(x)
+    return x * x
+end
+
+function U.double(x)
+    return x + x
+end
+
+U.pi_approx = 3.14
+
+return U

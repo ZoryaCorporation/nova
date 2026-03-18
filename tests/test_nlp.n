@@ -1,0 +1,371 @@
+-- ============================================================
+-- test_nlp.n - NLP Library Test Suite
+--
+-- Tests all 18 functions of the nlp module.
+-- Author: Anthony Taliento
+-- Date: 2026-02-18
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+dec function check_truthy(name, val)
+    if val then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(val) .. ", expected truthy)")
+    end
+end
+
+dec function check_range(name, val, lo, hi)
+    if type(val) == "number" and val >= lo and val <= hi then
+        pass = pass + 1
+        print("  PASS: " .. name)
+    else
+        fail = fail + 1
+        print("  FAIL: " .. name .. " (got " .. tostring(val) .. ", expected " .. lo .. "-" .. hi .. ")")
+    end
+end
+
+print("=== NLP LIBRARY TESTS ===")
+
+-- ============================================================
+-- PART 1: TOKENIZE
+-- ============================================================
+print("\n--- tokenize ---")
+
+dec tokens = nlp.tokenize("Hello, world! This is Nova.")
+check("tokenize basic count", #tokens, 5)
+check("tokenize word 0", tokens[0], "hello")
+check("tokenize word 1", tokens[1], "world")
+check("tokenize word 4", tokens[4], "nova")
+
+-- tokenize with options: no lowering
+dec tokens2 = nlp.tokenize("Hello World", {lower = false})
+check("tokenize no-lower", tokens2[0], "Hello")
+
+-- tokenize with stem
+dec tokens3 = nlp.tokenize("running jumps flying", {stem = true})
+check("tokenize stem 0", tokens3[0], "run")
+
+-- tokenize with stopword filter
+dec tokens4 = nlp.tokenize("the cat is on the mat", {stop = true})
+check("tokenize stop count", #tokens4, 2)
+check("tokenize stop word 0", tokens4[0], "cat")
+check("tokenize stop word 1", tokens4[1], "mat")
+
+-- tokenize empty
+dec tokens5 = nlp.tokenize("")
+check("tokenize empty", #tokens5, 0)
+
+-- tokenize punctuation-heavy
+dec tokens6 = nlp.tokenize("hello...world---test!")
+check("tokenize punct count", #tokens6, 3)
+
+-- ============================================================
+-- PART 2: STEM
+-- ============================================================
+print("\n--- stem ---")
+
+check("stem running", nlp.stem("running"), "run")
+check("stem caresses", nlp.stem("caresses"), "caress")
+check("stem ponies", nlp.stem("ponies"), "poni")
+check("stem cats", nlp.stem("cats"), "cat")
+check("stem agreed", nlp.stem("agreed"), "agre")
+check("stem disabled", nlp.stem("disabled"), "disabl")
+check("stem generalization", nlp.stem("generalization"), "gener")
+check("stem effective", nlp.stem("effective"), "effect")
+check("stem bowled", nlp.stem("bowled"), "bowl")
+
+-- Short words should be unchanged
+check("stem it", nlp.stem("it"), "it")
+check("stem a", nlp.stem("a"), "a")
+
+-- ============================================================
+-- PART 3: STEMS
+-- ============================================================
+print("\n--- stems ---")
+
+dec st = nlp.stems("running cats jumped")
+check("stems count", #st, 3)
+check("stems 0", st[0], "run")
+check("stems 1", st[1], "cat")
+check("stems 2", st[2], "jump")
+
+-- ============================================================
+-- PART 4: STOPWORDS
+-- ============================================================
+print("\n--- is_stopword ---")
+
+check("is_stopword the", nlp.is_stopword("the"), true)
+check("is_stopword and", nlp.is_stopword("and"), true)
+check("is_stopword is", nlp.is_stopword("is"), true)
+check("is_stopword nova", nlp.is_stopword("nova"), false)
+check("is_stopword cat", nlp.is_stopword("cat"), false)
+check("is_stopword The (case)", nlp.is_stopword("The"), true)
+
+-- stopwords list
+dec sw = nlp.stopwords()
+check_truthy("stopwords returns table", #sw > 100)
+check("stopwords first", sw[0], "a")
+
+-- ============================================================
+-- PART 5: DISTANCE
+-- ============================================================
+print("\n--- distance ---")
+
+check("distance identical", nlp.distance("hello", "hello"), 0)
+check("distance one sub", nlp.distance("hello", "hallo"), 1)
+check("distance one ins", nlp.distance("hello", "helloo"), 1)
+check("distance one del", nlp.distance("hello", "helo"), 1)
+check("distance kitten sitting", nlp.distance("kitten", "sitting"), 3)
+check("distance empty", nlp.distance("", "abc"), 3)
+check("distance both empty", nlp.distance("", ""), 0)
+
+-- ============================================================
+-- PART 6: SIMILARITY
+-- ============================================================
+print("\n--- similarity ---")
+
+check("similarity identical", nlp.similarity("hello", "hello"), 1)
+check("similarity empty", nlp.similarity("", ""), 1)
+dec sim = nlp.similarity("kitten", "sitting")
+check_truthy("similarity kitten-sitting > 0.5", sim > 0.5)
+check_truthy("similarity kitten-sitting < 0.8", sim < 0.8)
+
+dec sim2 = nlp.similarity("abc", "xyz")
+check_truthy("similarity abc-xyz low", sim2 < 0.5)
+
+-- ============================================================
+-- PART 7: FUZZY
+-- ============================================================
+print("\n--- fuzzy ---")
+
+dec results = nlp.fuzzy("The quick brown fox jumps over the lazy dog", "quik", 0.6)
+check_truthy("fuzzy found match", #results > 0)
+if #results > 0 then
+    check("fuzzy match text", results[0].match, "quick")
+    check_truthy("fuzzy score > 0.6", results[0].score >= 0.6)
+end
+
+-- Fuzzy exact match
+dec exact = nlp.fuzzy("hello world", "hello", 0.9)
+check_truthy("fuzzy exact found", #exact > 0)
+
+-- Fuzzy no match
+dec nomatch = nlp.fuzzy("abcdefg", "xyz", 0.8)
+check("fuzzy no match", #nomatch, 0)
+
+-- ============================================================
+-- PART 8: FREQ
+-- ============================================================
+print("\n--- freq ---")
+
+dec text = "the cat sat on the mat the cat sat"
+dec freqs = nlp.freq(text)
+check("freq cat", freqs["cat"], 2)
+check("freq sat", freqs["sat"], 2)
+check("freq mat", freqs["mat"], 1)
+
+-- freq with limit (returns array)
+dec top = nlp.freq(text, 2)
+check("freq limit count", #top, 2)
+check_truthy("freq limit first has word", top[0].word != nil)
+check_truthy("freq limit first has count", top[0].count >= 2)
+
+-- ============================================================
+-- PART 9: TF-IDF
+-- ============================================================
+print("\n--- tfidf ---")
+
+dec docs = {
+    [0] = "the cat sat on the mat",
+    [1] = "the dog chased the cat",
+    [2] = "the bird flew over the tree"
+}
+dec scores = nlp.tfidf(docs, "cat")
+check("tfidf count", #scores, 3)
+check_truthy("tfidf doc0 has tfidf", scores[0].tfidf >= 0)
+check_truthy("tfidf doc2 tfidf is 0", scores[2].tfidf == 0)
+check_truthy("tfidf doc0 tf > 0", scores[0].tf > 0)
+
+-- ============================================================
+-- PART 10: NGRAMS
+-- ============================================================
+print("\n--- ngrams ---")
+
+dec grams = nlp.ngrams("the quick brown fox jumps over the lazy dog", 2, 5)
+check_truthy("ngrams returns results", #grams > 0)
+check_truthy("ngrams has gram field", grams[0].gram != nil)
+check_truthy("ngrams has count field", grams[0].count >= 1)
+
+-- Trigrams
+dec tri = nlp.ngrams("one two three four five six", 3)
+check_truthy("trigrams returns results", #tri > 0)
+
+-- Unigrams
+dec uni = nlp.ngrams("hello hello hello world world", 1, 2)
+check("unigrams top word", uni[0].gram, "hello")
+check("unigrams top count", uni[0].count, 3)
+
+-- ============================================================
+-- PART 11: KWIC
+-- ============================================================
+print("\n--- kwic ---")
+
+dec text2 = "The Nova language is powerful. Nova runs fast. Nova is great."
+dec kwic = nlp.kwic(text2, "Nova")
+check("kwic count", #kwic, 3)
+check("kwic keyword 0", kwic[0].keyword, "Nova")
+check_truthy("kwic has left", kwic[0].left != nil)
+check_truthy("kwic has right", kwic[0].right != nil)
+check_truthy("kwic has pos", kwic[0].pos >= 0)
+
+-- KWIC with width
+dec kwic2 = nlp.kwic(text2, "Nova", 10)
+check_truthy("kwic width limits context", #kwic2[0].left <= 10)
+
+-- KWIC no match
+dec kwic3 = nlp.kwic(text2, "Python")
+check("kwic no match", #kwic3, 0)
+
+-- ============================================================
+-- PART 12: SENTENCES
+-- ============================================================
+print("\n--- sentences ---")
+
+dec sents = nlp.sentences("Hello world. How are you? I am fine! Great.")
+check("sentences count", #sents, 4)
+check("sentences first", sents[0], "Hello world.")
+check("sentences second", sents[1], "How are you?")
+check("sentences third", sents[2], "I am fine!")
+check("sentences fourth", sents[3], "Great.")
+
+-- Single sentence
+dec sents2 = nlp.sentences("Just one sentence here")
+check("sentences single", #sents2, 1)
+
+-- ============================================================
+-- PART 13: SUMMARIZE
+-- ============================================================
+print("\n--- summarize ---")
+
+dec article = "Natural language processing is a subfield of computer science. "
+    .. "It involves the interaction between computers and human language. "
+    .. "NLP combines computational linguistics with machine learning. "
+    .. "Applications include translation, sentiment analysis, and chatbots. "
+    .. "The field has grown rapidly with advances in deep learning."
+
+dec summary = nlp.summarize(article, 2)
+check("summarize count", #summary, 2)
+check_truthy("summarize first non-empty", #summary[0] > 10)
+check_truthy("summarize second non-empty", #summary[1] > 10)
+
+-- Summarize with default n=3
+dec summary2 = nlp.summarize(article)
+check("summarize default n", #summary2, 3)
+
+-- ============================================================
+-- PART 14: NORMALIZE
+-- ============================================================
+print("\n--- normalize ---")
+
+check("normalize basic", nlp.normalize("Hello, World!"), "hello world")
+check("normalize extra spaces", nlp.normalize("  foo   bar  "), "foo bar")
+check("normalize punct", nlp.normalize("it's a test."), "it s a test")
+check("normalize mixed", nlp.normalize("Hello123World"), "hello123world")
+check("normalize empty", nlp.normalize(""), "")
+
+-- ============================================================
+-- PART 15: CHARTYPE
+-- ============================================================
+print("\n--- chartype ---")
+
+check("chartype alpha", nlp.chartype("A"), "alpha")
+check("chartype digit", nlp.chartype("5"), "digit")
+check("chartype space", nlp.chartype(" "), "space")
+check("chartype punct", nlp.chartype("!"), "punct")
+check("chartype empty", nlp.chartype(""), "empty")
+
+-- ============================================================
+-- PART 16: WORDCOUNT
+-- ============================================================
+print("\n--- wordcount ---")
+
+check("wordcount basic", nlp.wordcount("hello world"), 2)
+check("wordcount complex", nlp.wordcount("The quick brown fox."), 4)
+check("wordcount empty", nlp.wordcount(""), 0)
+check("wordcount spaces", nlp.wordcount("  hello   world  "), 2)
+check("wordcount single", nlp.wordcount("hello"), 1)
+
+-- ============================================================
+-- PART 17: UNIQUE
+-- ============================================================
+print("\n--- unique ---")
+
+dec uniq = nlp.unique("the cat and the cat sat on the mat")
+check("unique count", #uniq, 6)
+check("unique 0", uniq[0], "the")
+check("unique 1", uniq[1], "cat")
+check("unique 2", uniq[2], "and")
+check("unique 3", uniq[3], "sat")
+check("unique 4", uniq[4], "on")
+check("unique 5", uniq[5], "mat")
+
+-- ============================================================
+-- PART 18: INTEGRATION — PIPELINE STYLE
+-- ============================================================
+print("\n--- integration ---")
+
+-- Tokenize then get unique stems (filtering stopwords)
+dec raw = "The runners are running quickly. The fast runners win."
+dec toks = nlp.tokenize(raw, {stem = true, stop = true})
+check_truthy("integration tokenize+stem+stop", #toks > 0)
+
+-- Every token should be lowercase and stemmed
+dec all_lower = true
+for i = 0, #toks - 1 do
+    if toks[i] != string.lower(toks[i]) then
+        all_lower = false
+    end
+end
+check("integration all lowercase", all_lower, true)
+
+-- Check that sentences + summarize can round-trip
+dec doc = "Machine learning is transforming software development. "
+    .. "Deep learning models can now write code. "
+    .. "This changes how engineers approach problems."
+dec s = nlp.sentences(doc)
+dec sum = nlp.summarize(doc, 1)
+check_truthy("integration sentences found", #s > 0)
+check_truthy("integration summary found", #sum > 0)
+
+-- Frequency + ngrams on same text should be consistent
+dec txt = "one two one two one three"
+dec f = nlp.freq(txt)
+dec g = nlp.ngrams(txt, 1)
+check_truthy("integration freq has 'one'", f["one"] >= 3)
+check_truthy("integration ngrams non-empty", #g > 0)
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+print("\n============================================")
+print("  NLP TESTS: " .. pass .. " passed, " .. fail .. " failed")
+print("============================================")
+
+if fail > 0 then
+    error("NLP test failures: " .. fail)
+end

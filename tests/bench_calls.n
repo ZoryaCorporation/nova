@@ -1,0 +1,625 @@
+-- ==========================================================
+-- bench_calls.n - Function Call Architecture Benchmarks
+--
+-- Deep analysis of Nova's function call machinery:
+--   - Plain function calls with varying argument counts
+--   - Closure creation and invocation
+--   - Upvalue access patterns (read, write, shared)
+--   - Method calls (colon syntax / OP_SELF)
+--   - Recursive call depth
+--   - pcall / xpcall overhead
+--   - Vararg function calls
+--   - Multiple return values
+--   - Coroutine resume/yield throughput
+--   - Higher-order function patterns
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec TOTAL_START = os.clock()
+
+echo("================================================================")
+echo("  NOVA FUNCTION CALL ARCHITECTURE BENCHMARKS")
+echo("  " .. os.date())
+echo("================================================================")
+
+-- ── Helpers ──────────────────────────────────────────────
+
+dec function header(name)
+    printf("\n── %s ─────────────────────────────────────\n", name)
+end
+
+dec function row(label, elapsed, ops)
+    dec rate = ops / elapsed
+    if rate >= 1e6 then
+        printf("  %-42s %8.4f sec  %7.2f Mcall/sec\n", label, elapsed, rate / 1e6)
+    elseif rate >= 1e3 then
+        printf("  %-42s %8.4f sec  %7.2f Kcall/sec\n", label, elapsed, rate / 1e3)
+    else
+        printf("  %-42s %8.4f sec  %7.2f  call/sec\n", label, elapsed, rate)
+    end
+end
+
+dec function sep()
+    echo("")
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("1. PLAIN FUNCTION CALL SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+-- 0-arg function
+do
+    dec function noop() end
+    for _, n in ipairs({100000, 500000, 1000000, 5000000}) do
+        dec s = os.clock()
+        for i = 0, n - 1 do noop() end
+        dec e = os.clock() - s
+        row(sprintf("0-arg call (%s)", n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)), e, n)
+    end
+end
+
+sep()
+
+-- 1-arg function
+do
+    dec function f1(a) return a end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do f1(i) end
+    dec e = os.clock() - s
+    row("1-arg call (5M)", e, N)
+end
+
+-- 2-arg function
+do
+    dec function f2(a, b) return a + b end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do f2(i, i) end
+    dec e = os.clock() - s
+    row("2-arg call (5M)", e, N)
+end
+
+-- 4-arg function
+do
+    dec function f4(a, b, c, d) return a + b + c + d end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do f4(i, i, i, i) end
+    dec e = os.clock() - s
+    row("4-arg call (5M)", e, N)
+end
+
+-- 8-arg function
+do
+    dec function f8(a, b, c, d, e, f, g, h) return a + b + c + d + e + f + g + h end
+    dec N = 2000000
+    dec s = os.clock()
+    for i = 0, N - 1 do f8(i, i, i, i, i, i, i, i) end
+    dec e = os.clock() - s
+    row("8-arg call (2M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("2. RETURN VALUE OVERHEAD")
+-- ═══════════════════════════════════════════════════════════
+
+-- 0 return values
+do
+    dec function r0() end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do r0() end
+    dec e = os.clock() - s
+    row("0 returns (5M)", e, N)
+end
+
+-- 1 return value
+do
+    dec function r1() return 42 end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do dec x = r1() end
+    dec e = os.clock() - s
+    row("1 return (5M)", e, N)
+end
+
+-- 2 return values
+do
+    dec function r2() return 42, 99 end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do dec a, b = r2() end
+    dec e = os.clock() - s
+    row("2 returns (5M)", e, N)
+end
+
+-- 4 return values
+do
+    dec function r4() return 1, 2, 3, 4 end
+    dec N = 2000000
+    dec s = os.clock()
+    for i = 0, N - 1 do dec a, b, c, d = r4() end
+    dec e = os.clock() - s
+    row("4 returns (2M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("3. CLOSURE CREATION")
+-- ═══════════════════════════════════════════════════════════
+
+-- Create closures (1 upvalue)
+do
+    dec N = 1000000
+    dec closures = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec x = i
+        closures[i % 100] = function() return x end
+    end
+    dec e = os.clock() - s
+    row("closure create, 1 upval (1M)", e, N)
+end
+
+-- Create closures (4 upvalues)
+do
+    dec N = 1000000
+    dec closures = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec a, b, c, d = i, i+1, i+2, i+3
+        closures[i % 100] = function() return a + b + c + d end
+    end
+    dec e = os.clock() - s
+    row("closure create, 4 upvals (1M)", e, N)
+end
+
+sep()
+
+-- Invoke closures
+do
+    dec x = 42
+    dec fn = function() return x end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do fn() end
+    dec e = os.clock() - s
+    row("closure invoke, 1 upval (5M)", e, N)
+end
+
+do
+    dec a, b, c, d = 1, 2, 3, 4
+    dec fn = function() return a + b + c + d end
+    dec N = 5000000
+    dec s = os.clock()
+    for i = 0, N - 1 do fn() end
+    dec e = os.clock() - s
+    row("closure invoke, 4 upvals (5M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("4. UPVALUE ACCESS PATTERNS")
+-- ═══════════════════════════════════════════════════════════
+
+-- Read-only upvalue
+do
+    dec val = 42
+    dec N = 5000000
+    dec function reader()
+        dec sum = 0
+        for i = 0, N - 1 do sum = sum + val end
+        return sum
+    end
+    dec s = os.clock()
+    reader()
+    dec e = os.clock() - s
+    row("upvalue read-only (5M)", e, N)
+end
+
+-- Write-only upvalue
+do
+    dec val = 0
+    dec N = 5000000
+    dec function writer()
+        for i = 0, N - 1 do val = i end
+    end
+    dec s = os.clock()
+    writer()
+    dec e = os.clock() - s
+    row("upvalue write-only (5M)", e, N)
+end
+
+-- Read-modify-write upvalue (accumulator)
+do
+    dec acc = 0
+    dec N = 5000000
+    dec function accum()
+        for i = 0, N - 1 do acc = acc + 1 end
+    end
+    dec s = os.clock()
+    accum()
+    dec e = os.clock() - s
+    row("upvalue read-modify-write (5M)", e, N)
+end
+
+-- Shared upvalue between two closures
+do
+    dec shared = 0
+    dec function inc() shared = shared + 1 end
+    dec function get() return shared end
+    dec N = 2000000
+    dec s = os.clock()
+    for i = 0, N - 1 do inc() end
+    dec final = get()
+    dec e = os.clock() - s
+    row("shared upvalue inc+get (2M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("5. METHOD CALLS (OP_SELF)")
+-- ═══════════════════════════════════════════════════════════
+
+-- String method calls (dispatched via string metatable)
+do
+    dec N = 1000000
+    dec s_str = "hello world"
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = s_str:len() end
+    dec e = os.clock() - s
+    row("string:len() (1M)", e, N)
+end
+
+do
+    dec N = 500000
+    dec s_str = "hello world"
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = s_str:upper() end
+    dec e = os.clock() - s
+    row("string:upper() (500K)", e, N)
+end
+
+do
+    dec N = 500000
+    dec s_str = "hello world"
+    dec r
+    dec s = os.clock()
+    for i = 0, N - 1 do r = s_str:sub(0, 5) end
+    dec e = os.clock() - s
+    row("string:sub() (500K)", e, N)
+end
+
+sep()
+
+-- Table method calls (manual metatable)
+do
+    dec Vec = {}
+    Vec.__index = Vec
+    function Vec.new(x, y)
+        dec v = {x = x, y = y}
+        setmetatable(v, Vec)
+        return v
+    end
+    Vec.mag = function(self) return math.sqrt(self.x * self.x + self.y * self.y) end
+    Vec.add = function(self, other) return Vec.new(self.x + other.x, self.y + other.y) end
+
+    dec v1 = Vec.new(3, 4)
+    dec v2 = Vec.new(1, 2)
+    dec N = 1000000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do v1.mag(v1) end
+    dec e = os.clock() - s
+    row("metatable method .mag(self) (1M)", e, N)
+
+    s = os.clock()
+    for i = 0, N - 1 do v1.add(v1, v2) end
+    e = os.clock() - s
+    row("metatable method .add(self,o) (1M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("6. RECURSIVE CALLS")
+-- ═══════════════════════════════════════════════════════════
+
+dec function fib(n)
+    if n < 2 then return n end
+    return fib(n - 1) + fib(n - 2)
+end
+
+-- Fibonacci at increasing depths
+do
+    for _, depth in ipairs({10, 15, 20, 25, 30, 35}) do
+        dec s = os.clock()
+        dec result = fib(depth)
+        dec e = os.clock() - s
+        -- Approximate call count: ~1.6^n * 2
+        dec approx_calls = 2 * (1.618 ^ depth)
+        row(sprintf("fib(%d) = %d", depth, result), e, approx_calls)
+    end
+end
+
+sep()
+
+-- Tail-call style (iterative recursion)
+do
+    dec function sum_to(n, acc)
+        if n == 0 then return acc end
+        return sum_to(n - 1, acc + n)
+    end
+
+    -- Find max safe depth via pcall
+    for _, depth in ipairs({100, 500, 1000, 2000}) do
+        dec ok = pcall(sum_to, depth, 0)
+        if ok then
+            dec s = os.clock()
+            sum_to(depth, 0)
+            dec e = os.clock() - s
+            row(sprintf("linear recursion depth %d", depth), e, depth)
+        else
+            printf("  %-42s stack overflow at depth %d\n", "linear recursion", depth)
+            break
+        end
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("7. PCALL / XPCALL OVERHEAD")
+-- ═══════════════════════════════════════════════════════════
+
+-- pcall with no error (fast path)
+do
+    dec function safe() return 42 end
+    dec N = 1000000
+    dec s = os.clock()
+    for i = 0, N - 1 do pcall(safe) end
+    dec e = os.clock() - s
+    row("pcall no-error (1M)", e, N)
+end
+
+-- pcall with error (slow path)
+do
+    dec function boom() error("bang") end
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do pcall(boom) end
+    dec e = os.clock() - s
+    row("pcall with-error (100K)", e, N)
+end
+
+-- xpcall with handler (no error)
+do
+    dec function safe() return 42 end
+    dec function handler(err) return err end
+    dec N = 1000000
+    dec s = os.clock()
+    for i = 0, N - 1 do xpcall(safe, handler) end
+    dec e = os.clock() - s
+    row("xpcall no-error (1M)", e, N)
+end
+
+-- xpcall with handler + error
+do
+    dec function boom() error("bang") end
+    dec function handler(err) return err end
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do xpcall(boom, handler) end
+    dec e = os.clock() - s
+    row("xpcall with-error (100K)", e, N)
+end
+
+sep()
+
+-- Cost comparison: direct vs pcall vs xpcall
+do
+    dec function work() return 42 end
+    dec function handler(err) return err end
+    dec N = 2000000
+
+    dec s1 = os.clock()
+    for i = 0, N - 1 do work() end
+    dec t_direct = os.clock() - s1
+
+    dec s2 = os.clock()
+    for i = 0, N - 1 do pcall(work) end
+    dec t_pcall = os.clock() - s2
+
+    dec s3 = os.clock()
+    for i = 0, N - 1 do xpcall(work, handler) end
+    dec t_xpcall = os.clock() - s3
+
+    row("direct call (2M)", t_direct, N)
+    row("pcall wrapper (2M)", t_pcall, N)
+    row("xpcall wrapper (2M)", t_xpcall, N)
+    printf("  %-42s %.2fx\n", "pcall/direct ratio:", t_pcall / t_direct)
+    printf("  %-42s %.2fx\n", "xpcall/direct ratio:", t_xpcall / t_direct)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("8. VARARG FUNCTIONS")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec function vsum(...)
+        dec args = {...}
+        dec s = 0
+        for i = 0, #args - 1 do s = s + args[i] end
+        return s
+    end
+    dec N = 500000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do vsum(1) end
+    dec e = os.clock() - s
+    row("vararg 1 arg (500K)", e, N)
+
+    s = os.clock()
+    for i = 0, N - 1 do vsum(1, 2, 3, 4) end
+    e = os.clock() - s
+    row("vararg 4 args (500K)", e, N)
+
+    s = os.clock()
+    for i = 0, N - 1 do vsum(1, 2, 3, 4, 5, 6, 7, 8) end
+    e = os.clock() - s
+    row("vararg 8 args (500K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("9. COROUTINE THROUGHPUT")
+-- ═══════════════════════════════════════════════════════════
+
+-- Create + single resume/yield cycle
+do
+    dec N = 200000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec co = coroutine.create(function() coroutine.yield(42) end)
+        coroutine.resume(co)
+    end
+    dec e = os.clock() - s
+    row("coroutine create+resume (200K)", e, N)
+end
+
+-- Sustained resume/yield ping-pong
+do
+    dec N = 1000000
+    dec co = coroutine.create(function()
+        while true do coroutine.yield() end
+    end)
+    dec s = os.clock()
+    for i = 0, N - 1 do coroutine.resume(co) end
+    dec e = os.clock() - s
+    row("resume/yield ping-pong (1M)", e, N)
+end
+
+-- Resume/yield with data transfer
+do
+    dec N = 500000
+    dec co = coroutine.create(function()
+        dec val = 0
+        while true do
+            val = coroutine.yield(val + 1)
+        end
+    end)
+    coroutine.resume(co)
+    dec s = os.clock()
+    for i = 0, N - 1 do coroutine.resume(co, i) end
+    dec e = os.clock() - s
+    row("resume/yield with data (500K)", e, N)
+end
+
+-- Many coroutines alive simultaneously
+do
+    dec COUNT = 10000
+    dec coroutines = {}
+    dec s = os.clock()
+    for i = 0, COUNT - 1 do
+        coroutines[i] = coroutine.create(function()
+            dec sum = 0
+            for j = 0, 99 do
+                sum = sum + j
+                coroutine.yield(sum)
+            end
+            return sum
+        end)
+    end
+    -- Resume each one 10 times
+    for round = 0, 9 do
+        for i = 0, COUNT - 1 do
+            coroutine.resume(coroutines[i])
+        end
+    end
+    dec e = os.clock() - s
+    row(sprintf("10K coroutines x 10 resumes"), e, COUNT * 10)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("10. HIGHER-ORDER FUNCTION PATTERNS")
+-- ═══════════════════════════════════════════════════════════
+
+-- map pattern
+do
+    dec N = 500000
+    dec data = {}
+    for i = 0, N - 1 do data[i] = i end
+
+    dec function map(t, fn)
+        dec result = {}
+        for i = 0, #t - 1 do result[i] = fn(t[i]) end
+        return result
+    end
+
+    dec s = os.clock()
+    dec doubled = map(data, function(x) return x * 2 end)
+    dec e = os.clock() - s
+    row("map (500K elements)", e, N)
+end
+
+-- filter pattern
+do
+    dec N = 500000
+    dec data = {}
+    for i = 0, N - 1 do data[i] = i end
+
+    dec function filter(t, fn)
+        dec result = {}
+        dec j = 0
+        for i = 0, #t - 1 do
+            if fn(t[i]) then result[j] = t[i]; j = j + 1 end
+        end
+        return result
+    end
+
+    dec s = os.clock()
+    dec evens = filter(data, function(x) return x % 2 == 0 end)
+    dec e = os.clock() - s
+    row("filter (500K elements)", e, N)
+end
+
+-- reduce pattern
+do
+    dec N = 1000000
+    dec data = {}
+    for i = 0, N - 1 do data[i] = i end
+
+    dec function reduce(t, fn, init)
+        dec acc = init
+        for i = 0, #t - 1 do acc = fn(acc, t[i]) end
+        return acc
+    end
+
+    dec s = os.clock()
+    dec total = reduce(data, function(a, b) return a + b end, 0)
+    dec e = os.clock() - s
+    row("reduce/sum (1M elements)", e, N)
+end
+
+-- Callback-heavy pattern (event dispatch simulation)
+do
+    dec handlers = {}
+    for i = 0, 9 do
+        handlers[i] = function(val) return val + i end
+    end
+
+    dec N = 1000000
+    dec result = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        result = handlers[i % 10](result)
+    end
+    dec e = os.clock() - s
+    row("callback dispatch 10-way (1M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("SUMMARY")
+-- ═══════════════════════════════════════════════════════════
+
+dec TOTAL_ELAPSED = os.clock() - TOTAL_START
+printf("\n  Total benchmark time: %.4f sec\n", TOTAL_ELAPSED)
+echo("================================================================")
+echo("  Function Call Architecture Benchmarks COMPLETE")
+echo("================================================================")

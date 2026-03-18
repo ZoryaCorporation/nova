@@ -1,0 +1,18 @@
+-- tests/lib/test_module.n
+-- Helper module for #require testing
+-- Returns a table with fields and functions
+
+dec M = {}
+
+M.greeting = "hello from module"
+M.version  = 42
+
+function M.add(a, b)
+    return a + b
+end
+
+function M.greet(name)
+    return "Hello, " .. name .. "!"
+end
+
+return M

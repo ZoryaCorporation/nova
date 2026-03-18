@@ -1,0 +1,334 @@
+-- ==========================================================
+-- test_data.n - NDP (Nova Data Processor) Test Suite
+--
+-- Tests #import directive gating and all data format codecs:
+--   json, csv, tsv, ini, toml, html, data
+--
+-- Uses Nova's native printf/sprintf and string interpolation.
+-- Each section wrapped in do...end to scope locals and avoid
+-- register pressure in the compiler.
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+#import data
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, cond)
+    if cond then
+        pass = pass + 1
+        printf("  PASS: %s\n", name)
+    else
+        fail = fail + 1
+        printf("  FAIL: %s\n", name)
+    end
+end
+
+-- ==========================================================
+-- IMPORT GATING -- modules available via #import data
+-- ==========================================================
+print("=== Import Gating ===")
+check("json available", type(json) == "table")
+check("csv available", type(csv) == "table")
+check("tsv available", type(tsv) == "table")
+check("ini available", type(ini) == "table")
+check("toml available", type(toml) == "table")
+check("html available", type(html) == "table")
+check("data available", type(data) == "table")
+
+do
+    -- Function availability via dec intermediaries
+    -- (type(tbl["key"]) has a known compiler bug when passed directly)
+    dec jd = json["decode"]
+    dec je = json["encode"]
+    dec cd = csv["decode"]
+    dec dd = data["detect"]
+    check("json.decode is func", type(jd) == "function")
+    check("json.encode is func", type(je) == "function")
+    check("csv.decode is func", type(cd) == "function")
+    check("data.detect is func", type(dd) == "function")
+end
+
+-- PP macros set by #import data
+#ifdef NOVA_HAS_JSON
+check("NOVA_HAS_JSON defined", true)
+#else
+check("NOVA_HAS_JSON defined", false)
+#endif
+#ifdef NOVA_HAS_DATA
+check("NOVA_HAS_DATA defined", true)
+#else
+check("NOVA_HAS_DATA defined", false)
+#endif
+
+-- ==========================================================
+-- JSON CODEC
+-- ==========================================================
+print("\n=== JSON ===")
+
+do
+    -- Decode object
+    dec j1 = json.decode('{"name": "Nova", "version": 1}')
+    check("json obj type", type(j1) == "table")
+    check("json obj.name", j1.name == "Nova")
+    check("json obj.version", j1.version == 1)
+
+    -- Decode array
+    dec j2 = json.decode("[10, 20, 30]")
+    check("json arr[0]", j2[0] == 10)
+    check("json arr[1]", j2[1] == 20)
+    check("json arr[2]", j2[2] == 30)
+
+    -- Decode nested
+    dec j3 = json.decode('{"a": {"b": 42}}')
+    check("json nested", j3.a.b == 42)
+end
+
+do
+    -- Decode primitives
+    check("json true", json.decode("true") == true)
+    check("json false", json.decode("false") == false)
+    check("json null", json.decode("null") == nil)
+    check("json number", json.decode("3.14") == 3.14)
+    check("json neg int", json.decode("-42") == -42)
+    check("json string", json.decode('"hello"') == "hello")
+
+    -- Encode
+    dec j4 = json.encode({x = 1, y = 2})
+    check("json encode obj", type(j4) == "string")
+    check("json encode nil", json.encode(nil) == "null")
+    check("json encode true", json.encode(true) == "true")
+    check("json encode false", json.encode(false) == "false")
+    check("json encode int", json.encode(42) == "42")
+
+    -- Round-trip
+    dec j5 = json.decode(json.encode({name = "test"}))
+    check("json round-trip", j5.name == "test")
+end
+
+-- ==========================================================
+-- CSV CODEC
+-- ==========================================================
+print("\n=== CSV ===")
+
+do
+    -- Decode with header (values auto-typed: "30" -> 30)
+    dec c1 = csv.decode("name,age,city\nAlice,30,NYC\nBob,25,LA")
+    check("csv type", type(c1) == "table")
+    dec cr0 = c1[0]
+    check("csv r0 type", type(cr0) == "table")
+    check("csv r0.name", cr0.name == "Alice")
+    check("csv r0.age", cr0.age == 30)
+    check("csv r0.city", cr0.city == "NYC")
+    dec cr1 = c1[1]
+    check("csv r1.name", cr1.name == "Bob")
+    check("csv r1.age", cr1.age == 25)
+
+    -- Quoted fields
+    dec c2 = csv.decode('a,b\n"hello, world","ok"')
+    check("csv quoted comma", c2[0].a == "hello, world")
+
+    -- Encode
+    dec c3 = csv.encode({{name = "X", val = "1"}, {name = "Y", val = "2"}})
+    check("csv encode type", type(c3) == "string")
+end
+
+-- ==========================================================
+-- TSV CODEC
+-- ==========================================================
+print("\n=== TSV ===")
+
+do
+    dec t1 = tsv.decode("name\tage\nAlice\t30\nBob\t25")
+    check("tsv type", type(t1) == "table")
+    dec tr0 = t1[0]
+    check("tsv r0.name", tr0.name == "Alice")
+    check("tsv r0.age", tr0.age == 30)
+    dec tr1 = t1[1]
+    check("tsv r1.name", tr1.name == "Bob")
+end
+
+-- ==========================================================
+-- INI CODEC
+-- ==========================================================
+print("\n=== INI ===")
+
+do
+    dec i1 = ini.decode("[server]\nhost = localhost\nport = 8080\n\n[database]\nname = mydb\n")
+    check("ini type", type(i1) == "table")
+    check("ini server type", type(i1.server) == "table")
+    check("ini server.host", i1.server.host == "localhost")
+    check("ini server.port", i1.server.port == 8080)
+    check("ini db.name", i1.database.name == "mydb")
+end
+
+do
+    -- Global keys
+    dec i2 = ini.decode("key = value\n[section]\nfoo = bar")
+    check("ini global key", i2.key == "value")
+    check("ini section.foo", i2.section.foo == "bar")
+
+    -- Comments
+    dec i3 = ini.decode("; comment\n# also comment\nkey = val")
+    check("ini comments", i3.key == "val")
+
+    -- Encode
+    dec i4 = ini.encode({editor = {font = "14", theme = "dark"}})
+    check("ini encode type", type(i4) == "string")
+end
+
+-- ==========================================================
+-- TOML CODEC
+-- ==========================================================
+print("\n=== TOML ===")
+
+do
+    dec m1 = toml.decode('title = "My App"\n\n[database]\nserver = "192.168.1.1"\nport = 5432\nenabled = true\n')
+    check("toml type", type(m1) == "table")
+    check("toml title", m1.title == "My App")
+    check("toml db.server", m1.database.server == "192.168.1.1")
+    check("toml db.port", m1.database.port == 5432)
+    check("toml db.enabled", m1.database.enabled == true)
+end
+
+do
+    -- Array
+    dec m2 = toml.decode('colors = ["red", "green", "blue"]\n')
+    check("toml arr type", type(m2.colors) == "table")
+    check("toml arr[0]", m2.colors[0] == "red")
+    check("toml arr[2]", m2.colors[2] == "blue")
+
+    -- Numbers
+    dec m3 = toml.decode("x = 42\ny = 3.14\n")
+    check("toml int", m3.x == 42)
+    check("toml float", m3.y == 3.14)
+
+    -- Encode
+    dec m4 = toml.encode({app = {name = "test", debug = true}})
+    check("toml encode type", type(m4) == "string")
+end
+
+-- ==========================================================
+-- HTML CODEC
+-- ==========================================================
+print("\n=== HTML ===")
+
+do
+    dec h1 = html.decode("<div><p>Hello</p></div>")
+    check("html type", type(h1) == "table")
+    check("html has tag", h1.tag != nil)
+    -- HTML wraps in document node; children is the child list
+    dec h1c = h1.children
+    check("html has children", h1c != nil)
+end
+
+do
+    dec h2 = html.decode('<img src="logo.png" />')
+    check("html self-close", type(h2) == "table")
+
+    dec h3 = html.decode('<a href="https://zorya.dev" class="btn">Click</a>')
+    check("html attrs", type(h3) == "table")
+end
+
+-- ==========================================================
+-- data.* UNIFIED API
+-- ==========================================================
+print("\n=== data.* API ===")
+
+do
+    dec d1 = data.decode('{"test": true}', "json")
+    check("data.decode json", d1.test == true)
+
+    dec d2 = data.decode("a,b\n1,2", "csv")
+    check("data.decode csv", d2[0].a == 1)
+
+    dec d3 = data.encode({key = "val"}, "json")
+    check("data.encode json", type(d3) == "string")
+end
+
+check("detect json", data.detect('{"a":1}') == "json")
+check("detect html", data.detect("<html>") == "html")
+check("detect ini", data.detect("[section]\nkey=val") == "ini")
+check("detect yaml", data.detect("name: Nova\nversion: 1\n") == "yaml")
+
+-- ==========================================================
+-- YAML CODEC
+-- ==========================================================
+print("\n=== YAML ===")
+
+do
+    -- Basic mapping
+    dec y1 = yaml.decode("name: Nova\nversion: 1\nenabled: true\n")
+    check("yaml type", type(y1) == "table")
+    check("yaml string", y1.name == "Nova")
+    check("yaml int", y1.version == 1)
+    check("yaml bool", y1.enabled == true)
+end
+
+do
+    -- Nested mappings
+    dec y2 = yaml.decode("server:\n  host: localhost\n  port: 8080\ndatabase:\n  name: mydb\n")
+    check("yaml nested type", type(y2.server) == "table")
+    check("yaml server.host", y2.server.host == "localhost")
+    check("yaml server.port", y2.server.port == 8080)
+    check("yaml db.name", y2.database.name == "mydb")
+end
+
+do
+    -- Sequence (list)
+    dec y3 = yaml.decode("- apple\n- banana\n- cherry\n")
+    check("yaml list type", type(y3) == "table")
+    check("yaml list[0]", y3[0] == "apple")
+    check("yaml list[1]", y3[1] == "banana")
+    check("yaml list[2]", y3[2] == "cherry")
+end
+
+do
+    -- Type inference
+    dec y4 = yaml.decode("nil_val: null\nbool_f: false\nfloat: 3.14\nquoted: \"hello world\"\n")
+    check("yaml null", y4.nil_val == nil)
+    check("yaml false", y4.bool_f == false)
+    check("yaml float", type(y4.float) == "number")
+    check("yaml quoted", y4.quoted == "hello world")
+end
+
+do
+    -- List of mappings
+    dec y5 = yaml.decode("- name: Alice\n  age: 30\n- name: Bob\n  age: 25\n")
+    check("yaml list-of-maps", type(y5) == "table")
+    check("yaml lom[0].name", y5[0].name == "Alice")
+    check("yaml lom[0].age", y5[0].age == 30)
+    check("yaml lom[1].name", y5[1].name == "Bob")
+end
+
+do
+    -- Comments and document markers
+    dec y6 = yaml.decode("---\n# This is a comment\nkey: value\n# Another comment\nfoo: bar\n")
+    check("yaml comments", y6.key == "value")
+    check("yaml skip comment", y6.foo == "bar")
+end
+
+do
+    -- Encode
+    dec enc = yaml.encode({name = "test", count = 42})
+    check("yaml encode type", type(enc) == "string")
+end
+
+do
+    -- data.* API for YAML
+    dec dy = data.decode("key: val\nnum: 10\n", "yaml")
+    check("data.decode yaml", dy.key == "val")
+end
+
+-- ==========================================================
+-- SUMMARY
+-- ==========================================================
+print("")
+printf("============================================\n")
+printf("DATA TESTS: %d passed, %d failed\n", pass, fail)
+printf("============================================\n")
+if fail > 0 then
+    error("SOME TESTS FAILED")
+end

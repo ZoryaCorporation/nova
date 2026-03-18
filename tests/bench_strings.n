@@ -1,0 +1,599 @@
+-- ==========================================================
+-- bench_strings.n - Weave String Interning Performance
+--
+-- Nova strings are interned via WEAVE — all identical strings
+-- share a single allocation, enabling O(1) pointer equality.
+-- The NXH64 hash function powers fast lookup. This benchmark
+-- measures string operation throughput across multiple
+-- dimensions:
+--
+--   1. String concatenation scaling
+--   2. String method throughput (upper/lower/sub/reverse/rep)
+--   3. String find / pattern matching
+--   4. String gsub (substitution)
+--   5. String equality (interned)
+--   6. String length operator
+--   7. String building patterns (.. vs table.concat)
+--   8. String format throughput
+--   9. String byte/char conversion
+--   10. String library micro-benchmarks
+--   11. String-heavy workloads
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec TOTAL_START = os.clock()
+
+echo("================================================================")
+echo("  NOVA WEAVE STRING PERFORMANCE ANALYSIS")
+echo("  " .. os.date())
+echo("================================================================")
+
+-- ── Helpers ──────────────────────────────────────────────
+
+dec function header(name)
+    printf("\n── %s ─────────────────────────────────────\n", name)
+end
+
+dec function row(label, elapsed, ops)
+    dec rate = ops / elapsed
+    if rate >= 1e6 then
+        printf("  %-42s %8.4f sec  %7.2f Mops/sec\n", label, elapsed, rate / 1e6)
+    elseif rate >= 1e3 then
+        printf("  %-42s %8.4f sec  %7.2f Kops/sec\n", label, elapsed, rate / 1e3)
+    else
+        printf("  %-42s %8.4f sec  %7.2f  ops/sec\n", label, elapsed, rate)
+    end
+end
+
+dec function sep()
+    echo("")
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("1. CONCATENATION SCALING")
+-- ═══════════════════════════════════════════════════════════
+
+-- Small concatenations (short strings)
+do
+    for _, n in ipairs({10000, 50000, 100000, 500000, 1000000}) do
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec x = "hello" .. "world"
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        row(sprintf("concat 2 short literals (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- Concat with tostring (int → string → concat)
+do
+    for _, n in ipairs({10000, 50000, 100000, 500000}) do
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec x = "item_" .. tostring(i)
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("concat prefix+tostring(i) (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- Multi-concat chain (3, 5, 8 segments)
+do
+    dec N = 200000
+    dec s1 = os.clock()
+    for i = 0, N - 1 do
+        dec x = "a" .. "b" .. "c"
+    end
+    dec t3 = os.clock() - s1
+
+    dec s2 = os.clock()
+    for i = 0, N - 1 do
+        dec x = "a" .. "b" .. "c" .. "d" .. "e"
+    end
+    dec t5 = os.clock() - s2
+
+    dec s3 = os.clock()
+    for i = 0, N - 1 do
+        dec x = "a" .. "b" .. "c" .. "d" .. "e" .. "f" .. "g" .. "h"
+    end
+    dec t8 = os.clock() - s3
+
+    row("3-segment concat (200K)", t3, N)
+    row("5-segment concat (200K)", t5, N)
+    row("8-segment concat (200K)", t8, N)
+end
+
+sep()
+
+-- Growing concatenation (append in loop)
+do
+    for _, n in ipairs({100, 500, 1000, 5000, 10000}) do
+        dec result = ""
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            result = result .. "x"
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("loop concat (grow to %s chars)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("2. STRING METHOD THROUGHPUT")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec base = "Hello, World! This is a test string for benchmarking."
+    dec N_HI = 1000000
+    dec N_MID = 500000
+    dec N_LO = 200000
+
+    -- upper
+    dec s = os.clock()
+    for i = 0, N_HI - 1 do dec x = base:upper() end
+    dec e = os.clock() - s
+    row("string:upper() (1M)", e, N_HI)
+
+    -- lower
+    s = os.clock()
+    for i = 0, N_HI - 1 do dec x = base:lower() end
+    e = os.clock() - s
+    row("string:lower() (1M)", e, N_HI)
+
+    -- reverse
+    s = os.clock()
+    for i = 0, N_HI - 1 do dec x = base:reverse() end
+    e = os.clock() - s
+    row("string:reverse() (1M)", e, N_HI)
+
+    -- len
+    s = os.clock()
+    for i = 0, N_HI - 1 do dec x = base:len() end
+    e = os.clock() - s
+    row("string:len() (1M)", e, N_HI)
+
+    -- sub (extract first 5 chars)
+    s = os.clock()
+    for i = 0, N_HI - 1 do dec x = base:sub(0, 5) end
+    e = os.clock() - s
+    row("string:sub(0,5) (1M)", e, N_HI)
+
+    -- sub (extract middle)
+    s = os.clock()
+    for i = 0, N_MID - 1 do dec x = base:sub(10, 20) end
+    e = os.clock() - s
+    row("string:sub(10,20) (500K)", e, N_MID)
+
+    -- rep (repeat)
+    s = os.clock()
+    for i = 0, N_MID - 1 do dec x = ("ab"):rep(5) end
+    e = os.clock() - s
+    row("string:rep(5) (500K)", e, N_MID)
+
+    s = os.clock()
+    for i = 0, N_LO - 1 do dec x = ("ab"):rep(50) end
+    e = os.clock() - s
+    row("string:rep(50) (200K)", e, N_LO)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("3. STRING FIND")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec text = "The quick brown fox jumps over the lazy dog"
+    dec N = 1000000
+
+    -- Find at start
+    dec s = os.clock()
+    for i = 0, N - 1 do dec p = text:find("The") end
+    dec e = os.clock() - s
+    row("find at start (1M)", e, N)
+
+    -- Find in middle
+    s = os.clock()
+    for i = 0, N - 1 do dec p = text:find("fox") end
+    e = os.clock() - s
+    row("find in middle (1M)", e, N)
+
+    -- Find at end
+    s = os.clock()
+    for i = 0, N - 1 do dec p = text:find("dog") end
+    e = os.clock() - s
+    row("find at end (1M)", e, N)
+
+    -- Find miss (not present)
+    s = os.clock()
+    for i = 0, N - 1 do dec p = text:find("xyz") end
+    e = os.clock() - s
+    row("find miss (1M)", e, N)
+end
+
+sep()
+
+-- Find with longer text
+do
+    dec text = string.rep("abcdefghij", 100)  -- 1000 chars
+    dec N = 200000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do dec p = text:find("efghij") end
+    e = os.clock() - s
+    row("find in 1K text (200K)", e, N)
+
+    -- Find near end of long string
+    s = os.clock()
+    for i = 0, N - 1 do dec p = text:find("ij") end
+    e = os.clock() - s
+    row("find 2ch in 1K text (200K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("4. STRING GSUB")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec text = "hello world hello world hello world"
+    dec N = 200000
+
+    -- Simple replacement
+    dec s = os.clock()
+    for i = 0, N - 1 do dec r = text:gsub("hello", "HELLO") end
+    dec e = os.clock() - s
+    row("gsub simple replace (200K)", e, N)
+
+    -- Single-char replacement
+    s = os.clock()
+    for i = 0, N - 1 do dec r = text:gsub("o", "0") end
+    e = os.clock() - s
+    row("gsub single char (200K)", e, N)
+
+    -- No match (scan only)
+    s = os.clock()
+    for i = 0, N - 1 do dec r = text:gsub("xyz", "ZZZ") end
+    e = os.clock() - s
+    row("gsub no match (200K)", e, N)
+end
+
+sep()
+
+-- gsub with count limit
+do
+    dec text = "aaa bbb aaa bbb aaa bbb aaa bbb"
+    dec N = 500000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do dec r = text:gsub("aaa", "AAA", 1) end
+    dec e = os.clock() - s
+    row("gsub with limit=1 (500K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("5. STRING EQUALITY (INTERNED)")
+-- ═══════════════════════════════════════════════════════════
+
+-- Same string (pointer equality — O(1))
+do
+    dec N = 5000000
+    dec a = "benchmark_string_equality_test"
+    dec b = a  -- same pointer
+
+    dec count = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if a == b then count = count + 1 end
+    end
+    dec e = os.clock() - s
+    row("eq same interned (5M)", e, N)
+end
+
+-- Different strings (pointer != then compare chars)
+do
+    dec N = 5000000
+    dec a = "benchmark_string_AAAA"
+    dec b = "benchmark_string_BBBB"
+
+    dec count = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if a == b then count = count + 1 end
+    end
+    dec e = os.clock() - s
+    row("eq different interned (5M)", e, N)
+end
+
+-- Inequality check
+do
+    dec N = 5000000
+    dec a = "alpha"
+    dec b = "omega"
+
+    dec count = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if a != b then count = count + 1 end
+    end
+    dec e = os.clock() - s
+    row("neq different (5M)", e, N)
+end
+
+-- Less-than (lexicographic)
+do
+    dec N = 2000000
+    dec a = "apple"
+    dec b = "banana"
+
+    dec count = 0
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        if a < b then count = count + 1 end
+    end
+    dec e = os.clock() - s
+    row("lt lexicographic (2M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("6. LENGTH OPERATOR")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec short = "hi"
+    dec medium = "Hello, World! This is a medium length string."
+    dec long = string.rep("x", 1000)
+    dec N = 2000000
+
+    dec sum = 0
+    dec s1 = os.clock()
+    for i = 0, N - 1 do sum = sum + #short end
+    dec t_short = os.clock() - s1
+
+    sum = 0
+    dec s2 = os.clock()
+    for i = 0, N - 1 do sum = sum + #medium end
+    dec t_medium = os.clock() - s2
+
+    sum = 0
+    dec s3 = os.clock()
+    for i = 0, N - 1 do sum = sum + #long end
+    dec t_long = os.clock() - s3
+
+    row("#short (2ch) (2M)", t_short, N)
+    row("#medium (46ch) (2M)", t_medium, N)
+    row("#long (1000ch) (2M)", t_long, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("7. STRING BUILDING: .. vs TABLE.CONCAT")
+-- ═══════════════════════════════════════════════════════════
+
+-- Compare: building a string by repeated concatenation
+-- vs. collecting in a table then table.concat
+do
+    for _, n in ipairs({100, 500, 1000, 5000}) do
+        -- Method 1: loop concat (..)
+        dec s1 = os.clock()
+        dec result1 = ""
+        for i = 0, n - 1 do
+            result1 = result1 .. "x"
+        end
+        dec t_concat = os.clock() - s1
+
+        -- Method 2: table + table.concat
+        dec s2 = os.clock()
+        dec parts = {}
+        for i = 0, n - 1 do
+            parts[i] = "x"
+        end
+        dec result2 = table.concat(parts)
+        dec t_table = os.clock() - s2
+
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("loop .. concat (%s)", label), t_concat, n)
+        row(sprintf("table.concat (%s)", label), t_table, n)
+        printf("  %-42s table.concat is %.2fx faster\n", "", t_concat / t_table)
+        sep()
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("8. STRING FORMAT")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 500000
+
+    -- Integer formatting
+    dec s = os.clock()
+    for i = 0, N - 1 do dec x = sprintf("%d", i) end
+    dec e = os.clock() - s
+    row("sprintf(%d) (500K)", e, N)
+
+    -- Float formatting
+    s = os.clock()
+    for i = 0, N - 1 do dec x = sprintf("%.4f", i * 0.001) end
+    e = os.clock() - s
+    row("sprintf(%.4f) (500K)", e, N)
+
+    -- String formatting
+    s = os.clock()
+    for i = 0, N - 1 do dec x = sprintf("%s=%d", "key", i) end
+    e = os.clock() - s
+    row("sprintf(%s=%d) (500K)", e, N)
+
+    -- Complex format
+    s = os.clock()
+    for i = 0, N - 1 do dec x = sprintf("[%04d] %-10s %8.2f", i, "test", i * 0.1) end
+    e = os.clock() - s
+    row("sprintf(complex 3-field) (500K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("9. BYTE / CHAR CONVERSION")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 1000000
+
+    -- string.byte
+    dec s = os.clock()
+    for i = 0, N - 1 do dec b = string.byte("A") end
+    dec e = os.clock() - s
+    row("string.byte('A') (1M)", e, N)
+
+    -- string.char
+    s = os.clock()
+    for i = 0, N - 1 do dec c = string.char(65) end
+    e = os.clock() - s
+    row("string.char(65) (1M)", e, N)
+
+    -- byte + char round-trip
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec b = string.byte("Z")
+        dec c = string.char(b)
+    end
+    e = os.clock() - s
+    row("byte+char round-trip (1M)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("10. STRING MATCH / GMATCH")
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec text = "key1=val1 key2=val2 key3=val3 key4=val4"
+    dec N = 200000
+
+    -- match (single pattern)
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec k = string.match(text, "%w+=(%w+)")
+    end
+    dec e = os.clock() - s
+    row("match key=val pattern (200K)", e, N)
+end
+
+sep()
+
+-- gmatch (returns table in Nova)
+do
+    dec text = "one two three four five six seven eight nine ten"
+    dec N = 100000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec words = string.gmatch(text, "%w+")
+        dec count = #words
+    end
+    dec e = os.clock() - s
+    row("gmatch words (100K iters)", e, N)
+end
+
+-- gmatch on longer text
+do
+    dec words = {}
+    for i = 0, 99 do words[i] = sprintf("word%d", i) end
+    dec text = table.concat(words, " ")  -- ~100 words
+    dec N = 10000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec matches = string.gmatch(text, "%w+")
+        dec count = #matches
+    end
+    dec e = os.clock() - s
+    row("gmatch 100 words (10K iters)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("11. STRING-HEAVY WORKLOADS")
+-- ═══════════════════════════════════════════════════════════
+
+-- CSV line construction
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec line = sprintf("%d,%s,%.2f,%s,%d", i, "name", i * 0.01, "active", i * 10)
+    end
+    dec e = os.clock() - s
+    row("CSV line build (100K)", e, N)
+end
+
+-- Path construction
+do
+    dec N = 200000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec path = "/home/user" .. "/project" .. "/src" .. "/" .. sprintf("file_%d.n", i)
+    end
+    dec e = os.clock() - s
+    row("path construction (200K)", e, N)
+end
+
+-- Log message formatting
+do
+    dec N = 200000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec msg = sprintf("[%s] %s: %s (code=%d)", "2024-01-15", "ERROR", "Connection failed", i)
+    end
+    dec e = os.clock() - s
+    row("log message format (200K)", e, N)
+end
+
+-- Key-value pair encoding
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec kv = "host=" .. "localhost" .. "&port=" .. "8080" .. "&id=" .. tostring(i)
+    end
+    dec e = os.clock() - s
+    row("query-string build (100K)", e, N)
+end
+
+-- Intern cache hit rate (re-creating the same strings)
+do
+    dec N = 1000000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec x = "intern_test_string"
+        dec y = "intern_test_string"
+        dec eq = (x == y)
+    end
+    dec e = os.clock() - s
+    row("intern cache hit + eq (1M)", e, N)
+end
+
+-- String table as accumulator (collect lines)
+do
+    dec N = 50000
+    dec parts = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        parts[i] = sprintf("line %d: data chunk here", i)
+    end
+    dec result = table.concat(parts, "\n")
+    dec e = os.clock() - s
+    row(sprintf("collect+join %dK lines", N/1000), e, N)
+    printf("  %-42s result length: %d chars\n", "", #result)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("SUMMARY")
+-- ═══════════════════════════════════════════════════════════
+
+dec TOTAL_ELAPSED = os.clock() - TOTAL_START
+printf("\n  Total benchmark time: %.4f sec\n", TOTAL_ELAPSED)
+echo("================================================================")
+echo("  Weave String Performance Analysis COMPLETE")
+echo("================================================================")

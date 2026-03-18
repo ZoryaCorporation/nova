@@ -1,0 +1,170 @@
+-- test_coroutine.n: Coroutine runtime test suite
+-- Exercises create, resume, yield, status, wrap, and GC interaction.
+
+print("=== COROUTINE TEST SUITE ===")
+print("")
+
+-- Test 1: Basic create and type
+print("Test 1: coroutine.create and type()")
+dec function hello()
+    print("  hello from coroutine!")
+end
+dec co = coroutine.create(hello)
+assert(type(co) == "thread", "coroutine should be type 'thread'")
+print("  type:", type(co))
+print("  create: OK")
+
+-- Test 2: Basic resume (runs to completion)
+print("Test 2: Basic resume")
+dec ok, val = coroutine.resume(co)
+assert(ok == true, "resume should return true on success")
+print("  resume returned:", ok)
+print("  basic resume: OK")
+
+-- Test 3: Status transitions
+print("Test 3: Status transitions")
+dec function noop() end
+dec co2 = coroutine.create(noop)
+assert(coroutine.status(co2) == "suspended", "new coroutine should be suspended")
+print("  before resume:", coroutine.status(co2))
+coroutine.resume(co2)
+assert(coroutine.status(co2) == "dead", "finished coroutine should be dead")
+print("  after resume:", coroutine.status(co2))
+print("  status transitions: OK")
+
+-- Test 4: Cannot resume dead coroutine
+print("Test 4: Cannot resume dead coroutine")
+dec ok2, msg = coroutine.resume(co2)
+assert(ok2 == false, "resume of dead coroutine should return false")
+print("  dead resume:", ok2, msg)
+print("  dead resume check: OK")
+
+-- Test 5: Simple yield and resume
+print("Test 5: Yield and resume")
+dec function yielder()
+    coroutine.yield(10)
+    coroutine.yield(20)
+    return 30
+end
+
+dec co3 = coroutine.create(yielder)
+dec ok3, v1 = coroutine.resume(co3)
+assert(ok3 == true, "first resume should succeed")
+assert(v1 == 10, "first yield should give 10")
+print("  first yield:", v1)
+
+dec ok4, v2 = coroutine.resume(co3)
+assert(ok4 == true, "second resume should succeed")
+assert(v2 == 20, "second yield should give 20")
+print("  second yield:", v2)
+
+dec ok5, v3 = coroutine.resume(co3)
+assert(ok5 == true, "final resume should succeed")
+assert(v3 == 30, "final return should give 30")
+print("  final return:", v3)
+
+assert(coroutine.status(co3) == "dead", "should be dead after return")
+print("  yield and resume: OK")
+
+-- Test 6: Passing values through resume
+print("Test 6: Passing values through resume")
+dec function echo()
+    dec a = coroutine.yield()
+    dec b = coroutine.yield(a * 2)
+    return a + b
+end
+
+dec co4 = coroutine.create(echo)
+coroutine.resume(co4)  -- first resume starts execution, hits first yield
+
+dec ok6, doubled = coroutine.resume(co4, 5)  -- pass 5, yield returns 10
+assert(ok6 == true, "resume with arg should succeed")
+assert(doubled == 10, "should yield doubled value (10)")
+print("  doubled:", doubled)
+
+dec ok7, sum = coroutine.resume(co4, 3)  -- pass 3, return 5+3=8
+assert(ok7 == true, "final resume should succeed")
+assert(sum == 8, "should return sum (8)")
+print("  sum:", sum)
+print("  value passing: OK")
+
+-- Test 7: Multiple yields in a loop
+print("Test 7: Loop yielding")
+dec function counter(n)
+    for i = 1, n do
+        coroutine.yield(i)
+    end
+end
+
+dec co5 = coroutine.create(counter)
+dec results = {}
+for i = 1, 5 do
+    dec ok_loop, val_loop = coroutine.resume(co5, 5)
+    if ok_loop and val_loop != nil then
+        results[i] = val_loop
+    end
+end
+print("  loop results:", results[1], results[2], results[3], results[4], results[5])
+assert(results[1] == 1, "first loop value")
+assert(results[5] == 5, "fifth loop value")
+print("  loop yielding: OK")
+
+-- Test 8: coroutine.isyieldable
+print("Test 8: isyieldable")
+dec outside = coroutine.isyieldable()
+assert(outside == false, "main thread should not be yieldable")
+print("  main thread yieldable:", outside)
+
+dec inside_yieldable = nil
+dec function check_yield()
+    inside_yieldable = coroutine.isyieldable()
+    coroutine.yield()
+end
+dec co6 = coroutine.create(check_yield)
+coroutine.resume(co6)
+assert(inside_yieldable == true, "coroutine should be yieldable")
+print("  inside coroutine yieldable:", inside_yieldable)
+print("  isyieldable: OK")
+
+-- Test 9: coroutine.running
+print("Test 9: running")
+dec main_co, is_main = coroutine.running()
+assert(main_co == nil, "main thread running() should return nil")
+assert(is_main == true, "main thread should be is_main=true")
+print("  main thread: nil,", is_main)
+
+dec running_inside = nil
+dec function check_running()
+    running_inside = coroutine.running()
+    coroutine.yield()
+end
+dec co7 = coroutine.create(check_running)
+coroutine.resume(co7)
+assert(running_inside != nil, "running() inside coroutine should not be nil")
+print("  inside coroutine: got thread")
+print("  running: OK")
+
+-- Test 10: GC does not collect live coroutines
+print("Test 10: GC interaction")
+dec function gc_test()
+    collectgarbage("collect")
+    coroutine.yield(42)
+    collectgarbage("collect")
+    return 99
+end
+dec co8 = coroutine.create(gc_test)
+
+-- Force GC before, during, and after resume
+collectgarbage("collect")
+dec ok10, v10 = coroutine.resume(co8)
+assert(ok10 == true and v10 == 42, "GC should not collect live coroutine")
+print("  after yield:", v10)
+
+collectgarbage("collect")
+dec ok11, v11 = coroutine.resume(co8)
+assert(ok11 == true and v11 == 99, "coroutine should survive GC")
+print("  after return:", v11)
+print("  GC interaction: OK")
+
+print("")
+print("=== ALL COROUTINE TESTS PASSED ===")

@@ -1,0 +1,7 @@
+name,role,department,salary,active
+Alice,Engineer,R&D,95000,true
+Bob,Designer,Creative,82000,true
+Charlie,Manager,R&D,110000,true
+Diana,Intern,R&D,45000,false
+Eve,Engineer,Security,98000,true
+Frank,Analyst,Finance,87000,true

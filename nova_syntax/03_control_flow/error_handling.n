@@ -1,0 +1,143 @@
+-- ============================================================
+-- error_handling.n — pcall, xpcall, and Error Recovery
+--
+-- Nova uses pcall (protected call) and xpcall for structured
+-- error handling, similar to try/catch in other languages.
+--
+-- Run:  ./bin/nova nova_syntax/03_control_flow/error_handling.n
+-- ============================================================
+
+echo "=== Error Handling ==="
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- error() raises an error
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- error() ---"
+
+-- Uncomment to see an unhandled error crash:
+-- error("boom!")
+
+-- Instead, let's catch it:
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- pcall — Protected Call
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- pcall (Protected Call) ---"
+
+-- pcall(fn, args...) returns: ok, result_or_error
+dec ok, err = pcall(function()
+    error("something went wrong")
+end)
+
+printf("  ok  = %s\n", tostring(ok))
+printf("  err = %s\n", tostring(err))
+
+-- Successful pcall
+dec ok2, result = pcall(function()
+    return 42
+end)
+printf("  ok  = %s, result = %s\n", tostring(ok2), tostring(result))
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Practical pcall: safe division
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Safe Division ---"
+
+dec function safe_divide(a, b)
+    if b == 0 then
+        error("division by zero")
+    end
+    return a / b
+end
+
+dec cases = {
+    {10, 3},
+    {100, 0},
+    {42, 7},
+}
+
+for i = 0, #cases - 1 do
+    dec a, b = cases[i][0], cases[i][1]
+    dec ok, result = pcall(safe_divide, a, b)
+    if ok then
+        printf("  %d / %d = %.4f\n", a, b, result)
+    else
+        printf("  %d / %d = ERROR: %s\n", a, b, result)
+    end
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- xpcall — Protected Call with Error Handler
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- xpcall (with handler) ---"
+
+dec function error_handler(err)
+    return "CAUGHT: " .. tostring(err)
+end
+
+dec ok3, msg = xpcall(function()
+    error("database connection failed")
+end, error_handler)
+
+printf("  ok  = %s\n", tostring(ok3))
+printf("  msg = %s\n", msg)
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- assert — Quick Validation
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- assert ---"
+
+-- assert(condition, message) — raises error if condition is falsy
+dec function load_config(path)
+    assert(type(path) == "string", "path must be a string")
+    assert(#path > 0, "path cannot be empty")
+    return {loaded = true, path = path}
+end
+
+dec ok4, err4 = pcall(load_config, "")
+printf("  load_config(''): %s\n", tostring(err4))
+
+dec ok5, cfg = pcall(load_config, "app.conf")
+if ok5 then
+    printf("  load_config('app.conf'): loaded=%s\n",
+           tostring(cfg.loaded))
+end
+
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-- Error Recovery Pattern
+-- ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+echo "\n--- Error Recovery Pattern ---"
+
+dec function risky_operation(data)
+    echo "  Attempting risky operation..."
+
+    dec ok, result = pcall(function()
+        if data == nil then
+            error("no data provided")
+        end
+        if type(data) != "table" then
+            error("expected table, got " .. type(data))
+        end
+        return #data
+    end)
+
+    if not ok then
+        echo `  Recovery: ${result}`
+        return 0
+    end
+
+    printf("  Success: processed %d items\n", result)
+    return result
+end
+
+risky_operation(nil)
+risky_operation("oops")
+risky_operation({1, 2, 3})
+
+echo "\nDone!"

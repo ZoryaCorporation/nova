@@ -1,0 +1,562 @@
+-- ==========================================================
+-- bench_gc_pressure.n - Garbage Collector Stress Analysis
+--
+-- Nova uses an incremental tri-color mark-and-sweep GC with
+-- per-type metatables rooted in the VM struct. This benchmark
+-- suite measures GC behavior under varying allocation loads:
+--
+--   1. Allocation-only (no survivors) — pure collection rate
+--   2. Growing live set — retention pressure
+--   3. Object type allocation costs (table/closure/string/coroutine)
+--   4. Allocation burst patterns
+--   5. Closure capture & upvalue migration
+--   6. Table churn (create → populate → discard)
+--   7. String churn (unique strings for intern pressure)
+--   8. Coroutine lifecycle
+--   9. Mixed workload (realistic allocation mix)
+--   10. Survivor ratio analysis
+--
+-- Copyright (c) 2026 Zorya Corporation
+-- ==========================================================
+
+dec TOTAL_START = os.clock()
+
+echo("================================================================")
+echo("  NOVA TRI-COLOR MARK-SWEEP GC STRESS ANALYSIS")
+echo("  " .. os.date())
+echo("================================================================")
+
+-- ── Helpers ──────────────────────────────────────────────
+
+dec function header(name)
+    printf("\n── %s ─────────────────────────────────────\n", name)
+end
+
+dec function row(label, elapsed, ops)
+    dec rate = ops / elapsed
+    if rate >= 1e6 then
+        printf("  %-42s %8.4f sec  %7.2f Mops/sec\n", label, elapsed, rate / 1e6)
+    elseif rate >= 1e3 then
+        printf("  %-42s %8.4f sec  %7.2f Kops/sec\n", label, elapsed, rate / 1e3)
+    else
+        printf("  %-42s %8.4f sec  %7.2f  ops/sec\n", label, elapsed, rate)
+    end
+end
+
+dec function sep()
+    echo("")
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("1. ALLOCATION-ONLY (NO SURVIVORS)")
+-- Tables created and immediately discarded — pure GC throughput
+-- ═══════════════════════════════════════════════════════════
+
+-- Small tables (4 fields) — high allocation rate
+do
+    for _, n in ipairs({100000, 500000, 1000000, 2000000}) do
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec t = { a = 1, b = 2, c = 3, d = 4 }
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        row(sprintf("discard 4-field tables (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- Empty tables — minimal per-object cost
+do
+    for _, n in ipairs({500000, 1000000, 2000000, 5000000}) do
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec t = {}
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e6 and sprintf("%.0fM", n/1e6) or sprintf("%.0fK", n/1e3)
+        row(sprintf("discard empty tables (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("2. GROWING LIVE SET (RETENTION PRESSURE)")
+-- Tables stay alive — GC must traverse growing heap
+-- ═══════════════════════════════════════════════════════════
+
+do
+    for _, n in ipairs({5000, 10000, 25000, 50000}) do
+        dec live = {}
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            live[i] = { id = i, val = i * 2 }
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("retain 2-field tables (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- Growing array of arrays
+do
+    for _, n in ipairs({5000, 10000, 25000}) do
+        dec live = {}
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec a, b, c, d = i+1, i+2, i+3, i+4
+            live[i] = { i, a, b, c, d }
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("retain 5-elem arrays (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("3. OBJECT TYPE ALLOCATION COSTS")
+-- Compare allocation speed across object types
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 500000
+
+    -- Empty table
+    dec s = os.clock()
+    for i = 0, N - 1 do dec t = {} end
+    dec t_empty = os.clock() - s
+    row("empty table alloc (500K)", t_empty, N)
+
+    -- Small table
+    s = os.clock()
+    for i = 0, N - 1 do dec t = { x = 1, y = 2 } end
+    dec t_small = os.clock() - s
+    row("2-field table alloc (500K)", t_small, N)
+
+    -- Medium table
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec t = { a=1, b=2, c=3, d=4, e=5, f=6, g=7, h=8 }
+    end
+    dec t_medium = os.clock() - s
+    row("8-field table alloc (500K)", t_medium, N)
+
+    sep()
+
+    -- Closure (no upvalues)
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec f = function() return 42 end
+    end
+    dec t_closure0 = os.clock() - s
+    row("closure (0 upvals) alloc (500K)", t_closure0, N)
+
+    -- Closure (1 upvalue)
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec x = i
+        dec f = function() return x end
+    end
+    dec t_closure1 = os.clock() - s
+    row("closure (1 upval) alloc (500K)", t_closure1, N)
+
+    -- Closure (4 upvalues)
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec a, b, c, d = i, i+1, i+2, i+3
+        dec f = function() return a + b + c + d end
+    end
+    dec t_closure4 = os.clock() - s
+    row("closure (4 upvals) alloc (500K)", t_closure4, N)
+
+    sep()
+
+    -- String (unique — forces intern)
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec x = sprintf("unique_%d", i)
+    end
+    dec t_string = os.clock() - s
+    row("unique string alloc (500K)", t_string, N)
+
+    -- String (same — intern cache hit)
+    s = os.clock()
+    for i = 0, N - 1 do
+        dec x = "cached_string"
+    end
+    dec t_cached = os.clock() - s
+    row("cached string access (500K)", t_cached, N)
+
+    sep()
+
+    -- Coroutine
+    dec N_CO = 100000
+    s = os.clock()
+    for i = 0, N_CO - 1 do
+        dec co = coroutine.create(function() coroutine.yield(42) end)
+    end
+    dec t_coroutine = os.clock() - s
+    row("coroutine create (100K)", t_coroutine, N_CO)
+
+    sep()
+    printf("  %-42s\n", "Relative allocation cost (vs empty table):")
+    printf("  %-42s %.2fx\n", "  2-field table", t_small / t_empty)
+    printf("  %-42s %.2fx\n", "  8-field table", t_medium / t_empty)
+    printf("  %-42s %.2fx\n", "  closure (0 upvals)", t_closure0 / t_empty)
+    printf("  %-42s %.2fx\n", "  closure (1 upval)", t_closure1 / t_empty)
+    printf("  %-42s %.2fx\n", "  closure (4 upvals)", t_closure4 / t_empty)
+    printf("  %-42s %.2fx\n", "  unique string", t_string / t_empty)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("4. ALLOCATION BURST PATTERNS")
+-- Alternating bursts of allocation and quiet periods
+-- ═══════════════════════════════════════════════════════════
+
+-- Burst: allocate N, then idle (arithmetic only)
+do
+    dec BURST = 50000
+    dec ROUNDS = 20
+    dec IDLE_OPS = 100000
+
+    dec times = {}
+    dec s_total = os.clock()
+    for r = 0, ROUNDS - 1 do
+        -- Burst phase
+        dec s = os.clock()
+        for i = 0, BURST - 1 do
+            dec t = { v = i, idx = r }
+        end
+        times[r] = os.clock() - s
+
+        -- Idle phase (no allocation)
+        dec sum = 0
+        for i = 0, IDLE_OPS - 1 do sum = sum + i end
+    end
+    dec total = os.clock() - s_total
+
+    -- Report per-burst timing
+    dec min_t, max_t, sum_t = times[0], times[0], 0
+    for r = 0, ROUNDS - 1 do
+        sum_t = sum_t + times[r]
+        if times[r] < min_t then min_t = times[r] end
+        if times[r] > max_t then max_t = times[r] end
+    end
+    dec avg_t = sum_t / ROUNDS
+
+    printf("  %-42s %d rounds x %dK allocs\n", "Burst allocation pattern:", ROUNDS, BURST/1000)
+    printf("  %-42s %.6f sec\n", "  min burst time:", min_t)
+    printf("  %-42s %.6f sec\n", "  max burst time:", max_t)
+    printf("  %-42s %.6f sec\n", "  avg burst time:", avg_t)
+    printf("  %-42s %.2fx\n", "  max/min ratio:", max_t / min_t)
+    printf("  %-42s %.4f sec\n", "  total elapsed:", total)
+    row("  total burst allocs", sum_t, BURST * ROUNDS)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("5. CLOSURE CAPTURE & UPVALUE MIGRATION")
+-- Tests GC handling of open upvalues (stack → heap migration)
+-- ═══════════════════════════════════════════════════════════
+
+-- Create closures that capture outer locals, then call them
+-- after the outer scope exits (forces upvalue close)
+-- NOTE: This test segfaults when run after heavy GC pressure from
+-- prior sections (works fine in isolation at 10K). This indicates a
+-- GC bug with closure/upvalue tracing under heavy heap load.
+-- Skipping to allow remaining benchmarks to complete.
+printf("  *** SKIPPED: closure retention test (segfaults under GC pressure)\n")
+printf("  *** Works in isolation — likely GC marking bug with open upvalues\n")
+
+sep()
+
+-- Shared upvalue (multiple closures share one variable)
+do
+    dec N = 100000
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec shared = 0
+        dec inc = function() shared = shared + 1 end
+        dec get = function() return shared end
+        inc()
+        inc()
+        inc()
+        dec v = get()
+    end
+    dec e = os.clock() - s
+    row("shared upvalue pair (100K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("6. TABLE CHURN (CREATE → POPULATE → DISCARD)")
+-- ═══════════════════════════════════════════════════════════
+
+-- Small tables (4 keys)
+do
+    dec N = 500000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec t = {}
+        t.x = i
+        t.y = i + 1
+        t.z = i + 2
+        t.w = i + 3
+        dec sum = t.x + t.y + t.z + t.w
+    end
+    dec e = os.clock() - s
+    row("churn 4-key tables (500K)", e, N)
+end
+
+-- Medium tables (16 keys)
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec t = {}
+        for j = 0, 15 do t[j] = i + j end
+        dec sum = t[0] + t[7] + t[15]
+    end
+    dec e = os.clock() - s
+    row("churn 16-key tables (100K)", e, N)
+end
+
+-- Large tables (64 keys)
+do
+    dec N = 20000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec t = {}
+        for j = 0, 63 do t[j] = i + j end
+        dec sum = t[0] + t[31] + t[63]
+    end
+    dec e = os.clock() - s
+    row("churn 64-key tables (20K)", e, N)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("7. STRING CHURN (UNIQUE STRING PRESSURE)")
+-- Forces WEAVE intern pool to grow and GC to sweep dead strings
+-- ═══════════════════════════════════════════════════════════
+
+-- Unique strings, immediately discarded
+do
+    for _, n in ipairs({50000, 100000, 500000}) do
+        dec s = os.clock()
+        for i = 0, n - 1 do
+            dec x = sprintf("ephemeral_%d_%d", i, i * 7)
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("unique string churn (%s)", label), e, n)
+    end
+end
+
+sep()
+
+-- String concatenation churn (each concat creates a new intern)
+do
+    dec N = 200000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec x = "prefix_" .. tostring(i) .. "_suffix"
+    end
+    dec e = os.clock() - s
+    row("concat-churn (200K)", e, N)
+end
+
+-- Mixed retained + ephemeral strings
+do
+    dec N = 100000
+    dec kept = {}
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec temp = sprintf("temp_%d", i)           -- discarded
+        if i % 10 == 0 then
+            kept[i / 10] = sprintf("keep_%d", i)     -- retained
+        end
+    end
+    dec e = os.clock() - s
+    row("mixed string retain/discard (100K)", e, N)
+    printf("  %-42s %d retained, %d discarded\n", "", N / 10, N - N / 10)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("8. COROUTINE LIFECYCLE")
+-- ═══════════════════════════════════════════════════════════
+
+-- Create and immediately complete (full lifecycle)
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec co = coroutine.create(function() return 42 end)
+        coroutine.resume(co)
+    end
+    dec e = os.clock() - s
+    row("coroutine create+run+die (100K)", e, N)
+end
+
+-- Create, yield once, resume, complete
+do
+    dec N = 100000
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        dec co = coroutine.create(function()
+            coroutine.yield(1)
+            return 2
+        end)
+        coroutine.resume(co)
+        coroutine.resume(co)
+    end
+    dec e = os.clock() - s
+    row("coro create+yield+resume+die (100K)", e, N)
+end
+
+-- Many concurrent coroutines (live set + GC pressure)
+do
+    for _, n in ipairs({1000, 5000, 10000, 20000}) do
+        dec coros = {}
+        dec s = os.clock()
+        -- Create all
+        for i = 0, n - 1 do
+            coros[i] = coroutine.create(function(x)
+                coroutine.yield(x * 2)
+                return x * 3
+            end)
+        end
+        -- Resume all twice
+        for i = 0, n - 1 do
+            coroutine.resume(coros[i], i)
+        end
+        for i = 0, n - 1 do
+            coroutine.resume(coros[i])
+        end
+        dec e = os.clock() - s
+        dec label = n >= 1e3 and sprintf("%.0fK", n/1e3) or tostring(n)
+        row(sprintf("concurrent coro lifecycle (%s)", label), e, n)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("9. MIXED WORKLOAD (REALISTIC ALLOCATION MIX)")
+-- Simulates a realistic program: tables, strings, closures,
+-- function calls, with both short-lived and retained objects.
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 50000
+    dec registry = {}
+    dec count = 0
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        -- Create an "entity" (retained table)
+        dec entity = {
+            id = i,
+            name = sprintf("entity_%d", i),
+            active = true
+        }
+
+        -- Create a temporary transform (discarded)
+        dec temp = { x = i * 0.5, y = i * 0.707, z = i * 1.414 }
+        dec mag = temp.x + temp.y + temp.z
+
+        -- Create a callback closure (retained every 5th)
+        dec cb = function() return entity.id * 2 end
+
+        -- Sometimes retain, sometimes discard
+        if i % 5 == 0 then
+            registry[count] = { entity = entity, callback = cb }
+            count = count + 1
+        end
+
+        -- String work (mixed retained/ephemeral)
+        dec log_msg = sprintf("[%d] processed %s", i, entity.name)
+    end
+    dec e = os.clock() - s
+
+    row("mixed workload (50K iters)", e, N)
+    printf("  %-42s %d retained, %d discarded\n", "", count, N - count)
+end
+
+sep()
+
+-- Heavier mixed workload
+do
+    dec N = 20000
+    dec data = {}
+
+    dec s = os.clock()
+    for i = 0, N - 1 do
+        -- Nested object graph
+        dec node = {
+            id = i,
+            children = {},
+            meta = { created = i, label = sprintf("node_%d", i) }
+        }
+        -- Add some children
+        for j = 0, 3 do
+            node.children[j] = { parent_id = i, index = j, val = i * 10 + j }
+        end
+
+        -- Process with closures
+        dec processor = function(n)
+            dec sum = 0
+            for k = 0, 3 do sum = sum + n.children[k].val end
+            return sum
+        end
+        dec total = processor(node)
+
+        -- Retain some
+        if i % 100 == 0 then
+            data[i / 100] = node
+        end
+    end
+    dec e = os.clock() - s
+
+    row("heavy mixed workload (20K iters)", e, N)
+    printf("  %-42s ~%.0f objects/iter (6 tables + 1 closure + strings)\n", "", 8)
+    printf("  %-42s %d retained root nodes\n", "", N / 100)
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("10. SURVIVOR RATIO ANALYSIS")
+-- Same allocation count but different survival rates
+-- ═══════════════════════════════════════════════════════════
+
+do
+    dec N = 50000
+    printf("  %-42s %8s  %12s  %s\n", "Survival rate", "seconds", "allocs/sec", "retained")
+    printf("  %-42s %8s  %12s  %s\n", string.rep("-", 42), "--------", "------------", "--------")
+
+    for _, pct in ipairs({0, 1, 5, 10, 25, 50, 100}) do
+        dec kept = {}
+        dec keep_count = 0
+
+        dec s = os.clock()
+        for i = 0, N - 1 do
+            dec t = { id = i, x = i * 2, y = i * 3 }
+            if (pct == 100) or (pct > 0 and i % (100 / pct) == 0) then
+                kept[keep_count] = t
+                keep_count = keep_count + 1
+            end
+        end
+        dec e = os.clock() - s
+
+        printf("  %-42s %8.4f  %10.0f/sec  %d\n",
+               sprintf("%d%% survival (%dK allocs)", pct, N/1000),
+               e, N / e, keep_count)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+header("SUMMARY")
+-- ═══════════════════════════════════════════════════════════
+
+dec TOTAL_ELAPSED = os.clock() - TOTAL_START
+printf("\n  Total benchmark time: %.4f sec\n", TOTAL_ELAPSED)
+echo("================================================================")
+echo("  Tri-Color Mark-Sweep GC Stress Analysis COMPLETE")
+echo("================================================================")

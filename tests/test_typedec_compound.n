@@ -1,0 +1,239 @@
+-- ============================================================
+-- Nova Typedec Enum + Typedec Struct Test Suite
+-- Tests: typedec enum { }, typedec struct { }, hex values,
+--        auto-increment, mixed values, typed metadata
+--
+-- All typedec declarations live at module scope — data
+-- structures are independent of function bodies.
+-- Assertions are grouped in test functions (procedural logic).
+-- ============================================================
+
+dec pass = 0
+dec fail = 0
+
+dec function check(name, got, expected)
+    if tostring(got) == tostring(expected) then
+        pass = pass + 1
+        echo("  PASS: " .. name)
+    else
+        fail = fail + 1
+        echo("  FAIL: " .. name .. " (got " .. tostring(got) .. ", expected " .. tostring(expected) .. ")")
+    end
+end
+
+-- ============================================================
+-- DATA STRUCTURE DECLARATIONS (module scope)
+-- ============================================================
+
+-- hex opcode groups
+typedec enum OpcodeGroup {
+    DATA_MOVE  = 0x00,
+    TABLE_OPS  = 0x10,
+    UPVALUE    = 0x20,
+    ARITHMETIC = 0x30,
+    BITWISE    = 0x40,
+    STRING     = 0x50,
+    CONTROL    = 0x70,
+    CLOSURES   = 0x90,
+    ASYNC      = 0xA0,
+    SPECIAL    = 0xF0
+}
+
+-- auto-numbered
+typedec enum Weekday {
+    MON,
+    TUE,
+    WED,
+    THU,
+    FRI,
+    SAT,
+    SUN
+}
+
+-- mixed auto + explicit
+typedec enum Priority {
+    LOW,
+    MEDIUM,
+    HIGH = 10,
+    CRITICAL
+}
+
+-- string values
+typedec enum MimeType {
+    JSON = "application/json",
+    HTML = "text/html",
+    TEXT = "text/plain"
+}
+
+-- basic struct with defaults
+typedec struct Vec3 {
+    x = 0,
+    y = 0,
+    z = 0
+}
+
+-- struct with mixed types
+typedec struct Config {
+    host = "localhost",
+    port = 8080,
+    debug = false
+}
+
+-- struct with no defaults
+typedec struct Point {
+    x,
+    y
+}
+
+-- struct with nil default
+typedec struct Wrapper {
+    value = nil
+}
+
+-- enum + struct used together
+typedec enum Direction {
+    NORTH = 0,
+    SOUTH = 1,
+    EAST = 2,
+    WEST = 3
+}
+
+typedec struct Entity {
+    name = "unknown",
+    x = 0,
+    y = 0,
+    facing = 0
+}
+
+-- ============================================================
+-- TEST ASSERTIONS
+-- ============================================================
+
+echo("=== TYPEDEC ENUM/STRUCT TESTS ===")
+
+-- test hex enum values
+echo("\n-- typedec enum: hex values --")
+dec function test_hex_enum()
+    check("hex DATA_MOVE",  OpcodeGroup.DATA_MOVE,  0)
+    check("hex TABLE_OPS",  OpcodeGroup.TABLE_OPS,  16)
+    check("hex UPVALUE",    OpcodeGroup.UPVALUE,    32)
+    check("hex ARITHMETIC", OpcodeGroup.ARITHMETIC, 48)
+    check("hex BITWISE",    OpcodeGroup.BITWISE,    64)
+    check("hex CONTROL",    OpcodeGroup.CONTROL,    112)
+    check("hex CLOSURES",   OpcodeGroup.CLOSURES,   144)
+    check("hex ASYNC",      OpcodeGroup.ASYNC,      160)
+    check("hex SPECIAL",    OpcodeGroup.SPECIAL,    240)
+    check("hex __type",     OpcodeGroup.__type,     "OpcodeGroup")
+    check("hex __base",     OpcodeGroup.__base,     "enum")
+end
+test_hex_enum()
+
+-- test auto-numbered enum
+echo("\n-- typedec enum: auto-numbered --")
+dec function test_auto_enum()
+    check("auto MON", Weekday.MON, 0)
+    check("auto TUE", Weekday.TUE, 1)
+    check("auto WED", Weekday.WED, 2)
+    check("auto THU", Weekday.THU, 3)
+    check("auto FRI", Weekday.FRI, 4)
+    check("auto SAT", Weekday.SAT, 5)
+    check("auto SUN", Weekday.SUN, 6)
+    check("auto __type", Weekday.__type, "Weekday")
+    check("auto __base", Weekday.__base, "enum")
+end
+test_auto_enum()
+
+-- test mixed auto + explicit
+echo("\n-- typedec enum: mixed --")
+dec function test_mixed_enum()
+    check("mixed LOW",      Priority.LOW,      0)
+    check("mixed MEDIUM",   Priority.MEDIUM,   1)
+    check("mixed HIGH",     Priority.HIGH,     10)
+    check("mixed CRITICAL", Priority.CRITICAL, 11)
+    check("mixed __type",   Priority.__type,   "Priority")
+    check("mixed __base",   Priority.__base,   "enum")
+end
+test_mixed_enum()
+
+-- test string-valued enum
+echo("\n-- typedec enum: string values --")
+dec function test_string_enum()
+    check("string JSON", MimeType.JSON, "application/json")
+    check("string HTML", MimeType.HTML, "text/html")
+    check("string TEXT", MimeType.TEXT, "text/plain")
+    check("string __type", MimeType.__type, "MimeType")
+end
+test_string_enum()
+
+-- test enum table nature
+echo("\n-- typedec enum: table nature --")
+check("te type", type(Weekday), "table")
+
+-- test basic struct
+echo("\n-- typedec struct: basic --")
+dec function test_basic_struct()
+    dec v = Vec3(1, 2, 3)
+    check("ts basic x", v.x, 1)
+    check("ts basic y", v.y, 2)
+    check("ts basic z", v.z, 3)
+    check("ts basic __type", v.__type, "Vec3")
+    check("ts basic __base", v.__base, "struct")
+end
+test_basic_struct()
+
+-- test struct defaults + overrides
+echo("\n-- typedec struct: defaults --")
+dec function test_defaults_struct()
+    dec c = Config()
+    check("ts default host",  c.host,  "localhost")
+    check("ts default port",  c.port,  8080)
+    check("ts default debug", c.debug, false)
+    check("ts default __type", c.__type, "Config")
+    check("ts default __base", c.__base, "struct")
+
+    dec c2 = Config("example.com", 9090, true)
+    check("ts override host",  c2.host,  "example.com")
+    check("ts override port",  c2.port,  9090)
+    check("ts override debug", c2.debug, true)
+end
+test_defaults_struct()
+
+-- test struct with no defaults
+echo("\n-- typedec struct: no defaults --")
+dec function test_nodefault_struct()
+    dec p = Point(10, 20)
+    check("ts nodefault x", p.x, 10)
+    check("ts nodefault y", p.y, 20)
+    check("ts nodefault __type", p.__type, "Point")
+    check("ts nodefault __base", p.__base, "struct")
+end
+test_nodefault_struct()
+
+-- test constructor is a function
+echo("\n-- typedec struct: constructor --")
+check("ts constructor type", type(Wrapper), "function")
+
+-- test enum + struct combined usage
+echo("\n-- combined usage --")
+dec function test_combined()
+    dec player = Entity("Hero", 5, 10, Direction.EAST)
+    check("combined name",   player.name,   "Hero")
+    check("combined x",      player.x,      5)
+    check("combined y",      player.y,      10)
+    check("combined facing", player.facing, Direction.EAST)
+    check("combined __type", player.__type, "Entity")
+    check("combined __base", player.__base, "struct")
+    check("combined dir __type", Direction.__type, "Direction")
+    check("combined dir __base", Direction.__base, "enum")
+end
+test_combined()
+
+-- ============================================================
+-- RESULTS
+-- ============================================================
+printf("\n============================================\n")
+printf("  TYPEDEC ENUM/STRUCT TESTS: %d/%d\n", pass, pass + fail)
+printf("============================================\n")
+if fail > 0 then
+    error("TYPEDEC_COMPOUND: " .. fail .. " test(s) FAILED")
+end
