@@ -928,10 +928,11 @@ static int ndp_json_encode_value(NovaVM *vm, NovaValue val,
             break;
 
         case NOVA_TYPE_NUMBER: {
-            if (isinf(nova_as_number(val)) || isnan(nova_as_number(val))) {
+            double dval = nova_as_number(val);
+            if (dval != dval || dval == HUGE_VAL || dval == -HUGE_VAL) {
                 ndp_buf_puts(out, "null");  /* JSON has no inf/nan */
             } else {
-                ndp_buf_printf(out, "%.17g", nova_as_number(val));
+                ndp_buf_printf(out, "%.17g", dval);
             }
             break;
         }
@@ -2307,15 +2308,17 @@ static int ndp_toml_encode(NovaVM *vm, int idx, const NdpOptions *opts,
             case NOVA_TYPE_INTEGER:
                 ndp_buf_printf(out, "%lld", (long long)nova_as_integer(hval));
                 break;
-            case NOVA_TYPE_NUMBER:
-                if (isinf(nova_as_number(hval))) {
-                    ndp_buf_puts(out, nova_as_number(hval) > 0 ? "inf" : "-inf");
-                } else if (isnan(nova_as_number(hval))) {
+            case NOVA_TYPE_NUMBER: {
+                double dval = nova_as_number(hval);
+                if (dval == HUGE_VAL || dval == -HUGE_VAL) {
+                    ndp_buf_puts(out, dval > 0 ? "inf" : "-inf");
+                } else if (dval != dval) {
                     ndp_buf_puts(out, "nan");
                 } else {
-                    ndp_buf_printf(out, "%.17g", nova_as_number(hval));
+                    ndp_buf_printf(out, "%.17g", dval);
                 }
                 break;
+            }
             case NOVA_TYPE_BOOL:
                 ndp_buf_puts(out, nova_as_bool(hval) ? "true" : "false");
                 break;
