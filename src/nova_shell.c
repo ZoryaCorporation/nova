@@ -37,6 +37,7 @@
 #ifdef _WIN32
     #include <process.h>
     #include <io.h>
+    #include <direct.h>
     #define novasi_dup(fd)        _dup(fd)
     #define novasi_dup2(fd1,fd2)  _dup2((fd1),(fd2))
     #define novasi_fdclose(fd)    _close(fd)

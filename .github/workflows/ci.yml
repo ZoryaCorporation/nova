@@ -45,6 +45,7 @@ jobs:
           exit 1
 
       - name: Build tools
+        if: steps.build.outcome == 'success'
         id: build_tools
         continue-on-error: true
         run: make tools ${{ matrix.make_args }} 2>&1 | tee tools.log
@@ -62,19 +63,36 @@ jobs:
           exit 1
 
       - name: Test
-        if: matrix.build != 'no-net' && steps.build.outcome == 'success' && steps.build_tools.outcome == 'success'
-        run: make test ${{ matrix.make_args }}
-
-      - name: Test (no-net, skip net test)
-        if: matrix.build == 'no-net' && steps.build.outcome == 'success' && steps.build_tools.outcome == 'success'
+        if: steps.build.outcome == 'success'
         run: |
+          FAILED=""
+          SKIP_NET=""
+          if [ "${{ matrix.build }}" = "no-net" ]; then SKIP_NET=1; fi
           for f in tests/test_*.n; do
             case "$f" in
-              tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
+              tests/test_net.n)
+                if [ -n "$SKIP_NET" ]; then
+                  echo "SKIP $f (no-net build)"
+                  continue
+                fi ;;
             esac
             echo "=== $f ==="
-            ./bin/nova "$f" || exit 1
+            if ! ./bin/nova "$f" > /tmp/test_out.txt 2>&1; then
+              echo "::error::FAIL: $f"
+              echo "FAIL: $f" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              tail -20 /tmp/test_out.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat /tmp/test_out.txt
+              FAILED="$FAILED $f"
+            else
+              cat /tmp/test_out.txt
+            fi
           done
+          if [ -n "$FAILED" ]; then
+            echo "::error::Tests failed:$FAILED"
+            exit 1
+          fi
 
   build-macos:
     runs-on: macos-latest
@@ -99,6 +117,7 @@ jobs:
           exit 1
 
       - name: Build tools
+        if: steps.build.outcome == 'success'
         id: build_tools
         continue-on-error: true
         run: make tools CC=clang NOVA_NO_NET=1 2>&1 | tee tools.log
@@ -116,15 +135,30 @@ jobs:
           exit 1
 
       - name: Test (skip net)
-        if: steps.build.outcome == 'success' && steps.build_tools.outcome == 'success'
+        if: steps.build.outcome == 'success'
         run: |
+          FAILED=""
           for f in tests/test_*.n; do
             case "$f" in
               tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
             esac
             echo "=== $f ==="
-            ./bin/nova "$f" || exit 1
+            if ! ./bin/nova "$f" > /tmp/test_out.txt 2>&1; then
+              echo "::error::FAIL: $f"
+              echo "FAIL: $f" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              tail -20 /tmp/test_out.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat /tmp/test_out.txt
+              FAILED="$FAILED $f"
+            else
+              cat /tmp/test_out.txt
+            fi
           done
+          if [ -n "$FAILED" ]; then
+            echo "::error::Tests failed:$FAILED"
+            exit 1
+          fi
 
   build-windows:
     runs-on: windows-latest
@@ -157,6 +191,7 @@ jobs:
           exit 1
 
       - name: Build tools
+        if: steps.build.outcome == 'success'
         id: build_tools
         continue-on-error: true
         run: make tools NOVA_NO_NET=1 2>&1 | tee tools.log
@@ -174,12 +209,27 @@ jobs:
           exit 1
 
       - name: Test (skip net + platform-specific)
-        if: steps.build.outcome == 'success' && steps.build_tools.outcome == 'success'
+        if: steps.build.outcome == 'success'
         run: |
+          FAILED=""
           for f in tests/test_*.n; do
             case "$f" in
               tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
             esac
             echo "=== $f ==="
-            ./bin/nova "$f" || exit 1
+            if ! ./bin/nova "$f" > /tmp/test_out.txt 2>&1; then
+              echo "::error::FAIL: $f"
+              echo "FAIL: $f" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              tail -20 /tmp/test_out.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              cat /tmp/test_out.txt
+              FAILED="$FAILED $f"
+            else
+              cat /tmp/test_out.txt
+            fi
           done
+          if [ -n "$FAILED" ]; then
+            echo "::error::Tests failed:$FAILED"
+            exit 1
+          fi
