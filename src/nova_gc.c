@@ -104,20 +104,7 @@ static inline uint8_t novai_gc_other_white(const NovaVM *vm) {
     return (uint8_t)(vm->gc_current_white ^ 1u);
 }
 
-/**
- * @brief Check if an object is "dead" (the other white).
- *
- * An object with the non-current white color was not reached
- * during the last mark phase and is eligible for collection.
- *
- * @param vm  VM instance
- * @param hdr Object header
- * @return    1 if dead, 0 if alive
- */
-static inline int novai_gc_is_dead(const NovaVM *vm,
-                                   const NovaGCHeader *hdr) {
-    return hdr->gc_color == novai_gc_other_white(vm);
-}
+/* novai_gc_is_dead: reserved for future GC phases */
 
 /**
  * @brief Mark a single NovaValue's referent gray (if it's a GC object).
