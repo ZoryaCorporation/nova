@@ -30,7 +30,7 @@ jobs:
       - name: Build (${{ matrix.build }})
         id: build
         continue-on-error: true
-        run: make ${{ matrix.make_args }} 2>&1 | tee build.log
+        run: set -o pipefail && make ${{ matrix.make_args }} 2>&1 | tee build.log
 
       - name: Report build errors
         if: steps.build.outcome == 'failure'
@@ -48,7 +48,7 @@ jobs:
         if: steps.build.outcome == 'success'
         id: build_tools
         continue-on-error: true
-        run: make tools ${{ matrix.make_args }} 2>&1 | tee tools.log
+        run: set -o pipefail && make tools ${{ matrix.make_args }} 2>&1 | tee tools.log
 
       - name: Report tools build errors
         if: steps.build_tools.outcome == 'failure'
@@ -109,7 +109,7 @@ jobs:
       - name: Build
         id: build
         continue-on-error: true
-        run: make CC=clang NOVA_NO_NET=1 2>&1 | tee build.log
+        run: set -o pipefail && make CC=clang NOVA_NO_NET=1 2>&1 | tee build.log
 
       - name: Report build errors
         if: steps.build.outcome == 'failure'
@@ -127,7 +127,7 @@ jobs:
         if: steps.build.outcome == 'success'
         id: build_tools
         continue-on-error: true
-        run: make tools CC=clang NOVA_NO_NET=1 2>&1 | tee tools.log
+        run: set -o pipefail && make tools CC=clang NOVA_NO_NET=1 2>&1 | tee tools.log
 
       - name: Report tools build errors
         if: steps.build_tools.outcome == 'failure'
@@ -183,7 +183,7 @@ jobs:
       - name: Build
         id: build
         continue-on-error: true
-        run: make NOVA_NO_NET=1 2>&1 | tee build.log
+        run: set -o pipefail && make NOVA_NO_NET=1 2>&1 | tee build.log
 
       - name: Report build errors
         if: steps.build.outcome == 'failure'
@@ -201,7 +201,7 @@ jobs:
         if: steps.build.outcome == 'success'
         id: build_tools
         continue-on-error: true
-        run: make tools NOVA_NO_NET=1 2>&1 | tee tools.log
+        run: set -o pipefail && make tools NOVA_NO_NET=1 2>&1 | tee tools.log
 
       - name: Report tools build errors
         if: steps.build_tools.outcome == 'failure'

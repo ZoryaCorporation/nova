@@ -175,6 +175,7 @@ static int nova_tools_ls(NovaVM *vm) {
 
 #ifdef _WIN32
     /* Windows directory listing */
+    (void)dir;
     nova_vm_push_table(vm);
     /* TODO: Windows implementation */
     return 1;

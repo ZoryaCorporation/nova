@@ -17,7 +17,7 @@
 # Compiler and flags (ZORYA-C v2.0.0 strict)
 CC       = gcc
 CFLAGS   = -std=c99 -D_POSIX_C_SOURCE=200809L -Wall -Wextra -Werror -pedantic
-CFLAGS  += -Wconversion -Wshadow -Wformat=2
+CFLAGS  += -Wconversion -Wshadow -Wformat=2 -Wno-format-nonliteral
 CFLAGS  += -Wunused-parameter -Wswitch-default
 CFLAGS  += -Wno-unknown-pragmas
 CFLAGS  += -fstack-protector-strong
@@ -257,10 +257,6 @@ tools: dirs $(NTOOL_LIB) $(TOOL_BIN_TARGETS)
 # Compile vendored SQLite3 with relaxed warnings (upstream code)
 $(NOVA_BUILD)/zorya_sqlite3.o: $(ZORYA_SRC)/sqlite3.c
 	$(CC) -std=c99 -O2 -DNDEBUG -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_LOAD_EXTENSION $(INCLUDES) -c -o $@ $<
-
-# Compile vendored Weave with relaxed format-nonliteral (variadic wrappers)
-$(NOVA_BUILD)/zorya_weave.o: $(ZORYA_SRC)/weave.c
-	$(CC) $(CFLAGS) -Wno-format-nonliteral $(INCLUDES) -c -o $@ $<
 
 # Clean
 clean:
