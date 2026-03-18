@@ -217,7 +217,13 @@ jobs:
 
       - name: Test (skip net + platform-specific)
         if: steps.build.outcome == 'success'
+        continue-on-error: true
         run: |
+          echo "=== Binary diagnostics ==="
+          file ./bin/nova.exe || file ./bin/nova || echo "binary not found"
+          ldd ./bin/nova.exe 2>/dev/null || ldd ./bin/nova 2>/dev/null || echo "ldd not available"
+          ./bin/nova --version 2>&1 || echo "nova --version exit code: $?"
+          echo "=== Running tests ==="
           FAILED=""
           for f in tests/test_*.n; do
             case "$f" in

@@ -520,27 +520,7 @@ static inline NovaLexer *novai_current_lexer(NovaPP *pp) {
     return &pp->file_stack[pp->file_depth - 1].lexer;
 }
 
-/**
- * @brief Advance the current lexer and return token type
- */
-static inline NovaTokenType novai_lex_advance(NovaPP *pp) {
-    NovaLexer *lex = novai_current_lexer(pp);
-    if (lex == NULL) {
-        return NOVA_TOKEN_EOF;
-    }
-    return nova_lex_next(lex);
-}
-
-/**
- * @brief Get the current token from the active lexer
- */
-static inline const NovaToken *novai_lex_current(NovaPP *pp) {
-    NovaLexer *lex = novai_current_lexer(pp);
-    if (lex == NULL) {
-        return NULL;
-    }
-    return nova_lex_current(lex);
-}
+/* novai_lex_advance and novai_lex_current: reserved for future PP phases */
 
 /**
  * @brief Skip tokens until end of line (for PP directive arguments)
