@@ -233,6 +233,7 @@ jobs:
               tests/test_os.n) echo "SKIP $f (platform-specific)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_bench_nanbox.n) echo "SKIP $f (known heap-use-after-free)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_package.n|tests/test_require.n) echo "SKIP $f (known module loading issue)"; SKIPPED=$((SKIPPED+1)); continue ;;
+              tests/test_tools.n) echo "SKIP $f (POSIX-specific tool operations)"; SKIPPED=$((SKIPPED+1)); continue ;;
             esac
             echo "=== $f ==="
             if ! $NOVA "$f" > /tmp/test_out.txt 2>&1; then

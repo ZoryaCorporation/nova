@@ -4,6 +4,15 @@
 # Copyright (c) 2026 Zorya Corporation
 # ============================================================================
 
+# --- Default: auto-detect text files, normalize line endings ---
+* text=auto
+
+# --- Source files: always LF (prevents CRLF bugs in string literals) ---
+*.c  text eol=lf
+*.h  text eol=lf
+*.n  text eol=lf
+*.m  text eol=lf
+
 # --- Linguist: language detection ---
 *.n  linguist-language=Lua
 *.m  linguist-language=Lua
