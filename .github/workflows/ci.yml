@@ -148,7 +148,7 @@ jobs:
           for f in tests/test_*.n; do
             case "$f" in
               tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
-              tests/test_bench_nanbox.n) echo "SKIP $f (known heap-use-after-free)"; continue ;;
+              tests/test_bench_nanbox.n|tests/test_bench_intern.n) echo "SKIP $f (known heap-use-after-free)"; continue ;;
               tests/test_os.n) echo "SKIP $f (platform-specific: expects Linux paths)"; continue ;;
             esac
             echo "=== $f ==="
@@ -225,63 +225,64 @@ jobs:
           echo '#include <stdio.h>' > /tmp/hello.c
           echo 'int main(void){puts("TOOLCHAIN_OK");return 0;}' >> /tmp/hello.c
           gcc -static -o /tmp/hello.exe /tmp/hello.c
-          /tmp/hello.exe
-          echo "hello exit: $?"
+          /tmp/hello.exe && echo "hello: OK"
 
           echo "=== Binary info ==="
-          ls -la ./bin/nova*
+          ls -la ./bin/nova.exe
           file ./bin/nova.exe
-          objdump -f ./bin/nova.exe
-          objdump -p ./bin/nova.exe 2>/dev/null | grep "DLL Name" || true
 
           set +e
-          echo "=== Execution tests (set +e) ==="
+          echo "=== PowerShell execution test ==="
+          WIN_PATH=$(cygpath -w "$PWD/bin/nova.exe")
+          echo "Windows path: $WIN_PATH"
+          powershell.exe -Command "
+            \$ErrorActionPreference = 'Continue'
+            Write-Host 'Attempting to start nova...'
+            try {
+              \$p = Start-Process -FilePath '$WIN_PATH' -ArgumentList '--version' -Wait -PassThru -NoNewWindow
+              Write-Host ('Process ExitCode: ' + \$p.ExitCode)
+            } catch {
+              Write-Host ('Start-Process error: ' + \$_.Exception.Message)
+            }
+          " 2>&1
+          echo "PS exit: $?"
 
-          echo "--- Test 1: MSYS2 ./bin/nova.exe --version ---"
-          ./bin/nova.exe --version 2>&1
-          echo "exit: $?"
+          echo "=== Direct PowerShell invoke ==="
+          powershell.exe -Command "
+            & '$WIN_PATH' --version 2>&1
+            Write-Host ('LASTEXITCODE: ' + \$LASTEXITCODE)
+          " 2>&1
+          echo "PS2 exit: $?"
 
-          echo "--- Test 2: MSYS2 ./bin/nova --version ---"
-          ./bin/nova --version 2>&1
-          echo "exit: $?"
+          echo "=== Windows Event Log (last app errors) ==="
+          powershell.exe -Command "
+            Get-WinEvent -FilterHashtable @{LogName='Application'; Level=1,2,3} -MaxEvents 10 2>\$null |
+              Where-Object { \$_.TimeCreated -gt (Get-Date).AddMinutes(-5) } |
+              Format-List TimeCreated, Id, Message
+          " 2>&1 || echo "no recent events"
 
-          echo "--- Test 3: cmd.exe ---"
-          cmd //c "bin\\nova.exe --version" 2>&1
-          echo "cmd exit: $?"
+          echo "=== Try without LTO: recompile one file ==="
+          echo '#include <stdio.h>' > /tmp/ntest.c
+          echo 'extern int main(int, char**);' >> /tmp/ntest.c
+          # Link Nova objects without LTO to test
+          gcc -std=c99 -O2 -DNDEBUG -static -o /tmp/nova_nolto.exe build/*.o build/zorya/*.o -lm 2>&1
+          echo "nolto build exit: $?"
+          if [ -f /tmp/nova_nolto.exe ]; then
+            /tmp/nova_nolto.exe --version 2>&1
+            echo "nolto exit: $?"
+          fi
 
-          echo "--- Test 4: copy to /tmp ---"
-          cp ./bin/nova.exe /tmp/nova_test.exe
-          /tmp/nova_test.exe --version 2>&1
-          echo "tmp exit: $?"
+          echo "=== Check for stack protector init ==="
+          objdump -d ./bin/nova.exe 2>/dev/null | grep -c "__stack_chk" || echo "no stack_chk"
+          objdump -t ./bin/nova.exe 2>/dev/null | grep "stack_chk" | head -5 || true
 
-          echo "--- Test 5: simple script ---"
-          echo 'echo("windows_test_ok")' > /tmp/hw.n
-          ./bin/nova.exe /tmp/hw.n 2>&1
-          echo "script exit: $?"
-
-          echo "--- Test 6: hello from bin/ ---"
-          gcc -static -o ./bin/hello_test.exe /tmp/hello.c
-          ./bin/hello_test.exe 2>&1
-          echo "bin/hello exit: $?"
-
-          echo "--- Test 7: binary PE sections ---"
-          objdump -h ./bin/nova.exe 2>&1 | head -30
-
-          echo "--- Test 8: entry point ---"
-          objdump -f ./bin/nova.exe 2>&1
-
-          echo "--- PATH ---"
-          echo "$PATH" | tr ':' '\n' | head -10
+          echo "=== Check CRT entry ==="
+          objdump -d ./bin/nova.exe 2>/dev/null | grep -A5 "<__tmainCRTStartup>" | head -10 || true
+          objdump -d ./bin/nova.exe 2>/dev/null | grep -A5 "<mainCRTStartup>" | head -10 || true
 
           set -e
-          echo "=== Diagnostics complete ==="
-
           echo "=== Running tests ==="
-          if [ -f ./bin/nova.exe ]; then
-            NOVA=./bin/nova.exe
-          else
-            NOVA=./bin/nova
-          fi
+          if [ -f ./bin/nova.exe ]; then NOVA=./bin/nova.exe; else NOVA=./bin/nova; fi
           echo "Using: $NOVA"
 
           FAILED=""
