@@ -182,6 +182,11 @@ ifeq ($(PAL),posix)
     LDLIBS += -ldl
 endif
 
+# Static linking on Windows (fold GCC/pthread runtime into binary)
+ifeq ($(PAL),win32)
+    LDFLAGS += -static
+endif
+
 # ============================================================================
 # RULES
 # ============================================================================
