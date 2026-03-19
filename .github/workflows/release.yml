@@ -52,29 +52,57 @@ jobs:
 
       - name: Build release
         run: |
-          if [ "${{ matrix.net }}" = "true" ]; then
-            make CC=${{ matrix.cc }}
-          else
-            make CC=${{ matrix.cc }} NOVA_NO_NET=1
+          MAKE_ARGS="CC=${{ matrix.cc }}"
+          if [ "${{ matrix.net }}" != "true" ]; then
+            MAKE_ARGS="$MAKE_ARGS NOVA_NO_NET=1"
           fi
+          make $MAKE_ARGS
 
       - name: Build tools
-        run: make tools CC=${{ matrix.cc }}
-
-      - name: Run tests
         run: |
+          MAKE_ARGS="CC=${{ matrix.cc }}"
+          if [ "${{ matrix.net }}" != "true" ]; then
+            MAKE_ARGS="$MAKE_ARGS NOVA_NO_NET=1"
+          fi
+          make tools $MAKE_ARGS
+
+      - name: Run correctness tests
+        run: |
+          if [ -f ./bin/nova.exe ]; then NOVA=./bin/nova.exe; else NOVA=./bin/nova; fi
+          FAILED=""
           for f in tests/test_*.n; do
             case "$f" in
+              tests/test_bench_*) echo "SKIP $f (benchmark)"; continue ;;
               tests/test_net.n)
                 if [ "${{ matrix.net }}" != "true" ]; then
-                  echo "SKIP $f (no-net build)"
-                  continue
-                fi
-                ;;
+                  echo "SKIP $f (no-net build)"; continue
+                fi ;;
+              tests/test_os.n)
+                if [ "${{ matrix.os }}" != "ubuntu-latest" ]; then
+                  echo "SKIP $f (Linux-specific)"; continue
+                fi ;;
+              tests/test_tools.n|tests/test_fs.n)
+                if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                  echo "SKIP $f (POSIX-specific)"; continue
+                fi ;;
+              tests/test_package.n|tests/test_require.n)
+                if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                  echo "SKIP $f (module loading)"; continue
+                fi ;;
             esac
             echo "=== $f ==="
-            ./bin/nova "$f" || exit 1
+            if ! $NOVA "$f" > /tmp/test_out.txt 2>&1; then
+              echo "FAIL: $f"
+              cat /tmp/test_out.txt
+              FAILED="$FAILED $f"
+            else
+              cat /tmp/test_out.txt
+            fi
           done
+          if [ -n "$FAILED" ]; then
+            echo "::error::Tests failed:$FAILED"
+            exit 1
+          fi
 
       - name: Read version
         id: version

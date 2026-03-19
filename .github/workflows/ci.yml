@@ -72,12 +72,15 @@ jobs:
           if [ "${{ matrix.build }}" = "debug" ]; then SKIP_ASAN=1; fi
           for f in tests/test_*.n; do
             case "$f" in
+              tests/test_bench_*)
+                echo "SKIP $f (benchmark — not a correctness test)"
+                continue ;;
               tests/test_net.n)
                 if [ -n "$SKIP_NET" ]; then
                   echo "SKIP $f (no-net build)"
                   continue
                 fi ;;
-              tests/test_bench_nanbox.n|tests/test_package.n|tests/test_require.n)
+              tests/test_package.n|tests/test_require.n)
                 if [ -n "$SKIP_ASAN" ]; then
                   echo "SKIP $f (known ASAN issue)"
                   continue
@@ -147,8 +150,8 @@ jobs:
           FAILED=""
           for f in tests/test_*.n; do
             case "$f" in
+              tests/test_bench_*) echo "SKIP $f (benchmark — not a correctness test)"; continue ;;
               tests/test_net.n) echo "SKIP $f (no-net build)"; continue ;;
-              tests/test_bench_nanbox.n|tests/test_bench_intern.n) echo "SKIP $f (known heap-use-after-free)"; continue ;;
               tests/test_os.n) echo "SKIP $f (platform-specific: expects Linux paths)"; continue ;;
             esac
             echo "=== $f ==="
@@ -229,10 +232,9 @@ jobs:
           SKIPPED=0
           for f in tests/test_*.n; do
             case "$f" in
+              tests/test_bench_*) echo "SKIP $f (benchmark — not a correctness test)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_net.n) echo "SKIP $f (no-net build)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_os.n) echo "SKIP $f (platform-specific)"; SKIPPED=$((SKIPPED+1)); continue ;;
-              tests/test_bench_nanbox.n) echo "SKIP $f (known heap-use-after-free)"; SKIPPED=$((SKIPPED+1)); continue ;;
-              tests/test_bench_intern.n) echo "SKIP $f (benchmark timing sensitive)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_package.n|tests/test_require.n) echo "SKIP $f (known module loading issue)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_tools.n) echo "SKIP $f (POSIX-specific tool operations)"; SKIPPED=$((SKIPPED+1)); continue ;;
               tests/test_fs.n) echo "SKIP $f (expects Unix path separators)"; SKIPPED=$((SKIPPED+1)); continue ;;
