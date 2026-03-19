@@ -666,7 +666,13 @@ static int novai_task_find_taskfile(char *out_path, size_t out_size) {
     if (zorya_getcwd(cwd, sizeof(cwd)) != 0) { return 0; }
 
     for (int i = 0; i < NOVAI_TASK_MAX_SEARCH; i++) {
-        snprintf(out_path, out_size, "%s/%s", cwd, NOVAI_TASKFILE_NAME);
+        size_t cwdlen = strlen(cwd);
+        size_t namelen = sizeof(NOVAI_TASKFILE_NAME); /* includes '\0' */
+        /* cwd + '/' + filename must fit in out_path */
+        if (cwdlen + 1 + namelen > out_size) { break; }
+        memcpy(out_path, cwd, cwdlen);
+        out_path[cwdlen] = '/';
+        memcpy(out_path + cwdlen + 1, NOVAI_TASKFILE_NAME, namelen);
 
         FILE *test = fopen(out_path, "r");
         if (test != NULL) {
