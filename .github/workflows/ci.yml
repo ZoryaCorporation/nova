@@ -221,13 +221,37 @@ jobs:
         if: steps.build.outcome == 'success'
         continue-on-error: true
         run: |
+          echo "=== Toolchain sanity check ==="
+          echo '#include <stdio.h>' > /tmp/hello.c
+          echo 'int main(void){puts("TOOLCHAIN_OK");return 0;}' >> /tmp/hello.c
+          gcc -static -o /tmp/hello.exe /tmp/hello.c
+          /tmp/hello.exe
+          echo "hello exit: $?"
+
           echo "=== Binary diagnostics ==="
-          ls -la ./bin/nova* || echo "no binaries found"
-          file ./bin/nova.exe || file ./bin/nova || echo "binary not found"
-          objdump -p ./bin/nova.exe 2>/dev/null | grep "DLL Name" || echo "objdump not available"
-          echo "=== Version check ==="
-          ./bin/nova --version 2>&1 || echo "nova --version exit code: $?"
+          ls -la ./bin/nova*
+          file ./bin/nova.exe
+          objdump -p ./bin/nova.exe 2>/dev/null | grep "DLL Name" || true
+
+          echo "=== Execution tests ==="
+          echo "--- MSYS2 with .exe ---"
+          ./bin/nova.exe --version 2>&1; echo "exit: $?"
+          echo "--- MSYS2 without .exe ---"
+          ./bin/nova --version 2>&1; echo "exit: $?"
+          echo "--- via cmd.exe ---"
+          cmd //c "bin\\nova.exe --version" 2>&1; echo "cmd exit: $?"
+          echo "--- PATH ---"
+          echo "$PATH" | tr ':' '\n' | head -10
+
           echo "=== Running tests ==="
+          # Detect binary name (.exe or not)
+          if [ -f ./bin/nova.exe ]; then
+            NOVA=./bin/nova.exe
+          else
+            NOVA=./bin/nova
+          fi
+          echo "Using: $NOVA"
+
           FAILED=""
           PASSED=0
           SKIPPED=0
@@ -239,12 +263,8 @@ jobs:
               tests/test_package.n|tests/test_require.n) echo "SKIP $f (known module loading issue)"; SKIPPED=$((SKIPPED+1)); continue ;;
             esac
             echo "=== $f ==="
-            if ! ./bin/nova "$f" > /tmp/test_out.txt 2>&1; then
-              echo "::error::FAIL: $f"
-              echo "FAIL: $f" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              tail -20 /tmp/test_out.txt >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
+            if ! $NOVA "$f" > /tmp/test_out.txt 2>&1; then
+              echo "::error::FAIL $f"
               cat /tmp/test_out.txt
               FAILED="$FAILED $f"
             else
