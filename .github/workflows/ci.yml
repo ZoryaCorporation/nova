@@ -221,69 +221,9 @@ jobs:
         if: steps.build.outcome == 'success'
         continue-on-error: true
         run: |
-          echo "=== Toolchain sanity check ==="
-          echo '#include <stdio.h>' > /tmp/hello.c
-          echo 'int main(void){puts("TOOLCHAIN_OK");return 0;}' >> /tmp/hello.c
-          gcc -static -o /tmp/hello.exe /tmp/hello.c
-          /tmp/hello.exe && echo "hello: OK"
-
-          echo "=== Binary info ==="
-          ls -la ./bin/nova.exe
-          file ./bin/nova.exe
-
-          set +e
-          echo "=== PowerShell execution test ==="
-          WIN_PATH=$(cygpath -w "$PWD/bin/nova.exe")
-          echo "Windows path: $WIN_PATH"
-          powershell.exe -Command "
-            \$ErrorActionPreference = 'Continue'
-            Write-Host 'Attempting to start nova...'
-            try {
-              \$p = Start-Process -FilePath '$WIN_PATH' -ArgumentList '--version' -Wait -PassThru -NoNewWindow
-              Write-Host ('Process ExitCode: ' + \$p.ExitCode)
-            } catch {
-              Write-Host ('Start-Process error: ' + \$_.Exception.Message)
-            }
-          " 2>&1
-          echo "PS exit: $?"
-
-          echo "=== Direct PowerShell invoke ==="
-          powershell.exe -Command "
-            & '$WIN_PATH' --version 2>&1
-            Write-Host ('LASTEXITCODE: ' + \$LASTEXITCODE)
-          " 2>&1
-          echo "PS2 exit: $?"
-
-          echo "=== Windows Event Log (last app errors) ==="
-          powershell.exe -Command "
-            Get-WinEvent -FilterHashtable @{LogName='Application'; Level=1,2,3} -MaxEvents 10 2>\$null |
-              Where-Object { \$_.TimeCreated -gt (Get-Date).AddMinutes(-5) } |
-              Format-List TimeCreated, Id, Message
-          " 2>&1 || echo "no recent events"
-
-          echo "=== Try without LTO: recompile one file ==="
-          echo '#include <stdio.h>' > /tmp/ntest.c
-          echo 'extern int main(int, char**);' >> /tmp/ntest.c
-          # Link Nova objects without LTO to test
-          gcc -std=c99 -O2 -DNDEBUG -static -o /tmp/nova_nolto.exe build/*.o build/zorya/*.o -lm 2>&1
-          echo "nolto build exit: $?"
-          if [ -f /tmp/nova_nolto.exe ]; then
-            /tmp/nova_nolto.exe --version 2>&1
-            echo "nolto exit: $?"
-          fi
-
-          echo "=== Check for stack protector init ==="
-          objdump -d ./bin/nova.exe 2>/dev/null | grep -c "__stack_chk" || echo "no stack_chk"
-          objdump -t ./bin/nova.exe 2>/dev/null | grep "stack_chk" | head -5 || true
-
-          echo "=== Check CRT entry ==="
-          objdump -d ./bin/nova.exe 2>/dev/null | grep -A5 "<__tmainCRTStartup>" | head -10 || true
-          objdump -d ./bin/nova.exe 2>/dev/null | grep -A5 "<mainCRTStartup>" | head -10 || true
-
-          set -e
-          echo "=== Running tests ==="
           if [ -f ./bin/nova.exe ]; then NOVA=./bin/nova.exe; else NOVA=./bin/nova; fi
           echo "Using: $NOVA"
+          $NOVA --version
 
           FAILED=""
           PASSED=0
@@ -298,6 +238,10 @@ jobs:
             echo "=== $f ==="
             if ! $NOVA "$f" > /tmp/test_out.txt 2>&1; then
               echo "::error::FAIL $f"
+              echo "FAIL: $f" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              tail -20 /tmp/test_out.txt >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
               cat /tmp/test_out.txt
               FAILED="$FAILED $f"
             else

@@ -183,8 +183,12 @@ ifeq ($(PAL),posix)
 endif
 
 # Static linking on Windows (fold GCC/pthread runtime into binary)
+# Disable LTO on Windows — MinGW LTO can produce broken CRT startup
+# Set 8 MB stack (Windows default is 1 MB; Linux default is 8 MB)
 ifeq ($(PAL),win32)
-    LDFLAGS += -static
+    LDFLAGS += -static -Wl,--stack,8388608
+    CFLAGS  := $(filter-out -flto,$(CFLAGS))
+    LDFLAGS := $(filter-out -flto,$(LDFLAGS))
 endif
 
 # ============================================================================
