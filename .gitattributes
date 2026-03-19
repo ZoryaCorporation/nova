@@ -14,5 +14,13 @@
 *.m  text eol=lf
 
 # --- Linguist: language detection ---
-*.n  linguist-language=Lua
-*.m  linguist-language=Lua
+# Nova isn't in GitHub Linguist yet — override so the repo doesn't show "Lua"
+*.n  linguist-language=Nova
+*.m  linguist-language=Nova
+
+# --- Linguist: vendored / generated (exclude from language stats) ---
+src/zorya/sqlite3.c   linguist-vendored
+src/zorya/sqlite3.h   linguist-vendored
+docs/**               linguist-documentation
+dev/**                linguist-documentation
+*.md                  linguist-documentation
