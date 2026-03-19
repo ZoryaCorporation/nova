@@ -219,7 +219,6 @@ jobs:
 
       - name: Test (skip net + platform-specific)
         if: steps.build.outcome == 'success'
-        continue-on-error: true
         run: |
           if [ -f ./bin/nova.exe ]; then NOVA=./bin/nova.exe; else NOVA=./bin/nova; fi
           echo "Using: $NOVA"
