@@ -79,6 +79,7 @@ struct NovaVM;
 #define NOVA_TRACE_CH_META     ((uint32_t)0x0100)  /**< Metamethods            */
 #define NOVA_TRACE_CH_PARSE    ((uint32_t)0x0200)  /**< Parser                 */
 #define NOVA_TRACE_CH_MEM      ((uint32_t)0x0400)  /**< Memory allocations     */
+#define NOVA_TRACE_CH_NDP      ((uint32_t)0x0800)  /**< NDP data processor     */
 #define NOVA_TRACE_CH_ALL      ((uint32_t)0xFFFF)  /**< All channels           */
 
 /* ============================================================

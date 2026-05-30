@@ -94,10 +94,23 @@ typedef struct NovaGCHeader {
     struct NovaGCHeader *gc_gray;    /**< Next object in gray list (mark)  */
     uint8_t              gc_type;    /**< NovaValueType tag for this obj   */
     uint8_t              gc_color;   /**< NovaGCColor                      */
-    uint8_t              gc_flags;   /**< Object-specific flags            */
+    uint8_t              gc_flags;   /**< Object-specific GC flags         */
     uint8_t              _gc_pad;    /**< Alignment padding                */
     uint32_t             gc_size;    /**< Allocation size (for accounting) */
 } NovaGCHeader;
+
+/**
+ * @brief ECC GC flag: object is a deferred hot-write target.
+ *
+ * Set by the write barrier when a BLACK object is mutated during MARK
+ * phase.  Instead of immediately re-graying (which causes O(n²) work
+ * on bulk-write targets like table decode loops), the object is added
+ * to vm->gc_hot_list and traversed exactly once at MARK phase end.
+ *
+ * Reuses gc_gray as the hot_list link (safe: BLACK objects have gc_gray=NULL).
+ * Cleared by novai_gc_flush_hot_list before transitioning to SWEEP.
+ */
+#define NOVAI_GC_FLAG_HOT_WRITE  ((uint8_t)0x01)
 
 /** Initialize a GC header on a freshly allocated object */
 #define NOVA_GC_INIT(hdr, typ, col, sz) do { \
@@ -497,6 +510,7 @@ struct NovaVM {
     /* == Garbage collector ===================================== */
     NovaGCHeader  *all_objects;     /* Head of all GC objects list  */
     NovaGCHeader  *gray_list;       /* Objects marked gray (to scan)*/
+    NovaGCHeader  *gc_hot_list;     /* ECC: deferred hot-write objects  */
     size_t         bytes_allocated; /* Current live bytes           */
     size_t         gc_threshold;    /* Next GC trigger threshold    */
     int            gc_pause;        /* Pause between cycles (%)     */
@@ -1176,6 +1190,14 @@ static inline nova_number_t nova_as_number_nanbox(NovaValue v) {
 
 /** Create a new empty table */
 NovaTable *nova_table_new(NovaVM *vm);
+
+/**
+ * Create a new table pre-sized to hold at least hash_cap hash-part entries
+ * without any internal grow/rehash cycles.  Pass 0 for hash_cap to get the
+ * same behaviour as nova_table_new().  Use this when the number of string-key
+ * fields is known up front (e.g. NDP row tables with a fixed column count).
+ */
+NovaTable *nova_table_new_hint(NovaVM *vm, uint32_t hash_cap);
 
 /** Free a table and its backing storage */
 void nova_table_free(NovaVM *vm, NovaTable *t);

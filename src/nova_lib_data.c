@@ -100,6 +100,14 @@ static void ndp_read_options(NovaVM *vm, int opts_idx, NdpOptions *opts) {
         } else if (strcmp(k, "quote") == 0 && nova_is_string(v) &&
                    nova_str_len(nova_as_string(v)) > 0) {
             opts->csv_quote = nova_str_data(nova_as_string(v))[0];
+        } else if (strcmp(k, "trim") == 0 && nova_is_bool(v)) {
+            opts->csv_trim = nova_as_bool(v);
+        } else if (strcmp(k, "columnar") == 0 && nova_is_bool(v)) {
+            opts->csv_columnar = nova_as_bool(v);
+        } else if (strcmp(k, "strict_cols") == 0 && nova_is_bool(v)) {
+            opts->csv_strict_cols = nova_as_bool(v);
+        } else if (strcmp(k, "schema") == 0 && nova_is_string(v)) {
+            opts->csv_schema = nova_str_data(nova_as_string(v));
         }
     }
 }
@@ -120,9 +128,10 @@ static char *ndp_read_file(const char *filename, size_t *out_len,
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    if (fsize < 0 || fsize > 100 * 1024 * 1024) {
+    /* 2 GB cap: enough for real ETL workloads; beyond this, streaming is needed */
+    if (fsize < 0 || fsize > 2048L * 1024L * 1024L) {
         fclose(f);
-        (void)snprintf(errbuf, errbuf_sz, "file too large or seek error");
+        (void)snprintf(errbuf, errbuf_sz, "file too large (>2GB) or seek error");
         return NULL;
     }
 

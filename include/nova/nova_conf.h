@@ -8,7 +8,7 @@
  *
  * @author Anthony Taliento
  * @date 2026-02-05
- * @version 0.2.0
+ * @version 0.2.1
  *
  * @copyright Copyright (c) 2026 Zorya Corporation
  * @license MIT
@@ -27,8 +27,8 @@
 
 #define NOVA_VERSION_MAJOR  0
 #define NOVA_VERSION_MINOR  2
-#define NOVA_VERSION_PATCH  0
-#define NOVA_VERSION_STRING "0.2.0"
+#define NOVA_VERSION_PATCH  1
+#define NOVA_VERSION_STRING "0.2.1"
 
 #define NOVA_VERSION_NUMBER \
     (NOVA_VERSION_MAJOR * 10000 + NOVA_VERSION_MINOR * 100 + NOVA_VERSION_PATCH)

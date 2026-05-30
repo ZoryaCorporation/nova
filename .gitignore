@@ -27,3 +27,22 @@ core.*
 # OS files
 .DS_Store
 Thumbs.db
+
+# SSH keys (never commit)
+zorya_01
+zorya_01.pub
+*.pem
+
+# Test data (large CSV/JSON files generated for benchmarks)
+tests/*.csv
+tests/*.json
+tests/data/
+!tests/test_*.n
+!tests/bench_*.n
+!tests/gen_*.n
+!tests/analyze_*.n
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/

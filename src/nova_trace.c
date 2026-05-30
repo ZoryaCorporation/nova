@@ -84,6 +84,7 @@ static int g_trace_initialized = 0;
 #define TRACE_COLOR_META     "\033[95m"     /* Bright Magenta */
 #define TRACE_COLOR_PARSE    "\033[92m"     /* Bright Green */
 #define TRACE_COLOR_MEM      "\033[93m"     /* Bright Yellow */
+#define TRACE_COLOR_NDP      "\033[94m"     /* Bright Blue   */
 
 /* ============================================================
  * CHANNEL NAME TABLE
@@ -109,6 +110,7 @@ static const NovaTraceChannelInfo g_channel_table[] = {
     { "META",    NOVA_TRACE_CH_META,    TRACE_COLOR_META    },
     { "PARSE",   NOVA_TRACE_CH_PARSE,   TRACE_COLOR_PARSE   },
     { "MEM",     NOVA_TRACE_CH_MEM,     TRACE_COLOR_MEM     },
+    { "NDP",     NOVA_TRACE_CH_NDP,     TRACE_COLOR_NDP     },
     { NULL,      0,                     NULL                 }
 };
 

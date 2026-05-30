@@ -74,9 +74,19 @@ typedef struct {
     NdpFormat format;
 
     /* CSV / TSV options */
-    char      csv_delimiter;    /**< Field delimiter (default ',')       */
-    int       csv_header;       /**< 1 = first row is header names       */
-    char      csv_quote;        /**< Quote character (default '"')        */
+    char      csv_delimiter;    /**< Field delimiter (default ',')        */
+    int       csv_header;       /**< 1 = first row is header names        */
+    char      csv_quote;        /**< Quote character (default '"')         */
+    int       csv_trim;         /**< 1 = strip leading/trailing whitespace
+                                 *       from unquoted fields (default 0) */
+    int       csv_columnar;     /**< 1 = return {col:[v,...]} instead of
+                                 *       [{col:v,...}] (default 0)        */
+    int       csv_strict_cols;  /**< 1 = error on column count mismatch
+                                 *       (default 1)                      */
+    const char *csv_schema;     /**< Comma-separated type hints per column,
+                                 *   e.g. "int,float,string,string,int".
+                                 *   Supported types: int float string bool
+                                 *   auto (default: NULL = infer all)     */
 
     /* JSON options */
     int       json_strict;      /**< 1 = no trailing commas, no comments  */

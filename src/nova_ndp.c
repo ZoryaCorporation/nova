@@ -35,6 +35,7 @@
 
 #include "nova/nova_ndp.h"
 #include "nova/nova_vm.h"
+#include "nova/nova_trace.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -43,6 +44,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <strings.h>
 
 /* ============================================================
@@ -252,11 +254,15 @@ void ndp_options_init(NdpOptions *opts) {
         return;
     }
     memset(opts, 0, sizeof(*opts));
-    opts->format        = NDP_FORMAT_UNKNOWN;
-    opts->csv_delimiter = ',';
-    opts->csv_header    = 1;
-    opts->csv_quote     = '"';
-    opts->json_strict   = 0;
+    opts->format           = NDP_FORMAT_UNKNOWN;
+    opts->csv_delimiter    = ',';
+    opts->csv_header       = 1;
+    opts->csv_quote        = '"';
+    opts->csv_trim         = 0;
+    opts->csv_columnar     = 0;
+    opts->csv_strict_cols  = 1;
+    opts->csv_schema       = NULL;
+    opts->json_strict      = 0;
     opts->pretty        = 1;
     opts->indent        = 2;
     opts->ini_typed     = 1;
@@ -928,10 +934,11 @@ static int ndp_json_encode_value(NovaVM *vm, NovaValue val,
             break;
 
         case NOVA_TYPE_NUMBER: {
-            if (isinf(nova_as_number(val)) || isnan(nova_as_number(val))) {
+            double dval = nova_as_number(val);
+            if (dval != dval || dval == HUGE_VAL || dval == -HUGE_VAL) {
                 ndp_buf_puts(out, "null");  /* JSON has no inf/nan */
             } else {
-                ndp_buf_printf(out, "%.17g", nova_as_number(val));
+                ndp_buf_printf(out, "%.17g", dval);
             }
             break;
         }
@@ -1072,264 +1079,580 @@ static int ndp_json_encode(NovaVM *vm, int idx, const NdpOptions *opts,
  * ============================================================ */
 
 /**
- * @brief Parse one CSV field, handling quoting.
- * Returns a heap-allocated string (caller must free), or NULL on error.
+ * @brief Fast zero-copy scan for an unquoted CSV field.
+ *
+ * Returns a borrowed pointer directly into P->src — caller must NOT free.
+ * Advances P->pos past the field content (not past the delimiter/newline).
+ *
+ * Safe for strtoll/strtod: those stop at the delimiter char.
+ * The source buffer (Nova string data) is NUL-terminated by the VM allocator,
+ * so reads past len are bounded.
  */
-static char *ndp_csv_parse_field(NdpParser *P, char delim, char quote,
-                                  size_t *out_len) {
-    NdpBuf field;
-    ndp_buf_init(&field);
-
-    if (!ndp_eof(P) && ndp_peek(P) == quote) {
-        /* Quoted field */
-        ndp_advance(P);  /* consume opening quote */
-        for (;;) {
-            if (ndp_eof(P)) {
-                ndp_error(P, "unterminated quoted field");
-                ndp_buf_free(&field);
-                return NULL;
-            }
-            char c = ndp_peek(P);
-            if (c == quote) {
-                ndp_advance(P);
-                /* Doubled quote = literal quote */
-                if (!ndp_eof(P) && ndp_peek(P) == quote) {
-                    ndp_buf_putc(&field, quote);
-                    ndp_advance(P);
-                } else {
-                    break;  /* end of quoted field */
-                }
-            } else {
-                ndp_buf_putc(&field, c);
-                ndp_advance(P);
-            }
-        }
-    } else {
-        /* Unquoted field: read until delimiter, \r, \n, or EOF */
-        while (!ndp_eof(P)) {
-            char c = ndp_peek(P);
-            if (c == delim || c == '\r' || c == '\n') {
-                break;
-            }
-            ndp_buf_putc(&field, c);
-            ndp_advance(P);
-        }
+static const char *ndp_csv_scan_unquoted(NdpParser *P, char delim,
+                                           size_t *out_len) {
+    const char *start = P->src + P->pos;
+    const char *p     = start;
+    const char *limit = P->src + P->len;
+    while (p < limit) {
+        char c = *p;
+        if (c == delim || c == '\r' || c == '\n') break;
+        p++;
     }
-
-    /* NUL-terminate */
-    ndp_buf_putc(&field, '\0');
-    *out_len = field.len - 1;  /* exclude NUL from length */
-    return field.data;  /* caller owns this memory */
+    *out_len = (size_t)(p - start);
+    P->pos  += *out_len;
+    return start;
 }
 
 /**
- * @brief Try to parse a CSV field value as typed (int, float, bool).
- * Pushes the appropriate Nova value onto VM stack.
+ * @brief Quoted field parse into a reusable buffer — no allocation per call.
+ *
+ * Resets buf->len to 0 and appends unescaped field content.
+ * Returns buf->data (pointer owned by buf, do NOT free from caller).
+ * NUL-terminates so the result is usable as a C string.
+ *
+ * Returns NULL and sets error on unterminated field.
  */
-static void ndp_csv_push_typed_value(NovaVM *vm, const char *s, size_t len) {
+static const char *ndp_csv_scan_quoted(NdpParser *P, char quote,
+                                        NdpBuf *buf, size_t *out_len) {
+    buf->len = 0;       /* reset/reuse existing allocation */
+    P->pos++;           /* consume opening quote */
+    int found_close = 0;
+
+    while (P->pos < P->len) {
+        char c = P->src[P->pos];
+        if (c == quote) {
+            P->pos++;
+            if (P->pos < P->len && P->src[P->pos] == quote) {
+                /* Doubled quote → literal quote */
+                ndp_buf_putc(buf, quote);
+                P->pos++;
+            } else {
+                found_close = 1;
+                break;  /* consumed closing quote, field is done */
+            }
+        } else {
+            ndp_buf_putc(buf, c);
+            P->pos++;
+        }
+    }
+
+    if (!found_close) {
+        ndp_error(P, "unterminated quoted field");
+        *out_len = 0;
+        return NULL;
+    }
+
+    *out_len = buf->len;
+    ndp_buf_putc(buf, '\0');  /* NUL-terminate for strtoll/strtod safety */
+    return buf->data;
+}
+
+/* ── Schema column type codes ─────────────────────────────────────── */
+#define NDP_SCHEMA_AUTO   0  /**< Infer type (default)         */
+#define NDP_SCHEMA_INT    1  /**< Force integer                */
+#define NDP_SCHEMA_FLOAT  2  /**< Force float                  */
+#define NDP_SCHEMA_STRING 3  /**< Force string (no inference)  */
+#define NDP_SCHEMA_BOOL   4  /**< Force bool                   */
+
+/**
+ * @brief Custom fast decimal integer parser — no memcpy, no locale overhead.
+ *
+ * Parses a bounded (non-NUL-terminated) decimal string directly.
+ * Returns 1 on success, 0 on any non-decimal character or overflow guard.
+ */
+static int ndp_parse_int_fast(const char *s, size_t len, nova_int_t *out) {
+    if (len == 0) return 0;
+    const char *p   = s;
+    const char *end = s + len;
+    int neg = 0;
+
+    if (*p == '-') { neg = 1; p++; }
+    else if (*p == '+') { p++; }
+
+    if (p == end) return 0;
+
+    /* Only accept pure decimal digits — no hex, no leading zero ambiguity */
+    unsigned long long val = 0;
+    while (p < end) {
+        unsigned char c = (unsigned char)*p;
+        if (c < '0' || c > '9') return 0;
+        /* Guard against overflow — 9999999999999999999 is ~2^63 */
+        if (val > 999999999999999999ULL) return 0;
+        val = val * 10 + (unsigned long long)(c - '0');
+        p++;
+    }
+    *out = (nova_int_t)(neg ? -(long long)val : (long long)val);
+    return 1;
+}
+
+/**
+ * @brief Parse a float using a stack tmp copy — only called when integer
+ *        parse fails, so it is NOT on the hot path for numeric CSVs.
+ */
+static int ndp_parse_float_copy(const char *s, size_t len, double *out) {
+    if (len == 0 || len >= 64) return 0;
+    char tmp[64];
+    memcpy(tmp, s, len);
+    tmp[len] = '\0';
+    char *end = NULL;
+    errno = 0;
+    *out = strtod(tmp, &end);
+    return (end == tmp + len && errno == 0);
+}
+
+/**
+ * @brief Parse and push a typed CSV field value onto the VM stack.
+ *
+ * Type inference order (when schema == NDP_SCHEMA_AUTO):
+ *   1. Empty  → nil
+ *   2. "true"/"false" (case-insensitive) → bool
+ *   3. Decimal integer (custom fast parser, no memcpy) → integer
+ *   4. Float (memcpy + strtod, only for fields that start numeric but
+ *             failed integer — scientific notation, decimal point, etc.)
+ *   5. Fallback → interned string
+ *
+ * When schema type is provided, inference is skipped entirely.
+ */
+static void ndp_csv_push_typed_value_ex(NovaVM *vm, const char *s,
+                                         size_t len, int schema_type) {
     if (len == 0) {
         nova_vm_push_nil(vm);
         return;
     }
 
-    /* Check for boolean */
-    if (len == 4 && strncasecmp(s, "true", 4) == 0) {
-        nova_vm_push_bool(vm, 1);
-        return;
-    }
-    if (len == 5 && strncasecmp(s, "false", 5) == 0) {
-        nova_vm_push_bool(vm, 0);
-        return;
+    switch (schema_type) {
+        case NDP_SCHEMA_INT: {
+            nova_int_t iv = 0;
+            if (ndp_parse_int_fast(s, len, &iv)) {
+                nova_vm_push_integer(vm, iv);
+            } else {
+                nova_vm_push_nil(vm);  /* schema mismatch → nil */
+            }
+            return;
+        }
+        case NDP_SCHEMA_FLOAT: {
+            double dv = 0.0;
+            if (ndp_parse_float_copy(s, len, &dv)) {
+                nova_vm_push_number(vm, dv);
+            } else {
+                nova_vm_push_nil(vm);
+            }
+            return;
+        }
+        case NDP_SCHEMA_STRING:
+            nova_vm_push_string(vm, s, len);
+            return;
+        case NDP_SCHEMA_BOOL:
+            if (len == 4 && strncasecmp(s, "true",  4) == 0) { nova_vm_push_bool(vm, 1); return; }
+            if (len == 5 && strncasecmp(s, "false", 5) == 0) { nova_vm_push_bool(vm, 0); return; }
+            nova_vm_push_nil(vm);
+            return;
+        default:
+            break;  /* NDP_SCHEMA_AUTO: fall through to inference */
     }
 
-    /* Try integer */
-    char *end = NULL;
-    errno = 0;
-    long long ll = strtoll(s, &end, 10);
-    if (end == s + len && errno == 0) {
-        nova_vm_push_integer(vm, (nova_int_t)ll);
-        return;
+    /* ── Auto-inference ── */
+
+    /* Boolean check: strncasecmp is safe without NUL */
+    if (len == 4 && strncasecmp(s, "true",  4) == 0) { nova_vm_push_bool(vm, 1); return; }
+    if (len == 5 && strncasecmp(s, "false", 5) == 0) { nova_vm_push_bool(vm, 0); return; }
+
+    /* Numeric prefix — try integer first (no memcpy), float on miss */
+    char fc = s[0];
+    if (fc == '-' || fc == '+' || (fc >= '0' && fc <= '9')) {
+        nova_int_t iv = 0;
+        if (ndp_parse_int_fast(s, len, &iv)) {
+            nova_vm_push_integer(vm, iv);
+            return;
+        }
+        double dv = 0.0;
+        if (ndp_parse_float_copy(s, len, &dv)) {
+            nova_vm_push_number(vm, dv);
+            return;
+        }
     }
 
-    /* Try float */
-    errno = 0;
-    double d = strtod(s, &end);
-    if (end == s + len && errno == 0) {
-        nova_vm_push_number(vm, d);
-        return;
-    }
-
-    /* Default: string */
     nova_vm_push_string(vm, s, len);
+}
+
+/* For any callers outside the main CSV decoder that don't need a schema type */
+__attribute__((unused))
+static void ndp_csv_push_typed_value(NovaVM *vm, const char *s, size_t len) {
+    ndp_csv_push_typed_value_ex(vm, s, len, NDP_SCHEMA_AUTO);
+}
+
+/* ── Schema string parser ──────────────────────────────────────────
+ * Converts "int,float,string,auto,bool" into a compact int array
+ * (one NDP_SCHEMA_* code per column).  Caller must free() the result.
+ * Returns NULL on allocation failure; ncols_hint is the expected length
+ * but the array is always NUL-terminated by its length.
+ * ─────────────────────────────────────────────────────────────────── */
+static int *ndp_parse_schema(const char *schema, int ncols) {
+    if (schema == NULL || ncols <= 0) return NULL;
+
+    int *types = (int *)malloc((size_t)ncols * sizeof(int));
+    if (types == NULL) return NULL;
+
+    /* Fill with AUTO as default in case schema has fewer tokens */
+    for (int i = 0; i < ncols; i++) types[i] = NDP_SCHEMA_AUTO;
+
+    const char *p = schema;
+    int col = 0;
+    while (*p && col < ncols) {
+        while (*p == ' ' || *p == '\t') p++;   /* skip whitespace */
+        if (*p == '\0') break;
+
+        const char *tok = p;
+        while (*p && *p != ',') p++;
+        size_t tlen = (size_t)(p - tok);
+
+        /* Trim trailing whitespace */
+        while (tlen > 0 && (tok[tlen-1] == ' ' || tok[tlen-1] == '\t')) tlen--;
+
+        if      (tlen == 3 && strncasecmp(tok, "int",    3) == 0) types[col] = NDP_SCHEMA_INT;
+        else if (tlen == 5 && strncasecmp(tok, "float",  5) == 0) types[col] = NDP_SCHEMA_FLOAT;
+        else if (tlen == 6 && strncasecmp(tok, "string", 6) == 0) types[col] = NDP_SCHEMA_STRING;
+        else if (tlen == 4 && strncasecmp(tok, "bool",   4) == 0) types[col] = NDP_SCHEMA_BOOL;
+        else                                                        types[col] = NDP_SCHEMA_AUTO;
+
+        col++;
+        if (*p == ',') p++;
+    }
+    return types;
 }
 
 static int ndp_csv_decode(NovaVM *vm, const char *text, size_t len,
                            const NdpOptions *opts, char *errbuf) {
     NdpParser P;
+
+    /* ── UTF-8 BOM stripping ─────────────────────────────────────────────
+     * Windows tools (Excel, SSMS, etc.) routinely prepend a UTF-8 BOM
+     * (\xEF\xBB\xBF).  Without this, the first column name gets a 3-byte
+     * prefix that silently corrupts all header lookups.
+     * ------------------------------------------------------------------ */
+    if (len >= 3 &&
+        (unsigned char)text[0] == 0xEF &&
+        (unsigned char)text[1] == 0xBB &&
+        (unsigned char)text[2] == 0xBF) {
+        text += 3;
+        len  -= 3;
+    }
+
     ndp_parser_init(&P, vm, text, len, errbuf);
 
     char delim = opts->csv_delimiter;
     char quote = opts->csv_quote;
-    int use_header = opts->csv_header;
+    int use_header    = opts->csv_header;
+    int do_trim       = opts->csv_trim;
+    int do_columnar   = opts->csv_columnar;
+    int strict_cols   = opts->csv_strict_cols;
 
     /* For TSV, override delimiter */
     if (opts->format == NDP_FORMAT_TSV) {
         delim = '\t';
     }
 
-    /* Parse header row if enabled */
-    char **headers = NULL;
-    size_t *header_lens = NULL;
+    /* ── Header parse ────────────────────────────────────────────────────
+     * We parse header strings once and pre-intern them as NovaString*.
+     * This eliminates one nova_vm_intern_string() call per field per row
+     * (N_rows × N_cols lookups → N_cols lookups total).
+     * -------------------------------------------------------------------*/
+    NovaString **header_strs = NULL;  /* pre-interned, ready for table set */
     int ncols = 0;
 
     if (use_header && !ndp_eof(&P)) {
-        /* Count and collect header fields */
         int cap = 16;
-        headers = (char **)calloc((size_t)cap, sizeof(char *));
-        header_lens = (size_t *)calloc((size_t)cap, sizeof(size_t));
-        if (headers == NULL || header_lens == NULL) {
-            free(headers);
-            free(header_lens);
+        header_strs = (NovaString **)calloc((size_t)cap, sizeof(NovaString *));
+        if (header_strs == NULL) {
             if (errbuf != NULL) {
                 (void)snprintf(errbuf, 256, "CSV: out of memory for headers");
             }
             return -1;
         }
 
+        /* Reusable buffer for quoted header fields (rare but possible) */
+        NdpBuf hdr_buf;
+        ndp_buf_init(&hdr_buf);
+
         for (;;) {
             size_t flen = 0;
-            char *field = ndp_csv_parse_field(&P, delim, quote, &flen);
-            if (field == NULL) {
-                /* Error already set */
-                int fi = 0;
-                for (fi = 0; fi < ncols; fi++) { free(headers[fi]); }
-                free(headers);
-                free(header_lens);
-                return -1;
+            const char *field;
+            if (!ndp_eof(&P) && P.src[P.pos] == quote) {
+                field = ndp_csv_scan_quoted(&P, quote, &hdr_buf, &flen);
+                if (field == NULL) {
+                    ndp_buf_free(&hdr_buf);
+                    free(header_strs);
+                    return -1;
+                }
+            } else {
+                field = ndp_csv_scan_unquoted(&P, delim, &flen);
             }
+
             if (ncols >= cap) {
                 cap *= 2;
-                char **new_headers = (char **)realloc(
-                    headers, (size_t)cap * sizeof(char *));
-                if (new_headers == NULL) {
-                    int fi = 0;
-                    for (fi = 0; fi < ncols; fi++) { free(headers[fi]); }
-                    free(headers);
-                    free(header_lens);
-                    free(field);
+                NovaString **ns = (NovaString **)realloc(
+                    header_strs, (size_t)cap * sizeof(NovaString *));
+                if (ns == NULL) {
+                    ndp_buf_free(&hdr_buf);
+                    free(header_strs);
                     ndp_error(&P, "out of memory expanding CSV headers");
                     return -1;
                 }
-                headers = new_headers;
-                size_t *new_lens = (size_t *)realloc(
-                    header_lens, (size_t)cap * sizeof(size_t));
-                if (new_lens == NULL) {
-                    int fi = 0;
-                    for (fi = 0; fi < ncols; fi++) { free(headers[fi]); }
-                    free(headers);
-                    free(header_lens);
-                    free(field);
-                    ndp_error(&P, "out of memory expanding CSV headers");
-                    return -1;
-                }
-                header_lens = new_lens;
+                header_strs = ns;
             }
-            headers[ncols] = field;
-            header_lens[ncols] = flen;
+
+            /* Trim whitespace from header names if requested */
+            if (do_trim) {
+                while (flen > 0 && (field[0] == ' ' || field[0] == '\t'))
+                    { field++; flen--; }
+                while (flen > 0 && (field[flen-1] == ' ' || field[flen-1] == '\t'))
+                    { flen--; }
+            }
+
+            /* Intern once — reuse the NovaString* for every row */
+            header_strs[ncols] = nova_vm_intern_string(vm, field, flen);
             ncols++;
 
-            if (ndp_eof(&P) || ndp_peek(&P) == '\r' || ndp_peek(&P) == '\n') {
+            if (ndp_eof(&P) || P.src[P.pos] == '\r' || P.src[P.pos] == '\n') {
                 break;
             }
-            if (!ndp_match(&P, delim)) {
-                break;
-            }
+            if (P.src[P.pos] == delim) { P.pos++; } else { break; }
         }
-        /* Skip line ending */
-        if (!ndp_eof(&P) && ndp_peek(&P) == '\r') { ndp_advance(&P); }
-        if (!ndp_eof(&P) && ndp_peek(&P) == '\n') { ndp_advance(&P); }
+
+        ndp_buf_free(&hdr_buf);
+
+        /* Skip header line ending */
+        if (!ndp_eof(&P) && P.src[P.pos] == '\r') { P.pos++; }
+        if (!ndp_eof(&P) && P.src[P.pos] == '\n') { P.pos++; }
     }
 
-    /* Create outer array table */
+    /* ── One reusable buffer for quoted data fields ───────────────────────
+     * Quoted fields require unescaping into a writable buffer.
+     * Allocate once here, reset per quoted field — eliminates all malloc
+     * for quoted fields after the first one.
+     * -------------------------------------------------------------------*/
+    NdpBuf quoted_buf;
+    ndp_buf_init(&quoted_buf);
+
+    /* ── Pause incremental GC for the bulk decode loop ───────────────────
+     * All row tables are inserted into result_tbl immediately after
+     * creation, so every incremental GC mark step that colours result_tbl
+     * BLACK causes the write barrier to re-gray it on every subsequent
+     * row insertion.  Pausing eliminates that barrier overhead entirely.
+     * -------------------------------------------------------------------*/
+    uint8_t gc_was_running = vm->gc_running;
+    vm->gc_running = 0;
+
+    /* ── NDP timing accumulators (zero overhead unless NOVA_TRACE build) ─*/
+#ifdef NOVA_TRACE
+    struct timespec _ts0, _ts1;
+    double _t_row_create = 0.0;   /* nova_table_new_hint per row          */
+    double _t_scan       = 0.0;   /* CSV field scanning (chars)            */
+    double _t_type       = 0.0;   /* ndp_csv_push_typed_value              */
+    double _t_hash_set   = 0.0;   /* nova_table_raw_set_str per field      */
+    double _t_result_set = 0.0;   /* result_tbl[row_index] = row_val       */
+    #define _NDP_TS()   clock_gettime(CLOCK_MONOTONIC, &_ts0)
+    #define _NDP_TE(a)  do { \
+        clock_gettime(CLOCK_MONOTONIC, &_ts1); \
+        (a) += (double)(_ts1.tv_sec  - _ts0.tv_sec) \
+             + (double)(_ts1.tv_nsec - _ts0.tv_nsec) * 1e-9; \
+    } while (0)
+#else
+    #define _NDP_TS()
+    #define _NDP_TE(a)
+#endif
+
+    /* ── Schema: parse column type hints once before the row loop ───────*/
+    int *schema_types = NULL;
+    if (opts->csv_schema != NULL && ncols > 0) {
+        schema_types = ndp_parse_schema(opts->csv_schema, ncols);
+        /* NULL on alloc failure is harmless — falls back to AUTO inference */
+    }
+
+    /* ── Outer result table ──────────────────────────────────────────────*/
     nova_vm_push_table(vm);
     int result_idx = nova_vm_get_top(vm) - 1;
     NovaValue result_val = nova_vm_get(vm, result_idx);
     NovaTable *result_tbl = nova_as_table(result_val);
     nova_int_t row_index = 0;
 
-    /* Parse data rows */
+    /* ── Columnar pre-alloc: one array table per column ─────────────────
+     * columnar=true returns {col_name: [v0,v1,...], ...} instead of
+     * [{col_name:v0,...},{col_name:v1,...}].  Zero per-row hash overhead;
+     * all inserts are dense integer-keyed array appends.
+     * ------------------------------------------------------------------ */
+    NovaTable **col_arrays = NULL;
+    if (do_columnar && use_header && ncols > 0) {
+        col_arrays = (NovaTable **)calloc((size_t)ncols, sizeof(NovaTable *));
+        if (col_arrays == NULL) {
+            free(schema_types);
+            free(header_strs);
+            vm->gc_running = gc_was_running;
+            if (errbuf) snprintf(errbuf, 256, "CSV: out of memory for columnar arrays");
+            return -1;
+        }
+        for (int ci = 0; ci < ncols; ci++) {
+            col_arrays[ci] = nova_table_new(vm);
+            if (col_arrays[ci] == NULL) {
+                free(col_arrays);
+                free(schema_types);
+                free(header_strs);
+                vm->gc_running = gc_was_running;
+                if (errbuf) snprintf(errbuf, 256, "CSV: out of memory for column array");
+                return -1;
+            }
+            /* Register column array into result_tbl keyed by header name */
+            if (header_strs[ci] != NULL) {
+                nova_table_raw_set_str(vm, result_tbl, header_strs[ci],
+                                      nova_value_table(col_arrays[ci]));
+            }
+        }
+    }
+
+    /* ── Row-oriented pre-sized hash hint ───────────────────────────────*/
+    uint32_t row_hash_hint = (!do_columnar && use_header && ncols > 0)
+                             ? (uint32_t)ncols : 0;
+
+    /* ── Data rows ───────────────────────────────────────────────────────
+     * Hot path. Per field:
+     *   - Unquoted: zero-copy pointer into source buffer (no alloc)
+     *   - Quoted:   unescaped into reusable quoted_buf (one alloc total)
+     *   - Type parse: fast custom int parser, strtod only on float fields
+     *   - Schema: when set, type inference is skipped entirely per column
+     * -------------------------------------------------------------------*/
     while (!ndp_eof(&P)) {
         /* Skip blank lines */
-        if (ndp_peek(&P) == '\r' || ndp_peek(&P) == '\n') {
-            ndp_advance(&P);
+        char peek = P.src[P.pos];
+        if (peek == '\r' || peek == '\n') {
+            P.pos++;
             continue;
         }
 
-        /* Create row table */
-        nova_vm_push_table(vm);
-        int row_tbl_idx = nova_vm_get_top(vm) - 1;
-        NovaValue row_val = nova_vm_get(vm, row_tbl_idx);
-        NovaTable *row_tbl = nova_as_table(row_val);
+        /* Row-oriented: pre-sized row table eliminates grow cascade */
+        NovaTable *row_tbl = NULL;
+        NovaValue  row_val = nova_value_nil();
+        if (!do_columnar) {
+            _NDP_TS();
+            row_tbl = nova_table_new_hint(vm, row_hash_hint);
+            if (row_tbl == NULL) {
+                free(col_arrays);
+                free(schema_types);
+                free(header_strs);
+                vm->gc_running = gc_was_running;
+                if (errbuf) snprintf(errbuf, 256, "CSV: out of memory for row table");
+                return -1;
+            }
+            nova_vm_push_value(vm, nova_value_table(row_tbl));
+            row_val = nova_vm_get(vm, nova_vm_get_top(vm) - 1);
+            _NDP_TE(_t_row_create);
+        }
 
         int col = 0;
         for (;;) {
             size_t flen = 0;
-            char *field = ndp_csv_parse_field(&P, delim, quote, &flen);
-            if (field == NULL) {
-                int fi = 0;
-                for (fi = 0; fi < ncols; fi++) { free(headers[fi]); }
-                free(headers);
-                free(header_lens);
-                return -1;
-            }
+            const char *field;
 
-            /* Push typed value */
-            ndp_csv_push_typed_value(vm, field, flen);
-            NovaValue fval = nova_vm_get(vm, -1);
-            nova_vm_pop(vm, 1);
-
-            if (use_header && col < ncols) {
-                /* Set as named field: row[header] = value */
-                NovaString *hstr = nova_vm_intern_string(vm,
-                    headers[col], header_lens[col]);
-                if (hstr != NULL) {
-                    nova_table_raw_set_str(vm, row_tbl, hstr, fval);
+            _NDP_TS();
+            if (!ndp_eof(&P) && P.src[P.pos] == quote) {
+                field = ndp_csv_scan_quoted(&P, quote, &quoted_buf, &flen);
+                if (field == NULL) {
+                    free(col_arrays);
+                    free(schema_types);
+                    ndp_buf_free(&quoted_buf);
+                    free(header_strs);
+                    vm->gc_running = gc_was_running;
+                    return -1;
                 }
             } else {
-                /* Set as indexed: row[col] = value */
+                field = ndp_csv_scan_unquoted(&P, delim, &flen);
+            }
+            _NDP_TE(_t_scan);
+
+            /* Trim unquoted field whitespace if requested.
+             * Quoted fields are already unescaped verbatim — no trim needed. */
+            if (do_trim && (flen == 0 || field[0] != quote)) {
+                while (flen > 0 && (field[0] == ' ' || field[0] == '\t'))
+                    { field++; flen--; }
+                while (flen > 0 && (field[flen-1] == ' ' || field[flen-1] == '\t'))
+                    { flen--; }
+            }
+
+            _NDP_TS();
+            int stype = (schema_types && col < ncols) ? schema_types[col]
+                                                      : NDP_SCHEMA_AUTO;
+            ndp_csv_push_typed_value_ex(vm, field, flen, stype);
+            NovaValue fval = nova_vm_get(vm, -1);
+            nova_vm_pop(vm, 1);
+            _NDP_TE(_t_type);
+
+            _NDP_TS();
+            if (do_columnar) {
+                /* Columnar: append fval to this column's array */
+                if (col < ncols && col_arrays[col] != NULL) {
+                    nova_table_raw_set_int(vm, col_arrays[col], row_index, fval);
+                }
+            } else if (use_header && col < ncols && header_strs[col] != NULL) {
+                nova_table_raw_set_str(vm, row_tbl, header_strs[col], fval);
+            } else {
                 nova_table_raw_set_int(vm, row_tbl, (nova_int_t)col, fval);
             }
+            _NDP_TE(_t_hash_set);
 
-            free(field);
             col++;
 
-            if (ndp_eof(&P) || ndp_peek(&P) == '\r' || ndp_peek(&P) == '\n') {
-                break;
+            if (ndp_eof(&P)) break;
+            peek = P.src[P.pos];
+            if (peek == '\r' || peek == '\n') break;
+            if (peek == delim) { P.pos++; } else { break; }
+        }
+
+        /* ── Column count validation ─────────────────────────────────────*/
+        if (strict_cols && use_header && ncols > 0 && col != ncols) {
+            if (errbuf != NULL) {
+                (void)snprintf(errbuf, 256,
+                    "CSV: row %ld has %d column(s), expected %d",
+                    (long)(row_index + 1), col, ncols);
             }
-            if (!ndp_match(&P, delim)) {
-                break;
-            }
+            if (!do_columnar) nova_vm_pop(vm, 1);
+            free(col_arrays);
+            free(schema_types);
+            ndp_buf_free(&quoted_buf);
+            free(header_strs);
+            vm->gc_running = gc_was_running;
+            return -1;
         }
 
         /* Skip line ending */
-        if (!ndp_eof(&P) && ndp_peek(&P) == '\r') { ndp_advance(&P); }
-        if (!ndp_eof(&P) && ndp_peek(&P) == '\n') { ndp_advance(&P); }
+        if (!ndp_eof(&P) && P.src[P.pos] == '\r') { P.pos++; }
+        if (!ndp_eof(&P) && P.src[P.pos] == '\n') { P.pos++; }
 
-        /* Pop row table from stack and insert into result array */
-        nova_vm_pop(vm, 1);  /* pop row table (we have row_val) */
-        nova_table_raw_set_int(vm, result_tbl, row_index, row_val);
+        if (!do_columnar) {
+            nova_vm_pop(vm, 1);
+            _NDP_TS();
+            nova_table_raw_set_int(vm, result_tbl, row_index, row_val);
+            _NDP_TE(_t_result_set);
+        }
         row_index++;
     }
 
-    /* Clean up headers */
-    if (headers != NULL) {
-        int fi = 0;
-        for (fi = 0; fi < ncols; fi++) {
-            free(headers[fi]);
-        }
-        free(headers);
-        free(header_lens);
-    }
+    free(col_arrays);
+    free(schema_types);
+    ndp_buf_free(&quoted_buf);
+    free(header_strs);
+
+#ifdef NOVA_TRACE
+    NTRACE(NDP, "csv_decode %ld rows  row_create=%.3fs  scan=%.3fs  "
+                "type=%.3fs  hash_set=%.3fs  result_set=%.3fs  "
+                "columnar=%d  trimmed=%d",
+           (long)row_index,
+           _t_row_create, _t_scan, _t_type, _t_hash_set, _t_result_set,
+           do_columnar, do_trim);
+    #undef _NDP_TS
+    #undef _NDP_TE
+#endif
+
+    /* Resume incremental GC. */
+    vm->gc_running = gc_was_running;
 
     return 0;
 }
@@ -2307,15 +2630,17 @@ static int ndp_toml_encode(NovaVM *vm, int idx, const NdpOptions *opts,
             case NOVA_TYPE_INTEGER:
                 ndp_buf_printf(out, "%lld", (long long)nova_as_integer(hval));
                 break;
-            case NOVA_TYPE_NUMBER:
-                if (isinf(nova_as_number(hval))) {
-                    ndp_buf_puts(out, nova_as_number(hval) > 0 ? "inf" : "-inf");
-                } else if (isnan(nova_as_number(hval))) {
+            case NOVA_TYPE_NUMBER: {
+                double dval = nova_as_number(hval);
+                if (dval == HUGE_VAL || dval == -HUGE_VAL) {
+                    ndp_buf_puts(out, dval > 0 ? "inf" : "-inf");
+                } else if (dval != dval) {
                     ndp_buf_puts(out, "nan");
                 } else {
-                    ndp_buf_printf(out, "%.17g", nova_as_number(hval));
+                    ndp_buf_printf(out, "%.17g", dval);
                 }
                 break;
+            }
             case NOVA_TYPE_BOOL:
                 ndp_buf_puts(out, nova_as_bool(hval) ? "true" : "false");
                 break;
