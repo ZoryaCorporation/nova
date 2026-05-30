@@ -278,6 +278,45 @@ NovaTable *nova_table_new(NovaVM *vm) {
 }
 
 /**
+ * @brief Create a pre-sized table for a known column count.
+ *
+ * Eliminates 0→8→16→32 resize cascade on first N inserts.
+ * Calculates smallest power-of-2 hash capacity to hold hash_cap entries
+ * at 75% load without any grow.
+ *
+ * @param vm       VM instance
+ * @param hash_cap Desired hash capacity (number of entries to fit)
+ * @return New table, or NULL on error
+ */
+NovaTable *nova_table_new_hint(NovaVM *vm, uint32_t hash_cap) {
+    NovaTable *t = nova_table_new(vm);
+    if (t == NULL || hash_cap == 0) {
+        return t;
+    }
+
+    /* Calculate smallest power-of-2 size > hash_cap * 4/3 (75% load factor)
+     * to avoid any grow during initial inserts. */
+    uint32_t needed = (uint32_t)(hash_cap * 4 / 3 + 1);
+    uint32_t size   = 8;  /* Start at 2^3 */
+    while (size < needed) {
+        size <<= 1;
+    }
+
+    /* Allocate and init the hash part */
+    NovaTableEntry *hash = (NovaTableEntry *)calloc(size, sizeof(NovaTableEntry));
+    if (hash == NULL) {
+        return t;  /* Return table without pre-sized hash — will grow on insert */
+    }
+
+    t->hash      = hash;
+    t->hash_size = size;
+    t->hash_used = 0;
+
+    vm->bytes_allocated += size * sizeof(NovaTableEntry);
+    return t;
+}
+
+/**
  * @brief Free a table and its contents.
  * @note With GC active, sweep handles freeing. Kept for debug/emergency use.
  */
