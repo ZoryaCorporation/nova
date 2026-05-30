@@ -71,9 +71,9 @@ dec fast = csv.load("data.csv", {schema = "int,float,float,string"})
 - **Sorting performance**: `table.sort()` comparator overhead visible on large datasets (100k values = 50s for 7 sorts). Numeric work (correlation, regression, anomaly detection) maintains 3.9M–6.25M ops/sec.
 - **Memory**: Columnar format trades hash per-row overhead for array memory. For 100k × 18 columns, total VM heap ~40-50MB.
 
-### Thanks
+### What's Next
 
-Massive thanks to the optimization work on ECC write barriers (hot_list coalescing) and the DAGGER hash table architecture — they made this speedup possible.
+Continue optimizing the data pipeline and expanding NDP codec support. Feedback and issues welcome.
 ---
 
 ## [0.2.0] — 2026-04-15
